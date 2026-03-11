@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="header">
-      <button class="back-button" @click="goBack" aria-label="Go back">←</button>
+      <button class="glass-icon-button back-button" @click="goBack" aria-label="Go back">←</button>
 
       <div>
         <h1>Settings</h1>
@@ -13,7 +13,7 @@
     <div class="card">
       <div class="field">
         <span>System folder</span>
-        <button class="folder-button" type="button" @click="pickBaseFolder">
+        <button class="glass-button folder-button" type="button" @click="pickBaseFolder">
           Select folder
         </button>
         <p class="hint" v-if="baseFolderName">{{ baseFolderName }}</p>
@@ -24,80 +24,109 @@
     <!-- appearance card -->
     <div class="card">
       <h2 class="card-title">Appearance</h2>
-      <div class="field row" style="align-items: center;">
-        <button @click="toggleTheme" class="theme-toggle-button" aria-label="Toggle theme">
-          <Moon v-if="theme === 'light'" :size="20" />
-          <Sun v-if="theme === 'dark'" :size="20" />
-        </button>
-        <span class="toggle-label">{{ theme === 'dark' ? 'Dark' : 'Light' }}</span>
-      </div>
+      <div class="theme-switcher" :data-active="theme">
+  <button
+    class="theme-option"
+    :class="{ 'is-active': theme === 'light' }"
+    @click="setTheme('light')"
+    aria-label="Light theme"
+  >
+    <Sun />
+  </button>
+
+  <button
+    class="theme-option"
+    :class="{ 'is-active': theme === 'dark' }"
+    @click="setTheme('dark')"
+    aria-label="Dark theme"
+  >
+     <Moon />
+  </button>
+
+  <button
+    class="theme-option"
+    :class="{ 'is-active': theme === 'dim' }"
+    @click="setTheme('dim')"
+    aria-label="Dim theme"
+  >
+    <Sparkles />
+  </button>
+</div>
     </div>
 
     <!-- lists card -->
     <div class="card">
       <h2 class="card-title">Lists file</h2>
       <div class="field row">
-        <label class="radio-option">
-          <input
-            :checked="listSaveMode === 'single_file'"
-            type="radio"
-            value="single_file"
-            @change="listSaveMode = 'single_file'"
-          />
-          <span>Custom filename</span>
-        </label>
-        <input
-          class="flex-grow"
-          v-model="listFileName"
-          type="text"
-          placeholder="tasks.md"
-          :disabled="listSaveMode === 'daily_note'"
-        />
-      </div>
-      <div class="field row">
-        <label class="radio-option">
-          <input
-            :checked="listSaveMode === 'daily_note'"
-            type="radio"
-            value="daily_note"
-            @change="listSaveMode = 'daily_note'"
-          />
-          <span>Today's date</span>
-        </label>
-      </div>
+  <div class="field">
+  <div
+    class="segmented-control"
+    :data-active="listSaveMode === 'daily_note' ? 'right' : 'left'"
+  >
+    <button
+      type="button"
+      class="segmented-option"
+      :class="{ 'is-active': listSaveMode === 'single_file' }"
+      @click="listSaveMode = 'single_file'"
+    >
+      Custom filename
+    </button>
+
+    <button
+      type="button"
+      class="segmented-option"
+      :class="{ 'is-active': listSaveMode === 'daily_note' }"
+      @click="listSaveMode = 'daily_note'"
+    >
+      Today’s date
+    </button>
+    </div>
+  </div>
+
+  <input
+    v-model="listFileName"
+    type="text"
+    placeholder="tasks.md"
+    :disabled="listSaveMode === 'daily_note'"
+  />
+</div>
     </div>
 
     <!-- notes card -->
     <div class="card">
       <h2 class="card-title">Notes file</h2>
       <div class="field row">
-        <label class="radio-option">
-          <input
-            :checked="noteSaveMode === 'single_file'"
-            type="radio"
-            value="single_file"
-            @change="noteSaveMode = 'single_file'"
-          />
-          <span>Custom filename</span>
-        </label>
-        <input
-          class="flex-grow"
-          v-model="noteFileName"
-          type="text"
-          placeholder="notes.md"
-          :disabled="noteSaveMode === 'daily_note'"
-        />
-      </div>
-      <div class="field row">
-        <label class="radio-option">
-          <input
-            :checked="noteSaveMode === 'daily_note'"
-            type="radio"
-            value="daily_note"
-            @change="noteSaveMode = 'daily_note'"
-          />
-          <span>Today's date</span>
-        </label>
+       <div class="field">
+  <div
+    class="segmented-control"
+    :data-active="noteSaveMode === 'daily_note' ? 'right' : 'left'"
+  >
+    <button
+      type="button"
+      class="segmented-option"
+      :class="{ 'is-active': noteSaveMode === 'single_file' }"
+      @click="noteSaveMode = 'single_file'"
+    >
+      Custom filename
+    </button>
+
+    <button
+      type="button"
+      class="segmented-option"
+      :class="{ 'is-active': noteSaveMode === 'daily_note' }"
+      @click="noteSaveMode = 'daily_note'"
+    >
+      Today’s date
+    </button>
+  </div>
+
+  <input
+    v-model="noteFileName"
+    type="text"
+    placeholder="notes.md"
+    :disabled="noteSaveMode === 'daily_note'"
+  />
+</div>
       </div>
     </div>
 
@@ -109,11 +138,11 @@
       <div class="card-header">
         <h2>Task {{ index + 1 }}</h2>
         <button
-          class="remove-button"
+          class="glass-icon-button remove-button"
           @click="removePreset(preset.id)"
           :disabled="presets.length === 1"
-        >
-          Remove
+        > 
+          <Trash />
         </button>
       </div>
 
@@ -128,26 +157,31 @@
       </label>
 
       <div class="field">
-        <span>Save mode</span>
-        <label class="radio-option">
-          <input
-            :checked="preset.saveMode === 'single_file'"
-            type="radio"
-            value="single_file"
-            @change="preset.saveMode = 'single_file'"
-          />
-          <span>Custom filename</span>
-        </label>
-        <label class="radio-option">
-          <input
-            :checked="preset.saveMode === 'daily_note'"
-            type="radio"
-            value="daily_note"
-            @change="preset.saveMode = 'daily_note'"
-          />
-          <span>Today’s date</span>
-        </label>
-      </div>
+  <span>Save mode</span>
+
+  <div
+    class="segmented-control"
+    :data-active="preset.saveMode === 'daily_note' ? 'right' : 'left'"
+  >
+    <button
+      type="button"
+      class="segmented-option"
+      :class="{ 'is-active': preset.saveMode === 'single_file' }"
+      @click="preset.saveMode = 'single_file'"
+    >
+      Custom filename
+    </button>
+
+    <button
+      type="button"
+      class="segmented-option"
+      :class="{ 'is-active': preset.saveMode === 'daily_note' }"
+      @click="preset.saveMode = 'daily_note'"
+    >
+      Today’s date
+    </button>
+  </div>
+</div>
 
       <label class="field">
         <span>Filename</span>
@@ -161,11 +195,17 @@
 
     </div>
 
-    <button class="add-button" @click="addPreset">+ Add Task</button>
+    <button class="glass-button glass-button--block glass-button--secondary add-button" @click="addPreset">
+  + Add Task
+</button>
 
     <div class="actions">
-      <button class="secondary-button" @click="handleReset">Reset</button>
-      <button class="primary-button" @click="handleSave">Save</button>
+      <button class="glass-button glass-button--secondary secondary-button" @click="handleReset">
+  Reset
+</button>
+<button class="glass-button glass-button--primary primary-button" @click="handleSave">
+  Save
+</button>
     </div>
   </div>
 </template>
@@ -173,7 +213,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Moon, Sun } from 'lucide-vue-next'
+import { Moon, Sun, Sparkles, Trash } from 'lucide-vue-next'
 import {
   loadSettings,
   saveSettings,
@@ -213,8 +253,9 @@ function goBack() {
 }
 
 // toggleTheme now mutates the reactive 'theme' ref from toRefs
-function toggleTheme() {
-  theme.value = theme.value === 'light' ? 'dark' : 'light'
+function setTheme(next: Theme) {
+  theme.value = next
+  applyTheme(next)
 }
 
 async function pickBaseFolder() {
@@ -327,16 +368,7 @@ function handleReset() {
   font-weight: 600;
 }
 
-.back-button {
-  border: none;
-  background: var(--surface-strong);
-  border-radius: 999px;
-  width: 42px;
-  height: 42px;
-  font-size: 1.2rem;
-  box-shadow: var(--shadow);
-  flex-shrink: 0;
-} 
+
 
 h1 {
   margin: 0;
@@ -369,12 +401,13 @@ h1 {
 }
 
 .remove-button {
-  border: none;
-  background: var(--danger-soft);
-  color: var(--danger);
-  border-radius: 12px;
-  padding: 8px 12px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
   font-weight: 600;
+  border: 1px solid transparent;
+  transition: background 0.2s ease, border-color 0.2s ease;
 } 
 
 .field {
@@ -390,12 +423,20 @@ h1 {
 }
 
 .field input {
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
+  border-radius: 16px;
   padding: 12px 14px;
-  background: var(--surface-strong);
-  font-size: 1rem;
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
   color: var(--text);
+  backdrop-filter: blur(10px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(10px) saturate(var(--saturation));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 8%), transparent),
+    inset 0 -1px 3px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 8%), transparent);
+}
+
+.field input:disabled {
+  opacity: 0.55;
 }
 
 .radio-option {
@@ -452,28 +493,15 @@ h1 {
   color: var(--text-soft);
 }
 
-.folder-button {
-  border: none;
-  border-radius: 14px;
-  padding: 12px 14px;
-  background: var(--text);
-  color: var(--bg);
-  font-size: 1rem;
-  font-weight: 600;
-} 
 
 .add-button {
-  width: 100%;
-  border: none;
-  border-radius: 16px;
-  padding: 14px 18px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 1rem;
-  font-weight: 600;
-  box-shadow: var(--shadow);
   margin-top: 4px;
-} 
+}
+
+.primary-button,
+.secondary-button {
+  flex: 1;
+}
 
 .actions {
   display: flex;
@@ -481,24 +509,5 @@ h1 {
   margin-top: 20px;
 }
 
-.primary-button,
-.secondary-button {
-  border: none;
-  border-radius: 16px;
-  padding: 14px 18px;
-  font-size: 1rem;
-  font-weight: 600;
-  flex: 1;
-}
 
-.primary-button {
-  background: var(--text);
-  color: var(--bg);
-} 
-
-.secondary-button {
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: var(--shadow);
-} 
 </style>

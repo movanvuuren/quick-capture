@@ -8,7 +8,7 @@ export type QuickTaskPreset = {
   fileName?: string
 }
 
-export type Theme = 'light' | 'dark'
+export type Theme = 'light' | 'dark' | 'dim'
 
 export type AppSettings = {
   /** folder picked by the user for storing both lists and notes */
@@ -106,12 +106,7 @@ export function saveSettings(settings: AppSettings): void {
  * and whenever the user changes the preference.
  */
 export function applyTheme(theme: Theme): void {
-  const root = document.documentElement
-  if (theme === 'dark') {
-    root.classList.add('dark')
-  } else {
-    root.classList.remove('dark')
-  }
+  document.documentElement.dataset.theme = theme
 }
 
 export function resetSettings(): AppSettings {

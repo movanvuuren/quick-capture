@@ -15,17 +15,17 @@
       <button
         v-for="preset in presets"
         :key="preset.id"
-        class="card"
+        class="glass-button"
         @click="goTask(preset.id)"
       >
         {{ preset.label }}
       </button>
 
-      <button class="card" @click="go('/note')">
+      <button class="glass-button" @click="go('/note')">
         Note
       </button>
 
-      <button class="card" @click="go('/list')">
+      <button class="glass-button" @click="go('/list')">
         List
       </button>
     </div>

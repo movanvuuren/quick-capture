@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="header">
-      <button class="icon-button back-button" @click="goBack" aria-label="Go back">
+      <button class="glass-icon-button back-button" @click="goBack" aria-label="Go back">
         ←
       </button>
 
