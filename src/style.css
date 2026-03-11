@@ -159,6 +159,22 @@ a {
   --primary: var(--c-action);
 }
 
+:root,
+:root[data-theme='light'] {
+  --state-pending-bg: color-mix(in srgb, var(--c-glass) 14%, transparent);
+  --state-pending-border: color-mix(in srgb, var(--text) 18%, transparent);
+  --state-pending-text: color-mix(in srgb, var(--text) 55%, transparent);
+
+  --state-done-bg: color-mix(in srgb, var(--success) 22%, var(--c-glass) 12%);
+  --state-done-border: color-mix(in srgb, var(--success) 36%, transparent);
+  --state-done-text: color-mix(in srgb, #0f766e 78%, black 10%);
+
+  --state-cancelled-bg: color-mix(in srgb, var(--c-dark) 8%, var(--c-glass) 14%);
+  --state-cancelled-border: color-mix(in srgb, var(--text) 12%, transparent);
+  --state-cancelled-text: color-mix(in srgb, var(--text) 42%, transparent);
+}
+
+
 :root[data-theme='dark'] {
   --c-glass: #a9adb8;
   --c-light: #ffffff;
@@ -181,6 +197,20 @@ a {
   --primary: var(--c-action);
 }
 
+:root[data-theme='dark'] {
+  --state-pending-bg: color-mix(in srgb, var(--c-light) 10%, transparent);
+  --state-pending-border: color-mix(in srgb, var(--c-light) 16%, transparent);
+  --state-pending-text: color-mix(in srgb, var(--c-light) 56%, transparent);
+
+  --state-done-bg: color-mix(in srgb, var(--success) 20%, var(--c-light) 6%);
+  --state-done-border: color-mix(in srgb, var(--success) 38%, transparent);
+  --state-done-text: color-mix(in srgb, #6ee7b7 88%, white 6%);
+
+  --state-cancelled-bg: color-mix(in srgb, var(--c-light) 6%, var(--c-dark) 18%);
+  --state-cancelled-border: color-mix(in srgb, var(--c-light) 10%, transparent);
+  --state-cancelled-text: color-mix(in srgb, var(--c-light) 40%, transparent);
+}
+
 :root[data-theme='dim'] {
   --c-light: #a7e3ff;
   --c-dark: #1d0620;
@@ -201,6 +231,20 @@ a {
   --surface-strong: color-mix(in srgb, var(--c-light) 20%, transparent);
   --border: color-mix(in srgb, var(--c-light) 24%, var(--c-dark) 28%);
   --primary: var(--c-action);
+}
+
+:root[data-theme='dim'] {
+  --state-pending-bg: color-mix(in srgb, var(--c-light) 12%, transparent);
+  --state-pending-border: color-mix(in srgb, var(--c-light) 18%, transparent);
+  --state-pending-text: color-mix(in srgb, var(--c-content) 62%, transparent);
+
+  --state-done-bg: color-mix(in srgb, var(--success) 22%, var(--c-light) 10%);
+  --state-done-border: color-mix(in srgb, var(--success) 40%, transparent);
+  --state-done-text: color-mix(in srgb, #86efac 92%, white 4%);
+
+  --state-cancelled-bg: color-mix(in srgb, var(--c-dark) 16%, var(--c-glass) 10%);
+  --state-cancelled-border: color-mix(in srgb, var(--c-light) 10%, transparent);
+  --state-cancelled-text: color-mix(in srgb, var(--c-content) 46%, transparent);
 }
 
 html,
@@ -534,3 +578,95 @@ body {
   color: var(--text);
 }
 
+.state-box {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  cursor: pointer;
+
+  color: var(--state-pending-text);
+  border: 1px solid var(--state-pending-border);
+  background: var(--state-pending-bg);
+
+  backdrop-filter: blur(14px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
+
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--c-light) 12%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
+    inset 1px 1.5px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 80%), transparent),
+    inset -1px -1.5px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 60%), transparent),
+    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 12%), transparent),
+    0 4px 10px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 8%), transparent);
+
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1;
+
+  transition:
+    transform 180ms ease,
+    background 220ms ease,
+    color 180ms ease,
+    border-color 180ms ease,
+    box-shadow 220ms ease;
+}
+
+.state-box:hover {
+  transform: translateY(-1px);
+}
+
+.state-box:active {
+  transform: translateY(1px) scale(0.98);
+}
+
+.state-box.done {
+  color: var(--state-done-text);
+  border-color: var(--state-done-border);
+  background: var(--state-done-bg);
+
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--success) 18%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, white 18%, transparent),
+    inset 1px 1.5px 0 -1px color-mix(in srgb, white 24%, transparent),
+    inset -1px -1px 0 -1px color-mix(in srgb, white 10%, transparent),
+    inset 0 -1px 4px 0 color-mix(in srgb, #14532d 18%, transparent),
+    0 6px 14px color-mix(in srgb, var(--success) 16%, transparent);
+}
+
+.state-box.cancelled {
+  color: var(--state-cancelled-text);
+  border-color: var(--state-cancelled-border);
+  background: var(--state-cancelled-bg);
+
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--c-light) 8%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 6%), transparent),
+    inset 1px 1px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 42%), transparent),
+    inset -1px -1px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 18%), transparent),
+    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 16%), transparent),
+    0 4px 10px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 8%), transparent);
+}
+
+.item-row {
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
+}
+
+.item-row.done {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.item-row.cancelled {
+  background: color-mix(in srgb, var(--c-dark) 8%, var(--c-glass) 8%);
+}
+
+.item-row.done .item-input {
+  color: var(--state-done-text);
+}
+
+.item-row.cancelled .item-input {
+  color: var(--state-cancelled-text);
+  background: transparent;
+}

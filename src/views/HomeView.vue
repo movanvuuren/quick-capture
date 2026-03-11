@@ -6,7 +6,7 @@
         <p class="subtitle">Fast notes and tasks into your vault</p>
       </div>
 
-      <button class="settings-button" @click="go('/settings')">
+      <button class="glass-icon-button settings-button" @click="go('/settings')">
         <Settings :size="22" />
       </button>
     </div>

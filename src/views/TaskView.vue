@@ -1,7 +1,7 @@
 <template>
   <div class="page">
     <div class="header">
-            <button class="glass-icon-button back-button" @click="goBack" aria-label="Go back">
+      <button class="glass-icon-button back-button" @click="goBack" aria-label="Go back">
         ←
       </button>
 
@@ -10,9 +10,10 @@
       </div>
     </div>
 
-    <div class="card" v-if="preset">
+    <div class="card glass-card" v-if="preset">
       <textarea
         v-model="taskText"
+        class="glass-input task-textarea"
         placeholder="Enter task..."
         rows="4"
         autofocus
@@ -23,23 +24,22 @@
 
         <input
           v-model="selectedDate"
-          class="date-input"
+          class="date-input glass-input"
           type="date"
         />
       </div>
 
-
-      <div class="preview">
+      <div class="preview glass-panel">
         <span class="preview-label">Preview</span>
         <code>{{ previewTask }}</code>
       </div>
 
-      <button class="save-button" @click="saveTask">
+      <button class="glass-button glass-button--primary glass-button--block primary-button" @click="saveTask">
         Add
       </button>
     </div>
 
-    <div class="card" v-else>
+    <div class="card glass-card" v-else>
       Preset not found.
     </div>
   </div>
@@ -125,85 +125,139 @@ async function saveTask() {
   padding: 24px 20px;
   background: var(--bg);
   color: var(--text);
-} 
+}
+
 
 .header {
   display: flex;
+  align-items: center;
   gap: 12px;
   margin-bottom: 24px;
 }
 
-.back-button {
-  /* button is already .icon-button so it gets colors from CSS variables */
-  border: none;
-  /* use surface color so dark mode shows correctly */
-  background: var(--surface-strong);
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  color: var(--text);
+.header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  line-height: 1.1;
 }
 
 .card {
-  background: var(--surface);
-  padding: 20px;
-  border-radius: 20px;
   display: flex;
   flex-direction: column;
   gap: 14px;
-} 
+}
 
-textarea {
+.glass-card {
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  font-size: 16px;
-  min-height: 110px;
-  color: var(--text);
-  background: var(--surface-strong);
+  border-radius: 24px;
+  padding: 20px;
+  backdrop-filter: blur(14px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
+  box-shadow: var(--shadow);
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .field-label {
-  font-size: 14px;
+  font-size: 0.92rem;
   font-weight: 600;
+  color: var(--text);
+}
+
+.glass-input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
+  color: var(--text);
+  backdrop-filter: blur(10px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(10px) saturate(var(--saturation));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 8%), transparent),
+    inset 0 -1px 3px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 8%), transparent);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
+}
+
+.glass-input:focus {
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 18%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
+    inset 0 -1px 3px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 8%), transparent);
+}
+
+.task-textarea {
+  min-height: 110px;
+  resize: vertical;
+  font-size: 1rem;
+  line-height: 1.45;
 }
 
 .date-input {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px;
-  color: var(--text);
-  background: var(--surface-strong);
+  min-height: 44px;
+}
+
+.glass-panel {
+  border: 1px solid color-mix(in srgb, var(--c-light) 14%, transparent);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
+  backdrop-filter: blur(10px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(10px) saturate(var(--saturation));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 6%), transparent),
+    inset 0 -1px 3px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 8%), transparent);
+}
+
+.glass-panel.preview {
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--primary) 8%, transparent),
+      color-mix(in srgb, var(--c-glass) 10%, transparent)
+    );
 }
 
 .preview {
-  background: var(--surface-strong);
-  border-radius: 12px;
-  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
-} 
-
-.preview-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-soft);
 }
 
+.preview-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 
+.preview code {
+  font-family:
+    ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    monospace;
+  font-size: 0.92rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
-.save-button {
-  border: none;
-  background: var(--text);
-  color: var(--bg);
-  padding: 12px;
-  border-radius: 12px;
-} 
+.primary-button {
+  margin-top: 4px;
+}
+
 </style>

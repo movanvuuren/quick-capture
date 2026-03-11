@@ -54,7 +54,7 @@
           </li>
         </ul>
       </div>
-      <button class="primary-button add-bottom-button" @click="addList">+ New list</button>
+      <button class="glass-button glass-button--primary glass-button--block primary-button " @click="addList">+ New list</button>
     </template>
 
     <!-- detail for a single list -->
@@ -64,7 +64,7 @@
           <!-- header-buttons remain here; title moved to main header -->
           <div class="header-buttons">
             <button
-              class="icon-button pin-button"
+              class="glass-icon-button"
               :aria-label="currentList.pinned ? 'Unpin list' : 'Pin list'"
               @click="togglePin(currentList)"
             >
@@ -72,7 +72,7 @@
             </button>
 
             <button
-              class="icon-button danger-button"
+              class="glass-icon-button"
               aria-label="Delete list"
               @click="removeList(currentList.id)"
             >
@@ -119,12 +119,12 @@
               :ref="el => setInputRef(i, el as HTMLInputElement | null)"
             />
 
-            <button class="icon-button remove-item" @click="removeItem(currentList, i)" aria-label="Remove item">
+            <button class="glass-icon-button" @click="removeItem(currentList, i)" aria-label="Remove item">
               ×
             </button>
           </div>
 
-          <button class="ghost-button add-item" @click="addItem(currentList)">+ Add item</button>
+          <button class="glass-button glass-button--primary primary-button" @click="addItem(currentList)">+ Add item</button>
         </div>
       </div>
     </template>
@@ -382,11 +382,6 @@ function moveItem(list: TodoList, from: number, to: number) {
   margin-bottom: 14px;
 }
 
-.title-input,
-.item-input {
-  width: 100%;
-}
-
 /* header title shown when editing a specific list */
 .header-title {
   font-size: 1.3rem;
@@ -425,24 +420,6 @@ function moveItem(list: TodoList, from: number, to: number) {
   justify-content: space-between;
 }
 
-.pin-button {
-  width: 32px;
-  height: 32px;
-  font-size: 1.1rem;
-  padding: 0;
-  background: transparent;
-  box-shadow: none;
-  line-height: 1;
-}
-
-.pin-icon {
-  vertical-align: middle;
-  color: var(--text);
-}
-
-.header-buttons .icon-button svg {
-  color: var(--text);
-}
 
 /* give the empty-details message some breathing room */
 .empty-details {
@@ -453,20 +430,6 @@ function moveItem(list: TodoList, from: number, to: number) {
   text-align: center;
   background: rgba(248, 250, 252, 0.6);
   border-radius: 12px;
-}
-
-.title-input:focus,
-.item-input:focus {
-  border-color: rgba(79, 70, 229, 0.28);
-  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
-  background: transparent;
-}
-
-.title-input {
-  padding: 14px 16px;
-  border-radius: 18px;
-  font-size: 1.05rem;
-  font-weight: 700;
 }
 
 .header-buttons {
@@ -502,15 +465,6 @@ function moveItem(list: TodoList, from: number, to: number) {
   cursor: grabbing;
 }
 
-.item-row.done {
-  background: rgba(16, 185, 129, 0.08);
-}
-
-.item-row.cancelled {
-  /* use a light grey well similar to done state */
-  background: #ededed;
-}
-
 .item-input {
   flex: 1;
   min-width: 0;
@@ -521,137 +475,8 @@ function moveItem(list: TodoList, from: number, to: number) {
   background: transparent;
 }
 
-.item-row.done .item-input {
-  text-decoration: line-through;
-  /* match the green 'well' colour from state-box */
-  color: #059669;
-  background: transparent;
-}
 
-.item-row.cancelled .item-input {
-  /* grey text; background matches row well */
-  color: var(--text-soft);
-  background: #ededed;
-}
 
-.state-box {
-  flex-shrink: 0;
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  display: grid;
-  place-items: center;
-  font-size: 1rem;
-  font-weight: 700;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  background: #fff;
-  color: #64748b;
-  transition: transform 0.15s ease, background 0.2s ease, color 0.2s ease;
-}
-
-.state-box:active {
-  transform: scale(0.96);
-}
-
-.state-box.done {
-  background: rgba(16, 185, 129, 0.14);
-  color: #059669;
-  border-color: rgba(16, 185, 129, 0.18);
-}
-
-.state-box.cancelled {
-  /* grey version of done box */
-  background: #ededed;
-  color: #64748b;
-  border-color: #d1d5db;
-}
-
-.icon-button,
-.soft-button,
-.ghost-button,
-.primary-button,
-.danger-button {
-  transition:
-    transform 0.15s ease,
-    box-shadow 0.2s ease,
-    background 0.2s ease,
-    color 0.2s ease;
-}
-
-.icon-button:active,
-.soft-button:active,
-.ghost-button:active,
-.primary-button:active,
-.danger-button:active {
-  transform: translateY(1px) scale(0.98);
-}
-
-.icon-button {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: var(--surface-strong);
-  color: var(--text);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
-}
-
-.back-button {
-  font-size: 1.15rem;
-}
-
-.remove-item {
-  color: #94a3b8;
-  background: transparent;
-  box-shadow: none;
-}
-
-.soft-button,
-.ghost-button,
-.primary-button,
-.danger-button {
-  border-radius: 999px;
-  padding: 10px 14px;
-  font-size: 0.92rem;
-  font-weight: 600;
-}
-
-.soft-button {
-  background: #eef2ff;
-  color: #4338ca;
-}
-
-.ghost-button {
-  background: rgba(255, 255, 255, 0.8);
-  color: var(--text-soft);
-}
-
-.primary-button {
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: white;
-  box-shadow: 0 10px 22px rgba(79, 70, 229, 0.25);
-}
-
-.danger-button {
-  /* background: #fff1f2;
-  color: #dc2626; */
-}
-
-.add-item {
-  align-self: flex-start;
-  margin-top: 6px;
-}
-
-.add-main-button,
-.add-bottom-button {
-  width: 100%;
-  justify-content: center;
-}
-
-.add-bottom-button {
-  margin-top: 8px;
-}
 
 @media (min-width: 640px) {
   .page {
@@ -665,9 +490,6 @@ function moveItem(list: TodoList, from: number, to: number) {
     align-items: center;
   }
 
-  .title-input {
-    flex: 1;
-  }
 
   .header-buttons {
     flex-shrink: 0;

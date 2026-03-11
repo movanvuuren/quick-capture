@@ -9,10 +9,10 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="glass-card card">
       <div ref="editorElement" />
 
-      <button class="save-button" @click="saveNote">
+      <button class="glass-button glass-button--primary save-button" @click="saveNote">
         Save
       </button>
     </div>
@@ -34,7 +34,7 @@ const settings = loadSettings()
 const editorElement = ref<HTMLElement | null>(null)
 let editorInstance: any = null
 
-function initEditor(theme: 'light' | 'dark', initialValue = '') {
+function initEditor(theme: 'light' | 'dark' | 'dim', initialValue = '') {
   if (editorElement.value) {
     editorInstance = new Editor({
       el: editorElement.value,
@@ -120,14 +120,6 @@ async function saveNote() {
   margin-bottom: 24px;
 }
 
-.back-button {
-  border: none;
-  background: var(--surface-strong);
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  color: var(--text);
-}
 
 .card {
   background: var(--surface);
@@ -138,11 +130,15 @@ async function saveNote() {
   gap: 14px;
 }
 
-.save-button {
-  border: none;
-  background: var(--text);
-  color: var(--bg);
-  padding: 12px;
-  border-radius: 12px;
+.glass-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 10px;
+  
+  backdrop-filter: blur(14px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
+  box-shadow: var(--shadow);
 }
+
 </style>
