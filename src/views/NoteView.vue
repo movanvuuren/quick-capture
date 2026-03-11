@@ -10,7 +10,7 @@
     </div>
 
     <div class="card">
-      <textarea ref="textarea" placeholder="Start writing your note..." />
+      <div ref="editorElement" />
 
       <button class="save-button" @click="saveNote">
         Save
@@ -20,10 +20,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import SimpleMDE from 'simplemde'
-import 'simplemde/dist/simplemde.min.css'
-import { marked } from 'marked'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
+import Editor from '@toast-ui/editor'
+import '@toast-ui/editor/dist/toastui-editor.css'
+import '@toast-ui/editor/dist/theme/toastui-editor-dark.css'
 import { useRouter } from 'vue-router'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -31,17 +31,36 @@ import { FolderPicker } from '../plugins/folder-picker'
 const router = useRouter()
 const settings = loadSettings()
 
-const textarea = ref<HTMLTextAreaElement | null>(null)
-let simplemde: SimpleMDE | null = null
+const editorElement = ref<HTMLElement | null>(null)
+let editorInstance: any = null
 
-onMounted(() => {
-  if (textarea.value) {
-    simplemde = new SimpleMDE({
-      element: textarea.value,
-      spellChecker: false,
-      previewRender: (text: string) => marked(text),
+function initEditor(theme: 'light' | 'dark', initialValue = '') {
+  if (editorElement.value) {
+    editorInstance = new Editor({
+      el: editorElement.value,
+      height: '400px',
+      initialEditType: 'wysiwyg',
+      initialValue,
+      previewStyle: 'vertical',
+      theme: theme,
+      placeholder: 'Start writing your note...',
     })
   }
+}
+
+function destroyEditor() {
+  if (editorInstance) {
+    editorInstance.destroy()
+    editorInstance = null
+  }
+}
+
+onMounted(() => {
+  initEditor(settings.theme)
+})
+
+onBeforeUnmount(() => {
+  destroyEditor()
 })
 
 function goBack() {
@@ -57,7 +76,8 @@ function todayIso(): string {
 }
 
 async function saveNote() {
-  const text = simplemde?.value().trim() || ''
+  if (!editorInstance) return
+  const text = editorInstance.getMarkdown().trim()
   if (!text) return
 
   if (settings.baseFolderUri) {
@@ -80,7 +100,7 @@ async function saveNote() {
     console.warn('No system folder configured – note not saved to disk')
   }
 
-  simplemde?.value('')
+  editorInstance.setMarkdown('')
   router.back()
 }
 </script>

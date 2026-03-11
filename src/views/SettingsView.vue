@@ -25,10 +25,10 @@
     <div class="card">
       <h2 class="card-title">Appearance</h2>
       <div class="field row" style="align-items: center;">
-        <label class="toggle">
-          <input type="checkbox" v-model="theme" true-value="dark" false-value="light" />
-          <span class="slider"></span>
-        </label>
+        <button @click="toggleTheme" class="theme-toggle-button" aria-label="Toggle theme">
+          <Moon v-if="theme === 'light'" :size="20" />
+          <Sun v-if="theme === 'dark'" :size="20" />
+        </button>
         <span class="toggle-label">{{ theme === 'dark' ? 'Dark' : 'Light' }}</span>
       </div>
     </div>
@@ -173,6 +173,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { Moon, Sun } from 'lucide-vue-next'
 import {
   loadSettings,
   saveSettings,
@@ -211,10 +212,15 @@ function goBack() {
   router.back()
 }
 
+// toggleTheme now mutates the reactive 'theme' ref from toRefs
+function toggleTheme() {
+  theme.value = theme.value === 'light' ? 'dark' : 'light'
+}
+
 async function pickBaseFolder() {
   try {
     const result = await FolderPicker.pickFolder()
-    baseFolderUri.value = result.uri
+    baseFolderUri.value = result.uri;
     baseFolderName.value = result.name
   } catch (error) {
     console.error(error)
@@ -288,7 +294,6 @@ function handleReset() {
   noteFileName.value = reset.noteFileName
   presets.value = reset.quickTaskPresets.map((preset) => ({ ...preset }))
 }
-
 </script>
 
 <style scoped>
@@ -421,46 +426,19 @@ h1 {
   border-color: var(--primary);
 }
 
-/* simple toggle slider for appearance */
-.toggle {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 20px;
-}
-.toggle input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.slider {
-  position: absolute;
+.theme-toggle-button {
+  background: transparent;
+  border: none;
+  color: var(--text);
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--surface);
-  transition: 0.2s;
-  border-radius: 20px;
-  border: 1px solid var(--border);
-}
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: white;
-  transition: 0.2s;
+  padding: 4px;
   border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.toggle input:checked + .slider {
-  background-color: var(--primary);
-}
-.toggle input:checked + .slider:before {
-  transform: translateX(20px);
+.theme-toggle-button:hover {
+  background: var(--surface-strong);
 }
 
 .toggle-label {
