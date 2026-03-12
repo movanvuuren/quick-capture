@@ -1,227 +1,16 @@
-<template>
-  <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" @click="goBack" aria-label="Go back">←</button>
-
-      <div>
-        <h1>Settings</h1>
-        <p class="subtitle">Choose folder and filenames, plus quick task presets</p>
-      </div>
-    </div>
-
-    <!-- system folder card -->
-    <div class="card">
-      <div class="field">
-        <span>System folder</span>
-        <button class="glass-button folder-button" type="button" @click="pickBaseFolder">
-          Select folder
-        </button>
-        <p class="hint" v-if="baseFolderName">{{ baseFolderName }}</p>
-        <p class="hint" v-else>No folder selected</p>
-      </div>
-    </div>
-
-    <!-- appearance card -->
-    <div class="card">
-      <h2 class="card-title">Appearance</h2>
-      <div class="theme-switcher" :data-active="theme">
-  <button
-    class="theme-option"
-    :class="{ 'is-active': theme === 'light' }"
-    @click="setTheme('light')"
-    aria-label="Light theme"
-  >
-    <Sun />
-  </button>
-
-  <button
-    class="theme-option"
-    :class="{ 'is-active': theme === 'dark' }"
-    @click="setTheme('dark')"
-    aria-label="Dark theme"
-  >
-     <Moon />
-  </button>
-
-  <button
-    class="theme-option"
-    :class="{ 'is-active': theme === 'dim' }"
-    @click="setTheme('dim')"
-    aria-label="Dim theme"
-  >
-    <Sparkles />
-  </button>
-</div>
-    </div>
-
-    <!-- lists card -->
-    <div class="card">
-      <h2 class="card-title">Lists file</h2>
-      <div class="field row">
-  <div class="field">
-  <div
-    class="segmented-control"
-    :data-active="listSaveMode === 'daily_note' ? 'right' : 'left'"
-  >
-    <button
-      type="button"
-      class="segmented-option"
-      :class="{ 'is-active': listSaveMode === 'single_file' }"
-      @click="listSaveMode = 'single_file'"
-    >
-      Custom filename
-    </button>
-
-    <button
-      type="button"
-      class="segmented-option"
-      :class="{ 'is-active': listSaveMode === 'daily_note' }"
-      @click="listSaveMode = 'daily_note'"
-    >
-      Today’s date
-    </button>
-    </div>
-  </div>
-
-  <input
-    v-model="listFileName"
-    type="text"
-    placeholder="tasks.md"
-    :disabled="listSaveMode === 'daily_note'"
-  />
-</div>
-    </div>
-
-    <!-- notes card -->
-    <div class="card">
-      <h2 class="card-title">Notes file</h2>
-      <div class="field row">
-       <div class="field">
-  <div
-    class="segmented-control"
-    :data-active="noteSaveMode === 'daily_note' ? 'right' : 'left'"
-  >
-    <button
-      type="button"
-      class="segmented-option"
-      :class="{ 'is-active': noteSaveMode === 'single_file' }"
-      @click="noteSaveMode = 'single_file'"
-    >
-      Custom filename
-    </button>
-
-    <button
-      type="button"
-      class="segmented-option"
-      :class="{ 'is-active': noteSaveMode === 'daily_note' }"
-      @click="noteSaveMode = 'daily_note'"
-    >
-      Today’s date
-    </button>
-  </div>
-
-  <input
-    v-model="noteFileName"
-    type="text"
-    placeholder="notes.md"
-    :disabled="noteSaveMode === 'daily_note'"
-  />
-</div>
-      </div>
-    </div>
-
-    <div
-      v-for="(preset, index) in presets"
-      :key="preset.id"
-      class="card"
-    >
-      <div class="card-header">
-        <h2>Task {{ index + 1 }}</h2>
-        <button
-          class="glass-icon-button remove-button"
-          @click="removePreset(preset.id)"
-          :disabled="presets.length === 1"
-        > 
-          <Trash />
-        </button>
-      </div>
-
-      <label class="field">
-        <span>Label</span>
-        <input v-model="preset.label" type="text" />
-      </label>
-
-      <label class="field">
-        <span>Tag</span>
-        <input v-model="preset.tag" type="text" />
-      </label>
-
-      <div class="field">
-  <span>Save mode</span>
-
-  <div
-    class="segmented-control"
-    :data-active="preset.saveMode === 'daily_note' ? 'right' : 'left'"
-  >
-    <button
-      type="button"
-      class="segmented-option"
-      :class="{ 'is-active': preset.saveMode === 'single_file' }"
-      @click="preset.saveMode = 'single_file'"
-    >
-      Custom filename
-    </button>
-
-    <button
-      type="button"
-      class="segmented-option"
-      :class="{ 'is-active': preset.saveMode === 'daily_note' }"
-      @click="preset.saveMode = 'daily_note'"
-    >
-      Today’s date
-    </button>
-  </div>
-</div>
-
-      <label class="field">
-        <span>Filename</span>
-        <input
-          v-model="preset.fileName"
-          type="text"
-          placeholder="tasks.md"
-          :disabled="preset.saveMode === 'daily_note'"
-        />
-      </label>
-
-    </div>
-
-    <button class="glass-button glass-button--block glass-button--secondary add-button" @click="addPreset">
-  + Add Task
-</button>
-
-    <div class="actions">
-      <button class="glass-button glass-button--secondary secondary-button" @click="handleReset">
-  Reset
-</button>
-<button class="glass-button glass-button--primary primary-button" @click="handleSave">
-  Save
-</button>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
+import type { QuickTaskPreset, SaveMode, Theme } from '../lib/settings'
+import { Moon, Sparkles, Sun, Trash } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Moon, Sun, Sparkles, Trash } from 'lucide-vue-next'
 import {
-  loadSettings,
-  saveSettings,
-  resetSettings,
   applyTheme,
-  type QuickTaskPreset,
-  type SaveMode,
-  type Theme,
+  loadSettings,
+
+  resetSettings,
+
+  saveSettings,
+
 } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 
@@ -245,7 +34,7 @@ const noteSaveMode = ref<SaveMode>(settings.noteSaveMode)
 const noteFileName = ref<string | undefined>(settings.noteFileName)
 
 const presets = ref<QuickTaskPreset[]>(
-  settings.quickTaskPresets.map((preset) => ({ ...preset })),
+  settings.quickTaskPresets.map(preset => ({ ...preset })),
 )
 
 function goBack() {
@@ -261,9 +50,10 @@ function setTheme(next: Theme) {
 async function pickBaseFolder() {
   try {
     const result = await FolderPicker.pickFolder()
-    baseFolderUri.value = result.uri;
+    baseFolderUri.value = result.uri
     baseFolderName.value = result.name
-  } catch (error) {
+  }
+  catch (error) {
     console.error(error)
   }
 }
@@ -279,8 +69,9 @@ function addPreset() {
 }
 
 function removePreset(id: string) {
-  if (presets.value.length === 1) return
-  presets.value = presets.value.filter((preset) => preset.id !== id)
+  if (presets.value.length === 1)
+    return
+  presets.value = presets.value.filter(preset => preset.id !== id)
 }
 
 function handleSave() {
@@ -288,8 +79,8 @@ function handleSave() {
 
   const cleaned = presets.value
     .map((preset) => {
-      const mode: SaveMode =
-        preset.saveMode === 'daily_note' ? 'daily_note' : 'single_file'
+      const mode: SaveMode
+        = preset.saveMode === 'daily_note' ? 'daily_note' : 'single_file'
 
       return {
         ...preset,
@@ -299,7 +90,7 @@ function handleSave() {
         fileName: preset.fileName?.trim() || undefined,
       }
     })
-    .filter((preset) => preset.label.length > 0)
+    .filter(preset => preset.label.length > 0)
 
   saveSettings({
     baseFolderUri: baseFolderUri.value,
@@ -333,9 +124,234 @@ function handleReset() {
   listFileName.value = reset.listFileName
   noteSaveMode.value = reset.noteSaveMode
   noteFileName.value = reset.noteFileName
-  presets.value = reset.quickTaskPresets.map((preset) => ({ ...preset }))
+  presets.value = reset.quickTaskPresets.map(preset => ({ ...preset }))
 }
 </script>
+
+<template>
+  <div class="page">
+    <div class="header">
+      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+        ←
+      </button>
+
+      <div>
+        <h1>Settings</h1>
+        <p class="subtitle">
+          Choose folder and filenames, plus quick task presets
+        </p>
+      </div>
+    </div>
+
+    <!-- system folder card -->
+    <div class="card">
+      <div class="field">
+        <span>System folder</span>
+        <button class="glass-button folder-button" type="button" @click="pickBaseFolder">
+          Select folder
+        </button>
+        <p v-if="baseFolderName" class="hint">
+          {{ baseFolderName }}
+        </p>
+        <p v-else class="hint">
+          No folder selected
+        </p>
+      </div>
+    </div>
+
+    <!-- appearance card -->
+    <div class="card">
+      <h2 class="card-title">
+        Appearance
+      </h2>
+      <div class="theme-switcher" :data-active="theme">
+        <button
+          class="theme-option"
+          :class="{ 'is-active': theme === 'light' }"
+          aria-label="Light theme"
+          @click="setTheme('light')"
+        >
+          <Sun />
+        </button>
+
+        <button
+          class="theme-option"
+          :class="{ 'is-active': theme === 'dark' }"
+          aria-label="Dark theme"
+          @click="setTheme('dark')"
+        >
+          <Moon />
+        </button>
+
+        <button
+          class="theme-option"
+          :class="{ 'is-active': theme === 'dim' }"
+          aria-label="Dim theme"
+          @click="setTheme('dim')"
+        >
+          <Sparkles />
+        </button>
+      </div>
+    </div>
+
+    <!-- lists card -->
+    <div class="card">
+      <h2 class="card-title">
+        Lists file
+      </h2>
+      <div class="field row">
+        <div class="field">
+          <div
+            class="segmented-control"
+            :data-active="listSaveMode === 'daily_note' ? 'right' : 'left'"
+          >
+            <button
+              type="button"
+              class="segmented-option"
+              :class="{ 'is-active': listSaveMode === 'single_file' }"
+              @click="listSaveMode = 'single_file'"
+            >
+              Custom filename
+            </button>
+
+            <button
+              type="button"
+              class="segmented-option"
+              :class="{ 'is-active': listSaveMode === 'daily_note' }"
+              @click="listSaveMode = 'daily_note'"
+            >
+              Today’s date
+            </button>
+          </div>
+        </div>
+
+        <input
+          v-model="listFileName"
+          type="text"
+          placeholder="tasks.md"
+          :disabled="listSaveMode === 'daily_note'"
+        >
+      </div>
+    </div>
+
+    <!-- notes card -->
+    <div class="card">
+      <h2 class="card-title">
+        Notes file
+      </h2>
+      <div class="field row">
+        <div class="field">
+          <div
+            class="segmented-control"
+            :data-active="noteSaveMode === 'daily_note' ? 'right' : 'left'"
+          >
+            <button
+              type="button"
+              class="segmented-option"
+              :class="{ 'is-active': noteSaveMode === 'single_file' }"
+              @click="noteSaveMode = 'single_file'"
+            >
+              Custom filename
+            </button>
+
+            <button
+              type="button"
+              class="segmented-option"
+              :class="{ 'is-active': noteSaveMode === 'daily_note' }"
+              @click="noteSaveMode = 'daily_note'"
+            >
+              Today’s date
+            </button>
+          </div>
+
+          <input
+            v-model="noteFileName"
+            type="text"
+            placeholder="notes.md"
+            :disabled="noteSaveMode === 'daily_note'"
+          >
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-for="(preset, index) in presets"
+      :key="preset.id"
+      class="card"
+    >
+      <div class="card-header">
+        <h2>Task {{ index + 1 }}</h2>
+        <button
+          class="glass-icon-button remove-button"
+          :disabled="presets.length === 1"
+          @click="removePreset(preset.id)"
+        >
+          <Trash />
+        </button>
+      </div>
+
+      <label class="field">
+        <span>Label</span>
+        <input v-model="preset.label" type="text">
+      </label>
+
+      <label class="field">
+        <span>Tag</span>
+        <input v-model="preset.tag" type="text">
+      </label>
+
+      <div class="field">
+        <span>Save mode</span>
+
+        <div
+          class="segmented-control"
+          :data-active="preset.saveMode === 'daily_note' ? 'right' : 'left'"
+        >
+          <button
+            type="button"
+            class="segmented-option"
+            :class="{ 'is-active': preset.saveMode === 'single_file' }"
+            @click="preset.saveMode = 'single_file'"
+          >
+            Custom filename
+          </button>
+
+          <button
+            type="button"
+            class="segmented-option"
+            :class="{ 'is-active': preset.saveMode === 'daily_note' }"
+            @click="preset.saveMode = 'daily_note'"
+          >
+            Today’s date
+          </button>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>Filename</span>
+        <input
+          v-model="preset.fileName"
+          type="text"
+          placeholder="tasks.md"
+          :disabled="preset.saveMode === 'daily_note'"
+        >
+      </label>
+    </div>
+
+    <button class="glass-button glass-button--block glass-button--secondary add-button" @click="addPreset">
+      + Add Task
+    </button>
+
+    <div class="actions">
+      <button class="glass-button glass-button--secondary secondary-button" @click="handleReset">
+        Reset
+      </button>
+      <button class="glass-button glass-button--primary primary-button" @click="handleSave">
+        Save
+      </button>
+    </div>
+  </div>
+</template>
 
 <style scoped>
 .page {
@@ -343,7 +359,7 @@ function handleReset() {
   padding: 24px 20px 40px;
   background: var(--bg);
   color: var(--text);
-} 
+}
 
 .header {
   display: flex;
@@ -368,8 +384,6 @@ function handleReset() {
   font-weight: 600;
 }
 
-
-
 h1 {
   margin: 0;
   font-size: 1.8rem;
@@ -378,7 +392,7 @@ h1 {
 .subtitle {
   margin: 6px 0 0;
   color: var(--text-soft);
-} 
+}
 
 .card {
   background: var(--surface);
@@ -386,7 +400,7 @@ h1 {
   padding: 20px;
   box-shadow: var(--shadow);
   margin-bottom: 16px;
-} 
+}
 
 .card-header {
   display: flex;
@@ -408,7 +422,7 @@ h1 {
   font-weight: 600;
   border: 1px solid transparent;
   transition: background 0.2s ease, border-color 0.2s ease;
-} 
+}
 
 .field {
   display: flex;
@@ -445,7 +459,7 @@ h1 {
   gap: 10px;
   font-size: 0.98rem;
   color: var(--text);
-} 
+}
 
 .radio-option input {
   margin: 0;
@@ -493,7 +507,6 @@ h1 {
   color: var(--text-soft);
 }
 
-
 .add-button {
   margin-top: 4px;
 }
@@ -508,6 +521,4 @@ h1 {
   gap: 12px;
   margin-top: 20px;
 }
-
-
 </style>

@@ -1,53 +1,6 @@
-<template>
-  <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" @click="goBack" aria-label="Go back">
-        ←
-      </button>
-
-      <div>
-        <h1>{{ preset?.label ?? 'Task' }}</h1>
-      </div>
-    </div>
-
-    <div class="card glass-card" v-if="preset">
-      <textarea
-        v-model="taskText"
-        class="glass-input task-textarea"
-        placeholder="Enter task..."
-        rows="4"
-        autofocus
-      />
-
-      <div class="field">
-        <label class="field-label">Due date</label>
-
-        <input
-          v-model="selectedDate"
-          class="date-input glass-input"
-          type="date"
-        />
-      </div>
-
-      <div class="preview glass-panel">
-        <span class="preview-label">Preview</span>
-        <code>{{ previewTask }}</code>
-      </div>
-
-      <button class="glass-button glass-button--primary glass-button--block primary-button" @click="saveTask">
-        Add
-      </button>
-    </div>
-
-    <div class="card glass-card" v-else>
-      Preset not found.
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter, useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 
@@ -61,7 +14,7 @@ const selectedDate = ref('')
 
 const preset = computed(() =>
   settings.quickTaskPresets.find(
-    (p) => p.id === String(route.params.preset),
+    p => p.id === String(route.params.preset),
   ),
 )
 
@@ -86,14 +39,15 @@ function todayIso(): string {
 }
 
 async function saveTask() {
-  if (!preset.value || !taskText.value.trim()) return
+  if (!preset.value || !taskText.value.trim())
+    return
 
   const taskLine = previewTask.value
 
   // persist using the global system folder if configured
   if (settings.baseFolderUri) {
-    const fileName =
-      preset.value?.saveMode === 'daily_note'
+    const fileName
+      = preset.value?.saveMode === 'daily_note'
         ? `${todayIso()}.md`
         : (preset.value?.fileName || settings.listFileName || 'tasks.md')
 
@@ -101,13 +55,15 @@ async function saveTask() {
       await FolderPicker.appendToFile({
         folderUri: settings.baseFolderUri,
         fileName,
-        content: taskLine + '\n',
+        content: `${taskLine}\n`,
       })
       console.log('Task appended to file:', taskLine)
-    } catch (err) {
+    }
+    catch (err) {
       console.error('Failed to append task to file', err)
     }
-  } else {
+  }
+  else {
     console.warn('No system folder configured – task not saved to disk')
   }
 
@@ -119,6 +75,53 @@ async function saveTask() {
 }
 </script>
 
+<template>
+  <div class="page">
+    <div class="header">
+      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+        ←
+      </button>
+
+      <div>
+        <h1>{{ preset?.label ?? 'Task' }}</h1>
+      </div>
+    </div>
+
+    <div v-if="preset" class="card glass-card">
+      <textarea
+        v-model="taskText"
+        class="glass-input task-textarea"
+        placeholder="Enter task..."
+        rows="4"
+        autofocus
+      />
+
+      <div class="field">
+        <label class="field-label">Due date</label>
+
+        <input
+          v-model="selectedDate"
+          class="date-input glass-input"
+          type="date"
+        >
+      </div>
+
+      <div class="preview glass-panel">
+        <span class="preview-label">Preview</span>
+        <code>{{ previewTask }}</code>
+      </div>
+
+      <button class="glass-button glass-button--primary glass-button--block primary-button" @click="saveTask">
+        Add
+      </button>
+    </div>
+
+    <div v-else class="card glass-card">
+      Preset not found.
+    </div>
+  </div>
+</template>
+
 <style scoped>
 .page {
   min-height: 100vh;
@@ -126,7 +129,6 @@ async function saveTask() {
   background: var(--bg);
   color: var(--text);
 }
-
 
 .header {
   display: flex;
@@ -259,5 +261,4 @@ async function saveTask() {
 .primary-button {
   margin-top: 4px;
 }
-
 </style>

@@ -1,9 +1,37 @@
+<script setup lang="ts">
+import type { QuickTaskPreset } from '../lib/settings'
+import { Settings } from 'lucide-vue-next'
+import { onActivated, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { loadSettings } from '../lib/settings'
+
+const router = useRouter()
+const presets = ref<QuickTaskPreset[]>([])
+
+function refreshSettings() {
+  presets.value = loadSettings().quickTaskPresets
+}
+
+onMounted(refreshSettings)
+onActivated(refreshSettings)
+
+function go(path: string) {
+  router.push(path)
+}
+
+function goTask(id: string) {
+  router.push(`/task/${id}`)
+}
+</script>
+
 <template>
   <div class="page">
     <div class="top-row">
       <div>
         <h1>Quick Capture</h1>
-        <p class="subtitle">Fast notes and tasks into your vault</p>
+        <p class="subtitle">
+          Fast notes and tasks into your vault
+        </p>
       </div>
 
       <button class="glass-icon-button" @click="go('/settings')">
@@ -32,38 +60,13 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, onMounted, onActivated } from 'vue'
-import { useRouter } from 'vue-router'
-import { loadSettings, type QuickTaskPreset } from '../lib/settings'
-import { Settings } from 'lucide-vue-next'
-
-const router = useRouter()
-const presets = ref<QuickTaskPreset[]>([])
-
-function refreshSettings() {
-  presets.value = loadSettings().quickTaskPresets
-}
-
-onMounted(refreshSettings)
-onActivated(refreshSettings)
-
-function go(path: string) {
-  router.push(path)
-}
-
-function goTask(id: string) {
-  router.push(`/task/${id}`)
-}
-</script>
-
 <style scoped>
 .page {
   min-height: 100vh;
   padding: 24px 20px;
   background: var(--bg);
   color: var(--text);
-} 
+}
 
 .top-row {
   display: flex;
@@ -79,7 +82,7 @@ h1 {
 .subtitle {
   margin: 8px 0 0;
   color: var(--text-soft);
-} 
+}
 
 .grid {
   margin-top: 24px;
@@ -98,5 +101,4 @@ h1 {
   text-align: left;
   box-shadow: var(--shadow);
 }
-
 </style>

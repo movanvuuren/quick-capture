@@ -1,6 +1,6 @@
 export type SaveMode = 'single_file' | 'daily_note'
 
-export type QuickTaskPreset = {
+export interface QuickTaskPreset {
   id: string
   label: string
   tag: string
@@ -10,7 +10,7 @@ export type QuickTaskPreset = {
 
 export type Theme = 'light' | 'dark' | 'dim'
 
-export type AppSettings = {
+export interface AppSettings {
   /** folder picked by the user for storing both lists and notes */
   baseFolderUri?: string
   baseFolderName?: string
@@ -59,7 +59,8 @@ export const defaultSettings: AppSettings = {
 }
 
 function normalizePreset(value: Partial<QuickTaskPreset> | undefined): QuickTaskPreset | null {
-  if (!value?.label?.trim()) return null
+  if (!value?.label?.trim())
+    return null
 
   return {
     id: value.id ?? crypto.randomUUID(),
@@ -73,13 +74,14 @@ function normalizePreset(value: Partial<QuickTaskPreset> | undefined): QuickTask
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
-    if (!raw) return defaultSettings
+    if (!raw)
+      return defaultSettings
 
     const parsed = JSON.parse(raw) as Partial<AppSettings>
 
-    const presets =
-      parsed.quickTaskPresets
-        ?.map((preset) => normalizePreset(preset))
+    const presets
+      = parsed.quickTaskPresets
+        ?.map(preset => normalizePreset(preset))
         .filter((preset): preset is QuickTaskPreset => preset !== null) ?? []
 
     return {
@@ -92,7 +94,8 @@ export function loadSettings(): AppSettings {
       noteFileName: parsed.noteFileName?.trim() || defaultSettings.noteFileName,
       quickTaskPresets: presets.length > 0 ? presets : defaultSettings.quickTaskPresets,
     }
-  } catch {
+  }
+  catch {
     return defaultSettings
   }
 }
@@ -118,7 +121,7 @@ export function resetSettings(): AppSettings {
     listFileName: defaultSettings.listFileName,
     noteSaveMode: defaultSettings.noteSaveMode,
     noteFileName: defaultSettings.noteFileName,
-    quickTaskPresets: defaultSettings.quickTaskPresets.map((preset) => ({
+    quickTaskPresets: defaultSettings.quickTaskPresets.map(preset => ({
       ...preset,
       id: crypto.randomUUID(),
     })),

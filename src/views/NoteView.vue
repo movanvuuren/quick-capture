@@ -1,32 +1,11 @@
-<template>
-  <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" @click="goBack" aria-label="Go back">
-        ←
-      </button>
-      <div>
-        <h1>Note</h1>
-      </div>
-    </div>
-
-    <div class="glass-card card">
-      <div ref="editorElement" />
-
-      <button class="glass-button glass-button--primary save-button" @click="saveNote">
-        Save
-      </button>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
 import Editor from '@toast-ui/editor'
-import '@toast-ui/editor/dist/toastui-editor.css'
-import '@toast-ui/editor/dist/theme/toastui-editor-dark.css'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
+import '@toast-ui/editor/dist/toastui-editor.css'
+import '@toast-ui/editor/dist/theme/toastui-editor-dark.css'
 
 const router = useRouter()
 const settings = loadSettings()
@@ -42,7 +21,7 @@ function initEditor(theme: 'light' | 'dark' | 'dim', initialValue = '') {
       initialEditType: 'wysiwyg',
       initialValue,
       previewStyle: 'vertical',
-      theme: theme,
+      theme,
       placeholder: 'Start writing your note...',
     })
   }
@@ -76,13 +55,15 @@ function todayIso(): string {
 }
 
 async function saveNote() {
-  if (!editorInstance) return
+  if (!editorInstance)
+    return
   const text = editorInstance.getMarkdown().trim()
-  if (!text) return
+  if (!text)
+    return
 
   if (settings.baseFolderUri) {
-    const fileName =
-      settings.noteSaveMode === 'daily_note'
+    const fileName
+      = settings.noteSaveMode === 'daily_note'
         ? `${todayIso()}.md`
         : settings.noteFileName || 'notes.md'
 
@@ -90,13 +71,15 @@ async function saveNote() {
       await FolderPicker.appendToFile({
         folderUri: settings.baseFolderUri,
         fileName,
-        content: text + '\n\n',
+        content: `${text}\n\n`,
       })
       console.log('Note appended to file')
-    } catch (err) {
+    }
+    catch (err) {
       console.error('Failed to append note', err)
     }
-  } else {
+  }
+  else {
     console.warn('No system folder configured – note not saved to disk')
   }
 
@@ -104,6 +87,27 @@ async function saveNote() {
   router.back()
 }
 </script>
+
+<template>
+  <div class="page">
+    <div class="header">
+      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+        ←
+      </button>
+      <div>
+        <h1>Note</h1>
+      </div>
+    </div>
+
+    <div class="glass-card card">
+      <div ref="editorElement" />
+
+      <button class="glass-button glass-button--primary save-button" @click="saveNote">
+        Save
+      </button>
+    </div>
+  </div>
+</template>
 
 <style scoped>
 /* reuse styles from TaskView for consistency */
@@ -120,7 +124,6 @@ async function saveNote() {
   margin-bottom: 24px;
 }
 
-
 .card {
   background: var(--surface);
   padding: 20px;
@@ -135,10 +138,9 @@ async function saveNote() {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 10px;
-  
+
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
   box-shadow: var(--shadow);
 }
-
 </style>

@@ -22,15 +22,15 @@ export interface WriteFileOptions {
 }
 
 export interface FolderPickerPlugin {
-  pickFolder(): Promise<PickFolderResult>
+  pickFolder: () => Promise<PickFolderResult>
   /**
    * Append the provided content to a file inside the previously selected folder.
    * The file will be created if it does not already exist.
    */
-  appendToFile(options: AppendToFileOptions): Promise<void>
+  appendToFile: (options: AppendToFileOptions) => Promise<void>
   /**
    * Write the provided content to a file, replacing any existing data.
    * Creates the file if it doesn't exist.
    */
-  writeFile(options: WriteFileOptions): Promise<void>
+  writeFile: (options: WriteFileOptions) => Promise<void>
 }

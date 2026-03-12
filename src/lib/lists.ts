@@ -1,11 +1,11 @@
 export type TodoState = 'pending' | 'done' | 'cancelled'
 
-export type TodoItem = {
+export interface TodoItem {
   text: string
   state: TodoState
 }
 
-export type TodoList = {
+export interface TodoList {
   id: string
   title: string
   items: TodoItem[]
@@ -17,7 +17,8 @@ const STORAGE_KEY = 'quick-capture-lists'
 export function loadLists(): TodoList[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
+    if (!raw)
+      return []
     const parsed = JSON.parse(raw) as any[]
     return parsed.map((list) => {
       const items: TodoItem[] = []
@@ -29,7 +30,8 @@ export function loadLists(): TodoList[] {
             const c = it.match(/^- \[(.)\]/)?.[1]
             const state: TodoState = c === 'x' ? 'done' : c === '-' ? 'cancelled' : 'pending'
             items.push({ text: txt, state })
-          } else if (it && typeof it.text === 'string') {
+          }
+          else if (it && typeof it.text === 'string') {
             items.push({ text: it.text, state: it.state || 'pending' })
           }
         })
@@ -44,7 +46,8 @@ export function loadLists(): TodoList[] {
         pinned: !!list.pinned,
       }
     })
-  } catch {
+  }
+  catch {
     return []
   }
 }
