@@ -40,12 +40,7 @@ function goTask(id: string) {
     </div>
 
     <div class="grid">
-      <button
-        v-for="preset in presets"
-        :key="preset.id"
-        class="glass-button"
-        @click="goTask(preset.id)"
-      >
+      <button v-for="preset in presets" :key="preset.id" class="glass-button" @click="goTask(preset.id)">
         {{ preset.label }}
       </button>
 

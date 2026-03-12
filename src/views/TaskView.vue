@@ -88,22 +88,12 @@ async function saveTask() {
     </div>
 
     <div v-if="preset" class="card glass-card">
-      <textarea
-        v-model="taskText"
-        class="glass-input task-textarea"
-        placeholder="Enter task..."
-        rows="4"
-        autofocus
-      />
+      <textarea v-model="taskText" class="glass-input task-textarea" placeholder="Enter task..." rows="4" autofocus />
 
       <div class="field">
         <label class="field-label">Due date</label>
 
-        <input
-          v-model="selectedDate"
-          class="date-input glass-input"
-          type="date"
-        >
+        <input v-model="selectedDate" class="date-input glass-input" type="date">
       </div>
 
       <div class="preview glass-panel">
@@ -222,11 +212,9 @@ async function saveTask() {
 
 .glass-panel.preview {
   background:
-    linear-gradient(
-      135deg,
+    linear-gradient(135deg,
       color-mix(in srgb, var(--primary) 8%, transparent),
-      color-mix(in srgb, var(--c-glass) 10%, transparent)
-    );
+      color-mix(in srgb, var(--c-glass) 10%, transparent));
 }
 
 .preview {

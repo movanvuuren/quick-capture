@@ -104,38 +104,6 @@ a {
   color: inherit;
   text-decoration: none;
 }
-
-/* SimpleMDE/CodeMirror dark-mode tweaks */
-.dark .editor-toolbar,
-.dark .CodeMirror,
-.dark .editor-preview {
-  background: var(--surface) !important;
-  color: var(--text) !important;
-}
-
-.dark .editor-toolbar a {
-  color: var(--text) !important;
-  border-color: transparent !important;
-}
-
-.dark .editor-toolbar a.active,
-.dark .editor-toolbar a:hover {
-  background: var(--surface-strong) !important;
-  border-color: var(--border) !important;
-}
-
-.dark .CodeMirror-gutters {
-  background: var(--surface) !important;
-}
-
-.dark .CodeMirror-lines {
-  color: var(--text) !important;
-}
-
-.dark .CodeMirror {
-  border-color: var(--border) !important;
-}
-
 :root,
 :root[data-theme='light'] {
   --c-glass: #c7c7cc;

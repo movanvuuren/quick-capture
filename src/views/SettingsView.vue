@@ -165,30 +165,18 @@ function handleReset() {
         Appearance
       </h2>
       <div class="theme-switcher" :data-active="theme">
-        <button
-          class="theme-option"
-          :class="{ 'is-active': theme === 'light' }"
-          aria-label="Light theme"
-          @click="setTheme('light')"
-        >
+        <button class="theme-option" :class="{ 'is-active': theme === 'light' }" aria-label="Light theme"
+          @click="setTheme('light')">
           <Sun />
         </button>
 
-        <button
-          class="theme-option"
-          :class="{ 'is-active': theme === 'dark' }"
-          aria-label="Dark theme"
-          @click="setTheme('dark')"
-        >
+        <button class="theme-option" :class="{ 'is-active': theme === 'dark' }" aria-label="Dark theme"
+          @click="setTheme('dark')">
           <Moon />
         </button>
 
-        <button
-          class="theme-option"
-          :class="{ 'is-active': theme === 'dim' }"
-          aria-label="Dim theme"
-          @click="setTheme('dim')"
-        >
+        <button class="theme-option" :class="{ 'is-active': theme === 'dim' }" aria-label="Dim theme"
+          @click="setTheme('dim')">
           <Sparkles />
         </button>
       </div>
@@ -201,36 +189,20 @@ function handleReset() {
       </h2>
       <div class="field row">
         <div class="field">
-          <div
-            class="segmented-control"
-            :data-active="listSaveMode === 'daily_note' ? 'right' : 'left'"
-          >
-            <button
-              type="button"
-              class="segmented-option"
-              :class="{ 'is-active': listSaveMode === 'single_file' }"
-              @click="listSaveMode = 'single_file'"
-            >
+          <div class="segmented-control" :data-active="listSaveMode === 'daily_note' ? 'right' : 'left'">
+            <button type="button" class="segmented-option" :class="{ 'is-active': listSaveMode === 'single_file' }"
+              @click="listSaveMode = 'single_file'">
               Custom filename
             </button>
 
-            <button
-              type="button"
-              class="segmented-option"
-              :class="{ 'is-active': listSaveMode === 'daily_note' }"
-              @click="listSaveMode = 'daily_note'"
-            >
+            <button type="button" class="segmented-option" :class="{ 'is-active': listSaveMode === 'daily_note' }"
+              @click="listSaveMode = 'daily_note'">
               Today’s date
             </button>
           </div>
         </div>
 
-        <input
-          v-model="listFileName"
-          type="text"
-          placeholder="tasks.md"
-          :disabled="listSaveMode === 'daily_note'"
-        >
+        <input v-model="listFileName" type="text" placeholder="tasks.md" :disabled="listSaveMode === 'daily_note'">
       </div>
     </div>
 
@@ -241,51 +213,28 @@ function handleReset() {
       </h2>
       <div class="field row">
         <div class="field">
-          <div
-            class="segmented-control"
-            :data-active="noteSaveMode === 'daily_note' ? 'right' : 'left'"
-          >
-            <button
-              type="button"
-              class="segmented-option"
-              :class="{ 'is-active': noteSaveMode === 'single_file' }"
-              @click="noteSaveMode = 'single_file'"
-            >
+          <div class="segmented-control" :data-active="noteSaveMode === 'daily_note' ? 'right' : 'left'">
+            <button type="button" class="segmented-option" :class="{ 'is-active': noteSaveMode === 'single_file' }"
+              @click="noteSaveMode = 'single_file'">
               Custom filename
             </button>
 
-            <button
-              type="button"
-              class="segmented-option"
-              :class="{ 'is-active': noteSaveMode === 'daily_note' }"
-              @click="noteSaveMode = 'daily_note'"
-            >
+            <button type="button" class="segmented-option" :class="{ 'is-active': noteSaveMode === 'daily_note' }"
+              @click="noteSaveMode = 'daily_note'">
               Today’s date
             </button>
           </div>
 
-          <input
-            v-model="noteFileName"
-            type="text"
-            placeholder="notes.md"
-            :disabled="noteSaveMode === 'daily_note'"
-          >
+          <input v-model="noteFileName" type="text" placeholder="notes.md" :disabled="noteSaveMode === 'daily_note'">
         </div>
       </div>
     </div>
 
-    <div
-      v-for="(preset, index) in presets"
-      :key="preset.id"
-      class="card"
-    >
+    <div v-for="(preset, index) in presets" :key="preset.id" class="card">
       <div class="card-header">
         <h2>Task {{ index + 1 }}</h2>
-        <button
-          class="glass-icon-button remove-button"
-          :disabled="presets.length === 1"
-          @click="removePreset(preset.id)"
-        >
+        <button class="glass-icon-button remove-button" :disabled="presets.length === 1"
+          @click="removePreset(preset.id)">
           <Trash />
         </button>
       </div>
@@ -303,25 +252,14 @@ function handleReset() {
       <div class="field">
         <span>Save mode</span>
 
-        <div
-          class="segmented-control"
-          :data-active="preset.saveMode === 'daily_note' ? 'right' : 'left'"
-        >
-          <button
-            type="button"
-            class="segmented-option"
-            :class="{ 'is-active': preset.saveMode === 'single_file' }"
-            @click="preset.saveMode = 'single_file'"
-          >
+        <div class="segmented-control" :data-active="preset.saveMode === 'daily_note' ? 'right' : 'left'">
+          <button type="button" class="segmented-option" :class="{ 'is-active': preset.saveMode === 'single_file' }"
+            @click="preset.saveMode = 'single_file'">
             Custom filename
           </button>
 
-          <button
-            type="button"
-            class="segmented-option"
-            :class="{ 'is-active': preset.saveMode === 'daily_note' }"
-            @click="preset.saveMode = 'daily_note'"
-          >
+          <button type="button" class="segmented-option" :class="{ 'is-active': preset.saveMode === 'daily_note' }"
+            @click="preset.saveMode = 'daily_note'">
             Today’s date
           </button>
         </div>
@@ -329,12 +267,8 @@ function handleReset() {
 
       <label class="field">
         <span>Filename</span>
-        <input
-          v-model="preset.fileName"
-          type="text"
-          placeholder="tasks.md"
-          :disabled="preset.saveMode === 'daily_note'"
-        >
+        <input v-model="preset.fileName" type="text" placeholder="tasks.md"
+          :disabled="preset.saveMode === 'daily_note'">
       </label>
     </div>
 
@@ -492,6 +426,7 @@ h1 {
   align-items: center;
   justify-content: center;
 }
+
 .theme-toggle-button:hover {
   background: var(--surface-strong);
 }

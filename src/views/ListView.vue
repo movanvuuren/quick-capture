@@ -15,7 +15,7 @@ const lists = ref<TodoList[]>(loadLists())
 
 // maintain a sorted view where pinned lists appear first
 const sortedLists = computed(() => {
-   return [...lists.value].sort((a, b) => {
+  return [...lists.value].sort((a, b) => {
     const pa = a.pinned ? 0 : 1
     const pb = b.pinned ? 0 : 1
     return pa - pb
@@ -199,11 +199,7 @@ function moveItem(list: TodoList, from: number, to: number) {
       </div>
 
       <div v-else class="detail-header">
-        <input
-          v-model="currentList.title"
-          placeholder="Title"
-          class="header-title"
-        >
+        <input v-model="currentList.title" placeholder="Title" class="header-title">
       </div>
     </div>
 
@@ -224,12 +220,8 @@ function moveItem(list: TodoList, from: number, to: number) {
 
     <!-- overview of all lists -->
     <template v-if="!currentList">
-      <div
-        v-for="list in sortedLists"
-        :key="list.id"
-        class="list-card summary"
-        @click="router.push(`/list/${list.id}`)"
-      >
+      <div v-for="list in sortedLists" :key="list.id" class="list-card summary"
+        @click="router.push(`/list/${list.id}`)">
         <div class="card-title-row">
           <!-- title is optional; hide the element if blank -->
           <div v-if="list.title" class="card-title">
@@ -242,12 +234,7 @@ function moveItem(list: TodoList, from: number, to: number) {
 
         <!-- preview the first few items (or all) so the user sees the contents -->
         <ul class="preview-items">
-          <li
-            v-for="(item, j) in list.items"
-            :key="j"
-            class="preview-item"
-            :class="item.state"
-          >
+          <li v-for="(item, j) in list.items" :key="j" class="preview-item" :class="item.state">
             {{ item.text || '(empty item)' }}
           </li>
         </ul>
@@ -263,19 +250,12 @@ function moveItem(list: TodoList, from: number, to: number) {
         <div class="card-header">
           <!-- header-buttons remain here; title moved to main header -->
           <div class="header-buttons">
-            <button
-              class="glass-icon-button"
-              :aria-label="currentList.pinned ? 'Unpin list' : 'Pin list'"
-              @click="togglePin(currentList)"
-            >
+            <button class="glass-icon-button" :aria-label="currentList.pinned ? 'Unpin list' : 'Pin list'"
+              @click="togglePin(currentList)">
               <component :is="currentList.pinned ? Pin : PinOff" :size="20" />
             </button>
 
-            <button
-              class="glass-icon-button"
-              aria-label="Delete list"
-              @click="removeList(currentList.id)"
-            >
+            <button class="glass-icon-button" aria-label="Delete list" @click="removeList(currentList.id)">
               <Trash :size="20" />
             </button>
           </div>
@@ -287,37 +267,19 @@ function moveItem(list: TodoList, from: number, to: number) {
             No items yet – tap + or press Enter to start.
           </div>
 
-          <div
-            v-for="(item, i) in currentList.items"
-            :key="i"
-            class="item-row"
-            :class="{
-              done: item.state === 'done',
-              cancelled: item.state === 'cancelled',
-            }"
-            draggable="true"
-            @dragstart="(e) => onDragStart(e, i)"
-            @dragover="onDragOver"
-            @drop="(e) => onDrop(e, i)"
-          >
+          <div v-for="(item, i) in currentList.items" :key="i" class="item-row" :class="{
+            done: item.state === 'done',
+            cancelled: item.state === 'cancelled',
+          }" draggable="true" @dragstart="(e) => onDragStart(e, i)" @dragover="onDragOver" @drop="(e) => onDrop(e, i)">
             <GripVertical class="drag-handle" />
 
-            <button
-              class="state-box"
-              :class="item.state"
-              :aria-label="`Change state for item ${i + 1}`"
-              @click="cycleState(currentList, i)"
-            >
+            <button class="state-box" :class="item.state" :aria-label="`Change state for item ${i + 1}`"
+              @click="cycleState(currentList, i)">
               {{ item.state === 'done' ? '✓' : item.state === 'cancelled' ? '–' : '' }}
             </button>
 
-            <input
-              :ref="el => setInputRef(i, el as HTMLInputElement | null)"
-              v-model="item.text"
-              placeholder="To-do item"
-              class="item-input"
-              @keydown.enter.prevent="addItemAt(currentList, i)"
-            >
+            <input :ref="el => setInputRef(i, el as HTMLInputElement | null)" v-model="item.text"
+              placeholder="To-do item" class="item-input" @keydown.enter.prevent="addItemAt(currentList, i)">
 
             <button class="glass-icon-button" aria-label="Remove item" @click="removeItem(currentList, i)">
               ×
@@ -489,6 +451,7 @@ function moveItem(list: TodoList, from: number, to: number) {
   flex-shrink: 0;
   color: var(--text-soft);
 }
+
 .drag-handle:active {
   cursor: grabbing;
 }
