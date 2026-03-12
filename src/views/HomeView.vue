@@ -6,7 +6,7 @@
         <p class="subtitle">Fast notes and tasks into your vault</p>
       </div>
 
-      <button class="glass-icon-button settings-button" @click="go('/settings')">
+      <button class="glass-icon-button" @click="go('/settings')">
         <Settings :size="22" />
       </button>
     </div>
@@ -79,21 +79,6 @@ h1 {
 .subtitle {
   margin: 8px 0 0;
   color: var(--text-soft);
-} 
-
-.settings-button {
-  border: none;
-  background: var(--surface-strong);
-  border-radius: 16px;
-  width: 48px;
-  height: 48px;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  box-shadow: var(--shadow);
-  color: var(--text);
 } 
 
 .grid {
