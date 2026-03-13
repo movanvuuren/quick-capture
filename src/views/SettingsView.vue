@@ -126,12 +126,14 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
       <div class="field row">
         <div class="field">
           <div class="segmented-control" :data-active="settings.listSaveMode === 'daily_note' ? 'right' : 'left'">
-            <button type="button" class="segmented-option" :class="{ 'is-active': settings.listSaveMode === 'single_file' }"
+            <button type="button" class="segmented-option"
+              :class="{ 'is-active': settings.listSaveMode === 'single_file' }"
               @click="settings.listSaveMode = 'single_file'">
               Custom filename
             </button>
 
-            <button type="button" class="segmented-option" :class="{ 'is-active': settings.listSaveMode === 'daily_note' }"
+            <button type="button" class="segmented-option"
+              :class="{ 'is-active': settings.listSaveMode === 'daily_note' }"
               @click="settings.listSaveMode = 'daily_note'">
               Today’s date
             </button>
@@ -151,12 +153,14 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
       <div class="field row">
         <div class="field">
           <div class="segmented-control" :data-active="settings.noteSaveMode === 'daily_note' ? 'right' : 'left'">
-            <button type="button" class="segmented-option" :class="{ 'is-active': settings.noteSaveMode === 'single_file' }"
+            <button type="button" class="segmented-option"
+              :class="{ 'is-active': settings.noteSaveMode === 'single_file' }"
               @click="settings.noteSaveMode = 'single_file'">
               Custom filename
             </button>
 
-            <button type="button" class="segmented-option" :class="{ 'is-active': settings.noteSaveMode === 'daily_note' }"
+            <button type="button" class="segmented-option"
+              :class="{ 'is-active': settings.noteSaveMode === 'daily_note' }"
               @click="settings.noteSaveMode = 'daily_note'">
               Today’s date
             </button>
