@@ -144,16 +144,23 @@ function goTask(presetId: string) {
     <div v-else class="grid">
       <div v-for="file in files" :key="file.id" class="glass-button file-card" @click="navigateToFile(file)">
         <div class="file-row">
-          <component :is="getIconForFileType(file.type)" :size="18" class="file-icon" />
+          <div class="file-icon-wrap">
+            <component :is="getIconForFileType(file.type)" :size="18" class="file-icon" />
+          </div>
 
           <div class="file-content">
             <div class="file-title-row">
               <span class="file-title">{{ file.title }}</span>
-              <Pin v-if="file.pinned" :size="16" class="pin-icon" />
+              <Pin v-if="file.pinned" :size="14" class="pin-icon" />
             </div>
 
             <div class="file-preview">
               {{ file.preview }}
+            </div>
+
+            <div class="file-meta">
+              <span class="file-type">{{ file.type }}</span>
+              <span v-if="file.updated" class="file-date">{{ file.updated }}</span>
             </div>
           </div>
         </div>
@@ -166,12 +173,12 @@ function goTask(presetId: string) {
         {{ preset.label }}
       </button>
       <button class="glass-icon-button quick-add-button" @click="go('/list')">
-        <Plus :size="16" />
-        List
+        <Plus :size="12" />
+        View Lists
       </button>
       <button class="glass-icon-button quick-add-button" @click="go('/note')">
-        <Plus :size="16" />
-        Note
+        <Plus :size="12" />
+        Add Note
       </button>
     </div>
   </div>
@@ -240,13 +247,6 @@ h1 {
   white-space: normal;
 }
 
-.pin-icon {
-  flex-shrink: 0;
-  color: var(--primary);
-  margin-left: auto;
-  color: var(--primary);
-}
-
 .empty-state {
   padding: 28px 20px;
   text-align: center;
@@ -311,7 +311,7 @@ h1 {
 }
 
 .quick-add-button {
-  padding: 12px 32px;
+  padding: 12px 42px;
   /* Increased horizontal padding */
   font-size: 0.95rem;
   font-weight: 600;
@@ -319,44 +319,120 @@ h1 {
   align-items: center;
   justify-content: center;
   /* Center content */
-  gap: 6px;
+  gap: 2px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.file-card {
+  padding: 16px 18px;
+  text-align: left;
+  border-radius: 22px;
+  min-height: 108px;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.file-card:active {
+  transform: scale(0.985);
 }
 
 .file-row {
   display: flex;
-  gap: 10px;
   align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+}
+
+.file-icon-wrap {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  border: 1px solid var(--border);
+  margin-top: 2px;
+}
+
+.file-icon {
+  color: var(--text-soft);
 }
 
 .file-content {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: flex-start;
 }
 
 .file-title-row {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .file-title {
-  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.pin-icon {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
 .file-preview {
-  font-size: 0.85rem;
+  margin-top: 4px;
+  font-size: 0.9rem;
+  line-height: 1.4;
   color: var(--text-soft);
-  line-height: 1.3;
+  text-align: left;
 
   display: -webkit-box;
   -webkit-line-clamp: 2;
-  /* show 2 preview lines */
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.file-meta {
+  width: 100%;
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  color: var(--text-soft);
+  opacity: 0.8;
+}
+
+.file-type {
+  text-transform: capitalize;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+.file-date {
+  white-space: nowrap;
+  opacity: 0.9;
 }
 </style>

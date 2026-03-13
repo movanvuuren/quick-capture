@@ -264,6 +264,27 @@ function onDrop(e: DragEvent, idx: number) {
   dragIndex.value = null
 }
 
+function getActiveItems(list: StoredTodoList) {
+  return list.items.filter(
+    item => item.text.trim().length > 0 && item.state !== 'cancelled',
+  )
+}
+
+function getCompletedCount(list: StoredTodoList) {
+  return list.items.filter(
+    item => item.state === 'done' && item.text.trim().length > 0,
+  ).length
+}
+
+function getProgressPercent(list: StoredTodoList) {
+  const active = getActiveItems(list)
+  if (active.length === 0)
+    return 0
+
+  const done = active.filter(item => item.state === 'done').length
+  return Math.round((done / active.length) * 100)
+}
+
 </script>
 
 <template>
@@ -276,7 +297,7 @@ function onDrop(e: DragEvent, idx: number) {
       <div v-if="!currentList">
         <h1>Lists</h1>
         <p class="subtitle">
-          Simple checklists with a cleaner mobile feel
+          Your to-do lists – tap to edit
         </p>
       </div>
       <div v-if="isLoading" class="empty-state">
@@ -305,28 +326,57 @@ function onDrop(e: DragEvent, idx: number) {
 
     <!-- overview of all lists -->
     <template v-if="!currentList">
-      <div v-for="list in sortedLists" :key="list.id" class="list-card summary"
+      <div v-for="list in sortedLists" :key="list.id" class="list-card summary polished-summary"
         @click="router.push(`/list/${list.id}`)">
-        <div class="card-title-row">
-          <!-- title is optional; hide the element if blank -->
-          <div v-if="list.title" class="card-title">
-            {{ list.title }}
+        <div class="summary-row">
+          <div class="summary-icon-wrap">
+            ☰
           </div>
 
-          <!-- show pin only when active; overview has no toggle -->
-          <Pin v-if="list.pinned" :size="18" class="pin-icon" />
-        </div>
+          <div class="summary-content">
+            <div class="summary-title-row">
+              <div class="card-title">
+                {{ list.title || 'Untitled list' }}
+              </div>
+              <Pin v-if="list.pinned" :size="16" class="pin-icon" />
+            </div>
 
-        <!-- preview the first few items (or all) so the user sees the contents -->
-        <ul class="preview-items">
-          <li v-for="(item, j) in list.items" :key="j" class="preview-item" :class="item.state">
-            {{ item.text || '(empty item)' }}
-          </li>
-        </ul>
+            <ul class="preview-items">
+              <li v-for="(item, j) in list.items
+                .filter(item => item.text.trim() && item.state !== 'cancelled')
+                .slice(0, 3)" :key="j" class="preview-item" :class="item.state">
+                <span class="preview-state">
+                  {{ item.state === 'done' ? '✓' : '○' }}
+                </span>
+
+                <span class="preview-text">
+                  {{ item.text }}
+                </span>
+              </li>
+            </ul>
+
+            <div class="summary-progress-block">
+              <div class="summary-progress-label">
+                <span>{{ getCompletedCount(list) }}/{{ getActiveItems(list).length }} done</span>
+                <span>{{ getProgressPercent(list) }}%</span>
+              </div>
+              <div class="summary-progress-track">
+                <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(list)}%` }" />
+              </div>
+            </div>
+
+            <div class="summary-meta">
+              <span class="summary-type">List</span>
+              <span v-if="list.updated" class="summary-date">{{ list.updated }}</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <button class="glass-button glass-button--primary glass-button--block primary-button " @click="addList">
+
+      <button class="glass-button glass-button--primary glass-button--block primary-button" @click="addList">
         + New list
       </button>
+
       <p v-if="saveError" class="subtitle">
         {{ saveError }}
       </p>
@@ -390,6 +440,7 @@ function onDrop(e: DragEvent, idx: number) {
   padding: 20px 16px 32px;
   color: var(--text);
 }
+
 
 .header {
   display: flex;
@@ -480,19 +531,6 @@ function onDrop(e: DragEvent, idx: number) {
   align-items: center;
 }
 
-.preview-items {
-  margin: 8px 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: 0.9rem;
-  color: var(--text-soft);
-}
-
-.preview-item {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .card-title-row {
   display: flex;
@@ -570,5 +608,168 @@ function onDrop(e: DragEvent, idx: number) {
   .header-buttons {
     flex-shrink: 0;
   }
+}
+
+.polished-summary {
+  padding: 16px 18px;
+  min-height: 108px;
+  cursor: pointer;
+}
+
+.summary-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+}
+
+.summary-icon-wrap {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.summary-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.summary-title-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.card-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pin-icon {
+  flex-shrink: 0;
+  color: var(--primary);
+}
+
+.preview-items {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  width: 100%;
+}
+
+.preview-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--text-soft);
+  text-align: left;
+}
+
+.preview-state {
+  width: 16px;
+  flex-shrink: 0;
+  text-align: center;
+  opacity: 0.9;
+}
+
+.preview-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+.preview-item.done .preview-text {
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+
+.preview-item.cancelled .preview-text {
+  opacity: 0.55;
+}
+
+.summary-progress-block {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.summary-progress-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 0.74rem;
+  color: var(--text-soft);
+}
+
+.summary-progress-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 85%, black 15%);
+  overflow: hidden;
+}
+
+.summary-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+  background: var(--primary);
+}
+
+.summary-progress-fill[style*="100%"] {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+  background: #22c55e;
+}
+
+.summary-meta {
+  width: 100%;
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.74rem;
+  color: var(--text-soft);
+}
+
+.summary-type {
+  text-transform: capitalize;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+}
+
+.summary-date {
+  white-space: nowrap;
+  opacity: 0.9;
 }
 </style>
