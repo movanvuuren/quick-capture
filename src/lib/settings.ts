@@ -87,7 +87,9 @@ export function loadSettings(): AppSettings {
     return {
       baseFolderUri: parsed.baseFolderUri?.trim() || undefined,
       baseFolderName: parsed.baseFolderName?.trim() || undefined,
-      theme: parsed.theme === 'dark' ? 'dark' : 'light',
+      theme: ['light', 'dark', 'dim'].includes(parsed.theme as any)
+        ? (parsed.theme as Theme)
+        : defaultSettings.theme,
       listSaveMode: parsed.listSaveMode === 'daily_note' ? 'daily_note' : 'single_file',
       listFileName: parsed.listFileName?.trim() || defaultSettings.listFileName,
       noteSaveMode: parsed.noteSaveMode === 'daily_note' ? 'daily_note' : 'single_file',

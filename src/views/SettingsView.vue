@@ -1,57 +1,46 @@
 <script setup lang="ts">
-import type { QuickTaskPreset, SaveMode, Theme } from '../lib/settings'
 import { Moon, Sparkles, Sun, Trash } from 'lucide-vue-next'
-import { ref, watch } from 'vue'
+import { reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  applyTheme,
-  loadSettings,
-
-  resetSettings,
-
-  saveSettings,
-
-} from '../lib/settings'
+import { applyTheme, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 
 const router = useRouter()
 
-const settings = loadSettings()
+// A single reactive object for all settings, loaded from storage.
+const settings = reactive(loadSettings())
 
-const baseFolderUri = ref<string | undefined>(settings.baseFolderUri)
-const baseFolderName = ref<string | undefined>(settings.baseFolderName)
-const theme = ref<Theme>(settings.theme)
-
-// apply immediately and whenever the theme value changes
-applyTheme(theme.value)
-watch(theme, (t) => {
-  console.log('theme changed to', t)
-  applyTheme(t)
-})
-const listSaveMode = ref<SaveMode>(settings.listSaveMode)
-const listFileName = ref<string | undefined>(settings.listFileName)
-const noteSaveMode = ref<SaveMode>(settings.noteSaveMode)
-const noteFileName = ref<string | undefined>(settings.noteFileName)
-
-const presets = ref<QuickTaskPreset[]>(
-  settings.quickTaskPresets.map(preset => ({ ...preset })),
+// Watch for any deep change in the settings object and save automatically.
+watch(
+  settings,
+  (newSettings) => {
+    // The watcher gives us a readonly proxy, so we convert it back to a plain
+    // object to ensure it can be serialized by saveSettings.
+    saveSettings(JSON.parse(JSON.stringify(newSettings)))
+  },
+  { deep: true },
 )
+
+// Also watch the theme specifically to apply it to the document.
+watch(
+  () => settings.theme,
+  (newTheme) => {
+    applyTheme(newTheme)
+  },
+)
+
+// Apply the initial theme when the component loads.
+applyTheme(settings.theme)
 
 function goBack() {
   router.back()
 }
 
-// toggleTheme now mutates the reactive 'theme' ref from toRefs
-function setTheme(next: Theme) {
-  theme.value = next
-  applyTheme(next)
-}
-
 async function pickBaseFolder() {
   try {
     const result = await FolderPicker.pickFolder()
-    baseFolderUri.value = result.uri
-    baseFolderName.value = result.name
+    settings.baseFolderUri = result.uri
+    settings.baseFolderName = result.name
   }
   catch (error) {
     console.error(error)
@@ -59,72 +48,21 @@ async function pickBaseFolder() {
 }
 
 function addPreset() {
-  presets.value.push({
+  settings.quickTaskPresets.push({
     id: crypto.randomUUID(),
     label: '',
     tag: '',
-    saveMode: listSaveMode.value,
-    fileName: listFileName.value || 'tasks.md',
+    saveMode: settings.listSaveMode,
+    fileName: settings.listFileName || 'tasks.md',
   })
 }
 
 function removePreset(id: string) {
-  if (presets.value.length === 1)
+  if (settings.quickTaskPresets.length === 1)
     return
-  presets.value = presets.value.filter(preset => preset.id !== id)
-}
-
-function handleSave() {
-  const current = loadSettings()
-
-  const cleaned = presets.value
-    .map((preset) => {
-      const mode: SaveMode
-        = preset.saveMode === 'daily_note' ? 'daily_note' : 'single_file'
-
-      return {
-        ...preset,
-        label: preset.label.trim(),
-        tag: preset.tag.trim(),
-        saveMode: mode,
-        fileName: preset.fileName?.trim() || undefined,
-      }
-    })
-    .filter(preset => preset.label.length > 0)
-
-  saveSettings({
-    baseFolderUri: baseFolderUri.value,
-    baseFolderName: baseFolderName.value,
-    theme: theme.value,
-
-    listSaveMode: listSaveMode.value,
-    listFileName:
-      listSaveMode.value === 'daily_note'
-        ? current.listFileName
-        : listFileName.value?.trim() || current.listFileName,
-
-    noteSaveMode: noteSaveMode.value,
-    noteFileName:
-      noteSaveMode.value === 'daily_note'
-        ? current.noteFileName
-        : noteFileName.value?.trim() || current.noteFileName,
-
-    quickTaskPresets: cleaned.length > 0 ? cleaned : current.quickTaskPresets,
-  })
-
-  router.push('/')
-}
-
-function handleReset() {
-  const reset = resetSettings()
-  baseFolderUri.value = reset.baseFolderUri
-  baseFolderName.value = reset.baseFolderName
-  theme.value = reset.theme
-  listSaveMode.value = reset.listSaveMode
-  listFileName.value = reset.listFileName
-  noteSaveMode.value = reset.noteSaveMode
-  noteFileName.value = reset.noteFileName
-  presets.value = reset.quickTaskPresets.map(preset => ({ ...preset }))
+  const index = settings.quickTaskPresets.findIndex(p => p.id === id)
+  if (index > -1)
+    settings.quickTaskPresets.splice(index, 1)
 }
 </script>
 
@@ -138,7 +76,7 @@ function handleReset() {
       <div>
         <h1>Settings</h1>
         <p class="subtitle">
-          Choose folder and filenames, plus quick task presets
+          Your changes are saved automatically
         </p>
       </div>
     </div>
@@ -150,8 +88,8 @@ function handleReset() {
         <button class="glass-button folder-button" type="button" @click="pickBaseFolder">
           Select folder
         </button>
-        <p v-if="baseFolderName" class="hint">
-          {{ baseFolderName }}
+        <p v-if="settings.baseFolderName" class="hint">
+          {{ settings.baseFolderName }}
         </p>
         <p v-else class="hint">
           No folder selected
@@ -164,19 +102,19 @@ function handleReset() {
       <h2 class="card-title">
         Appearance
       </h2>
-      <div class="theme-switcher" :data-active="theme">
-        <button class="theme-option" :class="{ 'is-active': theme === 'light' }" aria-label="Light theme"
-          @click="setTheme('light')">
+      <div class="theme-switcher" :data-active="settings.theme">
+        <button class="theme-option" :class="{ 'is-active': settings.theme === 'light' }" aria-label="Light theme"
+          @click="settings.theme = 'light'">
           <Sun />
         </button>
 
-        <button class="theme-option" :class="{ 'is-active': theme === 'dark' }" aria-label="Dark theme"
-          @click="setTheme('dark')">
+        <button class="theme-option" :class="{ 'is-active': settings.theme === 'dark' }" aria-label="Dark theme"
+          @click="settings.theme = 'dark'">
           <Moon />
         </button>
 
-        <button class="theme-option" :class="{ 'is-active': theme === 'dim' }" aria-label="Dim theme"
-          @click="setTheme('dim')">
+        <button class="theme-option" :class="{ 'is-active': settings.theme === 'dim' }" aria-label="Dim theme"
+          @click="settings.theme = 'dim'">
           <Sparkles />
         </button>
       </div>
@@ -189,20 +127,21 @@ function handleReset() {
       </h2>
       <div class="field row">
         <div class="field">
-          <div class="segmented-control" :data-active="listSaveMode === 'daily_note' ? 'right' : 'left'">
-            <button type="button" class="segmented-option" :class="{ 'is-active': listSaveMode === 'single_file' }"
-              @click="listSaveMode = 'single_file'">
+          <div class="segmented-control" :data-active="settings.listSaveMode === 'daily_note' ? 'right' : 'left'">
+            <button type="button" class="segmented-option" :class="{ 'is-active': settings.listSaveMode === 'single_file' }"
+              @click="settings.listSaveMode = 'single_file'">
               Custom filename
             </button>
 
-            <button type="button" class="segmented-option" :class="{ 'is-active': listSaveMode === 'daily_note' }"
-              @click="listSaveMode = 'daily_note'">
+            <button type="button" class="segmented-option" :class="{ 'is-active': settings.listSaveMode === 'daily_note' }"
+              @click="settings.listSaveMode = 'daily_note'">
               Today’s date
             </button>
           </div>
         </div>
 
-        <input v-model="listFileName" type="text" placeholder="tasks.md" :disabled="listSaveMode === 'daily_note'">
+        <input v-model="settings.listFileName" type="text" placeholder="tasks.md"
+          :disabled="settings.listSaveMode === 'daily_note'">
       </div>
     </div>
 
@@ -213,27 +152,28 @@ function handleReset() {
       </h2>
       <div class="field row">
         <div class="field">
-          <div class="segmented-control" :data-active="noteSaveMode === 'daily_note' ? 'right' : 'left'">
-            <button type="button" class="segmented-option" :class="{ 'is-active': noteSaveMode === 'single_file' }"
-              @click="noteSaveMode = 'single_file'">
+          <div class="segmented-control" :data-active="settings.noteSaveMode === 'daily_note' ? 'right' : 'left'">
+            <button type="button" class="segmented-option" :class="{ 'is-active': settings.noteSaveMode === 'single_file' }"
+              @click="settings.noteSaveMode = 'single_file'">
               Custom filename
             </button>
 
-            <button type="button" class="segmented-option" :class="{ 'is-active': noteSaveMode === 'daily_note' }"
-              @click="noteSaveMode = 'daily_note'">
+            <button type="button" class="segmented-option" :class="{ 'is-active': settings.noteSaveMode === 'daily_note' }"
+              @click="settings.noteSaveMode = 'daily_note'">
               Today’s date
             </button>
           </div>
 
-          <input v-model="noteFileName" type="text" placeholder="notes.md" :disabled="noteSaveMode === 'daily_note'">
+          <input v-model="settings.noteFileName" type="text" placeholder="notes.md"
+            :disabled="settings.noteSaveMode === 'daily_note'">
         </div>
       </div>
     </div>
 
-    <div v-for="(preset, index) in presets" :key="preset.id" class="card">
+    <div v-for="(preset, index) in settings.quickTaskPresets" :key="preset.id" class="card">
       <div class="card-header">
         <h2>Task {{ index + 1 }}</h2>
-        <button class="glass-icon-button remove-button" :disabled="presets.length === 1"
+        <button class="glass-icon-button remove-button" :disabled="settings.quickTaskPresets.length === 1"
           @click="removePreset(preset.id)">
           <Trash />
         </button>
@@ -275,15 +215,6 @@ function handleReset() {
     <button class="glass-button glass-button--block glass-button--secondary add-button" @click="addPreset">
       + Add Task
     </button>
-
-    <div class="actions">
-      <button class="glass-button glass-button--secondary secondary-button" @click="handleReset">
-        Reset
-      </button>
-      <button class="glass-button glass-button--primary primary-button" @click="handleSave">
-        Save
-      </button>
-    </div>
   </div>
 </template>
 

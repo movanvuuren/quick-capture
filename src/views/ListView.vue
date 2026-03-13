@@ -1,17 +1,43 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
-import type { TodoList, TodoState } from '../lib/lists'
 import { GripVertical, Pin, PinOff, Trash } from 'lucide-vue-next'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { loadLists, saveLists } from '../lib/lists'
+import { loadSettings } from '../lib/settings'
+import { createListFile, deleteListFile, loadListsFromFolder, saveListToFile } from '../lib/listFiles'
+import type { StoredTodoList, TodoState, TodoList } from '../lib/lists'
+
 
 const router = useRouter()
 const route = useRoute()
 
 const listId = computed(() => (route.params.id as string) || undefined)
-const lists = ref<TodoList[]>(loadLists())
+const lists = ref<StoredTodoList[]>([])
+const isLoading = ref(true)
+const saveError = ref('')
 // watch sortedLists mainly for view purposes but we still save underlying lists
+
+
+const settings = loadSettings()
+const baseFolderUri = computed(() => settings.baseFolderUri || '') // replace with your settings source
+
+onMounted(async () => {
+  if (!baseFolderUri.value) {
+    isLoading.value = false
+    return
+  }
+
+  try {
+    lists.value = await loadListsFromFolder(baseFolderUri.value)
+  }
+  catch (err) {
+    console.error('Failed to load lists', err)
+  }
+  finally {
+    isLoading.value = false
+  }
+})
+
 
 // maintain a sorted view where pinned lists appear first
 const sortedLists = computed(() => {
@@ -68,18 +94,83 @@ watch(currentList, (list) => {
   }
 })
 
-watch(
-  lists,
-  () => {
-    saveLists(lists.value)
-  },
-  { deep: true },
-)
 
-// helper to toggle pin state
-function togglePin(list: TodoList) {
-  list.pinned = !list.pinned
+const saveTimers = new Map<string, number>()
+
+function queueSave(list: StoredTodoList) {
+  const existing = saveTimers.get(list.id)
+  if (existing)
+    window.clearTimeout(existing)
+
+  const timer = window.setTimeout(async () => {
+    try {
+      const saved = await saveListToFile(baseFolderUri.value, list)
+      const idx = lists.value.findIndex(l => l.id === list.id)
+      if (idx !== -1)
+        lists.value[idx] = saved
+    }
+    catch (err) {
+      console.error('Failed to save list', list.title, err)
+      saveError.value = `Failed to save "${list.title || 'Untitled List'}"`
+    }
+    finally {
+      saveTimers.delete(list.id)
+    }
+  }, 400)
+
+  saveTimers.set(list.id, timer)
 }
+
+function togglePin(list: StoredTodoList) {
+  list.pinned = !list.pinned
+  queueSave(list)
+}
+
+function addItem(list: StoredTodoList) {
+  list.items.push({ text: '', state: 'pending' })
+  queueSave(list)
+}
+
+function removeItem(list: StoredTodoList, idx: number) {
+  list.items.splice(idx, 1)
+  if (list.items.length === 0)
+    list.items.push({ text: '', state: 'pending' })
+
+  queueSave(list)
+}
+
+function cycleState(list: StoredTodoList, idx: number) {
+  const item = list.items[idx]
+  if (!item)
+    return
+
+  const order: TodoState[] = ['pending', 'done', 'cancelled']
+  const curIndex = order.indexOf(item.state)
+  const next = order[(curIndex + 1) % order.length] as TodoState
+  item.state = next
+
+  list.items.splice(idx, 1)
+  if (next === 'pending')
+    list.items.unshift(item)
+  else
+    list.items.push(item)
+
+  queueSave(list)
+}
+// watch(
+//   lists,
+//   () => {
+//     saveLists(lists.value)
+//   },
+//   { deep: true },
+// )
+watch(
+  () => currentList.value?.title,
+  () => {
+    if (currentList.value)
+      queueSave(currentList.value)
+  },
+)
 
 function goBack() {
   // if we're viewing a specific list return to overview;
@@ -92,27 +183,42 @@ function goBack() {
   }
 }
 
-function addList() {
-  const newList: TodoList = {
+async function addList() {
+  if (!baseFolderUri.value) {
+    router.push('/settings')
+    return
+  }
+
+  const newList = await createListFile(baseFolderUri.value, {
     id: crypto.randomUUID(),
     title: '',
     items: [{ text: '', state: 'pending' }],
     pinned: false,
-  }
+    type: 'list',
+  })
+
   lists.value.push(newList)
   router.push(`/list/${newList.id}`)
 }
 
-function removeList(id: string) {
+async function removeList(id: string) {
+  const list = lists.value.find(l => l.id === id)
+  if (!list)
+    return
+
   const wasCurrent = id === listId.value
-  lists.value = lists.value.filter(l => l.id !== id)
-  if (wasCurrent)
-    router.push('/list')
+
+  try {
+    await deleteListFile(baseFolderUri.value, list)
+    lists.value = lists.value.filter(l => l.id !== id)
+    if (wasCurrent)
+      router.push('/list')
+  }
+  catch (err) {
+    console.error('Failed to delete list', err)
+  }
 }
 
-function addItem(list: TodoList) {
-  list.items.push({ text: '', state: 'pending' })
-}
 
 function addItemAt(list: TodoList, idx: number) {
   list.items.splice(idx + 1, 0, { text: '', state: 'pending' })
@@ -123,30 +229,12 @@ function addItemAt(list: TodoList, idx: number) {
   })
 }
 
-function removeItem(list: TodoList, idx: number) {
-  list.items.splice(idx, 1)
-  if (list.items.length === 0) {
-    list.items.push({ text: '', state: 'pending' })
-  }
-}
-
-function cycleState(list: TodoList, idx: number) {
-  const item = list.items[idx]
+function moveItem(list: StoredTodoList, from: number, to: number) {
+  const item = list.items.splice(from, 1)[0]
   if (!item)
     return
-
-  const order: TodoState[] = ['pending', 'done', 'cancelled']
-  const curIndex = order.indexOf(item.state)
-  const next = order[(curIndex + 1) % order.length] as TodoState
-  item.state = next
-
-  list.items.splice(idx, 1)
-  if (next === 'pending') {
-    list.items.unshift(item)
-  }
-  else {
-    list.items.push(item)
-  }
+  list.items.splice(to, 0, item)
+  queueSave(list)
 }
 
 // drag & drop support ------------------------------------------------
@@ -176,12 +264,6 @@ function onDrop(e: DragEvent, idx: number) {
   dragIndex.value = null
 }
 
-function moveItem(list: TodoList, from: number, to: number) {
-  const item = list.items.splice(from, 1)[0]
-  if (!item)
-    return
-  list.items.splice(to, 0, item)
-}
 </script>
 
 <template>
@@ -197,9 +279,12 @@ function moveItem(list: TodoList, from: number, to: number) {
           Simple checklists with a cleaner mobile feel
         </p>
       </div>
-
-      <div v-else class="detail-header">
-        <input v-model="currentList.title" placeholder="Title" class="header-title">
+      <div v-if="isLoading" class="empty-state">
+        <p class="empty-title">Loading lists…</p>
+      </div>
+      <div v-else-if="currentList" class="detail-header">
+        <input v-model="currentList.title" placeholder="Title" class="header-title"
+          @input="currentList && queueSave(currentList)">
       </div>
     </div>
 
@@ -242,6 +327,9 @@ function moveItem(list: TodoList, from: number, to: number) {
       <button class="glass-button glass-button--primary glass-button--block primary-button " @click="addList">
         + New list
       </button>
+      <p v-if="saveError" class="subtitle">
+        {{ saveError }}
+      </p>
     </template>
 
     <!-- detail for a single list -->
@@ -279,7 +367,8 @@ function moveItem(list: TodoList, from: number, to: number) {
             </button>
 
             <input :ref="el => setInputRef(i, el as HTMLInputElement | null)" v-model="item.text"
-              placeholder="To-do item" class="item-input" @keydown.enter.prevent="addItemAt(currentList, i)">
+              placeholder="To-do item" class="item-input" @input="queueSave(currentList)"
+              @keydown.enter.prevent="addItemAt(currentList, i)">
 
             <button class="glass-icon-button" aria-label="Remove item" @click="removeItem(currentList, i)">
               ×
