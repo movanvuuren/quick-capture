@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
+import { parseFrontmatter } from '../lib/lists'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 
@@ -26,6 +27,7 @@ interface QuickTaskItem {
 }
 
 const router = useRouter()
+const route = useRoute()
 const settings = loadSettings()
 
 const isLoading = ref(true)
@@ -36,6 +38,9 @@ const tasks = ref<QuickTaskItem[]>([])
 const newTaskText = ref('')
 const newDueDate = ref('')
 const selectedPresetId = ref(settings.quickTaskPresets[0]?.id || '')
+const editingTaskId = ref<string | null>(null)
+const editingTaskText = ref('')
+const editingDueDateTaskId = ref<string | null>(null)
 
 const selectedPreset = computed(() =>
   settings.quickTaskPresets.find(preset => preset.id === selectedPresetId.value),
@@ -68,16 +73,23 @@ const sortedTasks = computed(() => {
   })
 })
 
+const visibleTasks = computed(() => {
+  if (!selectedPresetId.value)
+    return sortedTasks.value
+
+  return sortedTasks.value.filter(task => task.presetId === selectedPresetId.value)
+})
+
 const taskCounts = computed(() => {
-  const pending = tasks.value.filter(task => task.state === 'pending').length
-  const done = tasks.value.filter(task => task.state === 'done').length
-  const cancelled = tasks.value.filter(task => task.state === 'cancelled').length
+  const pending = visibleTasks.value.filter(task => task.state === 'pending').length
+  const done = visibleTasks.value.filter(task => task.state === 'done').length
+  const cancelled = visibleTasks.value.filter(task => task.state === 'cancelled').length
 
   return {
     pending,
     done,
     cancelled,
-    total: tasks.value.length,
+    total: visibleTasks.value.length,
   }
 })
 
@@ -215,7 +227,12 @@ function cycleState(state: TaskState): TaskState {
   return 'pending'
 }
 
-async function updateTaskInFile(task: QuickTaskItem, nextState: TaskState, nextDueDate?: string) {
+async function updateTaskInFile(
+  task: QuickTaskItem,
+  nextState: TaskState,
+  nextDueDate?: string,
+  nextBody?: string,
+) {
   if (!settings.baseFolderUri)
     return
 
@@ -228,7 +245,7 @@ async function updateTaskInFile(task: QuickTaskItem, nextState: TaskState, nextD
   if (task.lineIndex < 0 || task.lineIndex >= lines.length)
     return
 
-  lines[task.lineIndex] = serializeTaskLine(nextState, task.body, nextDueDate)
+  lines[task.lineIndex] = serializeTaskLine(nextState, nextBody ?? task.body, nextDueDate)
 
   await FolderPicker.writeFile({
     folderUri: settings.baseFolderUri,
@@ -281,6 +298,63 @@ async function changeDueDate(task: QuickTaskItem, dueDate: string) {
   }
 }
 
+function showDueDateEditor(task: QuickTaskItem) {
+  editingDueDateTaskId.value = task.id
+}
+
+function hideDueDateEditor(task: QuickTaskItem) {
+  if (!task.dueDate)
+    editingDueDateTaskId.value = null
+}
+
+function displayTaskBody(task: QuickTaskItem): string {
+  return task.body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, '').trim()
+}
+
+function startEditTask(task: QuickTaskItem) {
+  editingTaskId.value = task.id
+  editingTaskText.value = displayTaskBody(task)
+}
+
+function cancelEditTask() {
+  editingTaskId.value = null
+  editingTaskText.value = ''
+}
+
+async function saveTaskText(task: QuickTaskItem) {
+  const trimmed = editingTaskText.value.trim()
+  if (!trimmed) {
+    cancelEditTask()
+    return
+  }
+
+  if (isSaving.value)
+    return
+
+  isSaving.value = true
+  const previousBody = task.body
+
+  const existingTag = selectedPreset.value?.tag?.trim()
+  const nextBody = existingTag && !trimmed.includes(existingTag)
+    ? `${existingTag} ${trimmed}`.trim()
+    : trimmed
+
+  task.body = nextBody
+
+  try {
+    await updateTaskInFile(task, task.state, task.dueDate, nextBody)
+    cancelEditTask()
+  }
+  catch (err) {
+    task.body = previousBody
+    console.error('Failed to update task text', err)
+    error.value = 'Could not update task text.'
+  }
+  finally {
+    isSaving.value = false
+  }
+}
+
 function getTargetFileName(preset: QuickTaskPreset): string {
   if (preset.saveMode === 'daily_note')
     return `${todayIso()}.md`
@@ -302,10 +376,36 @@ async function addQuickTask() {
   const line = `- [ ] ${tagPart}${newTaskText.value.trim()}${duePart}`
 
   try {
-    await FolderPicker.appendToFile({
+    let existingContent = ''
+    try {
+      const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName })
+      existingContent = read.content
+    }
+    catch {
+      // File doesn't exist yet
+    }
+
+    let newContent: string
+    if (!existingContent) {
+      // New file — write with proper type:task frontmatter
+      newContent = `---\ntype: task\n---\n\n${line}\n`
+    }
+    else {
+      const fm = parseFrontmatter(existingContent)
+      if (!fm.type) {
+        // Existing file without frontmatter — prepend type:task
+        newContent = `---\ntype: task\n---\n\n${existingContent.trimStart()}${line}\n`
+      }
+      else {
+        // File already has frontmatter — just append the task line
+        newContent = `${existingContent.trimEnd()}\n${line}\n`
+      }
+    }
+
+    await FolderPicker.writeFile({
       folderUri: settings.baseFolderUri,
       fileName,
-      content: `${line}\n`,
+      content: newContent,
     })
 
     newTaskText.value = ''
@@ -322,6 +422,13 @@ async function addQuickTask() {
 }
 
 onMounted(async () => {
+  const presetFromQuery = route.query.preset
+  if (typeof presetFromQuery === 'string') {
+    const exists = settings.quickTaskPresets.some(preset => preset.id === presetFromQuery)
+    if (exists)
+      selectedPresetId.value = presetFromQuery
+  }
+
   await loadQuickTasks()
 })
 </script>
@@ -371,29 +478,37 @@ onMounted(async () => {
       {{ error }}
     </div>
 
-    <div v-else-if="sortedTasks.length === 0" class="card glass-card empty-state">
+    <div v-else-if="visibleTasks.length === 0" class="card glass-card empty-state">
       No quick-preset tasks found yet.
     </div>
 
     <div v-else class="task-list">
-      <div v-for="task in sortedTasks" :key="task.id" class="card glass-card task-row" :class="task.state">
+      <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row" :class="task.state">
         <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
           @click="toggleTaskState(task)">
           {{ task.state === 'done' ? '✓' : task.state === 'cancelled' ? '–' : '○' }}
         </button>
 
         <div class="task-content">
-          <div class="task-main">
-            {{ task.body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, '').trim() }}
-          </div>
+          <input v-if="editingTaskId === task.id" v-model="editingTaskText" class="glass-input task-main-edit"
+            type="text" @keydown.enter.prevent="saveTaskText(task)" @keydown.esc.prevent="cancelEditTask"
+            @blur="saveTaskText(task)">
+          <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
+            {{ displayTaskBody(task) }}
+          </button>
           <div class="task-meta">
             <span>{{ task.presetLabel || 'Preset' }}</span>
             <span>{{ task.fileName }}</span>
           </div>
         </div>
 
-        <input class="glass-input inline-date" type="date" :value="task.dueDate || ''"
-          @change="changeDueDate(task, ($event.target as HTMLInputElement).value)">
+        <input v-if="task.dueDate || editingDueDateTaskId === task.id" class="glass-input inline-date" type="date"
+          :value="task.dueDate || ''" @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
+          @blur="hideDueDateEditor(task)">
+        <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
+          @click="showDueDateEditor(task)">
+          Add date
+        </button>
       </div>
     </div>
   </div>
@@ -534,6 +649,20 @@ h1 {
   word-break: break-word;
 }
 
+.task-main-button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  width: 100%;
+  cursor: text;
+}
+
+.task-main-edit {
+  width: 100%;
+}
+
 .task-row.done .task-main {
   text-decoration: line-through;
   opacity: 0.8;
@@ -554,6 +683,14 @@ h1 {
 
 .inline-date {
   width: 146px;
+}
+
+.add-date-button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 @media (max-width: 860px) {

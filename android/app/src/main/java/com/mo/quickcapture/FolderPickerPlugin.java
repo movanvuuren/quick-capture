@@ -11,10 +11,14 @@ import androidx.activity.result.ActivityResult;
 import androidx.documentfile.provider.DocumentFile;
 import android.os.ParcelFileDescriptor;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -24,6 +28,15 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 
 @CapacitorPlugin(name = "FolderPicker")
 public class FolderPickerPlugin extends Plugin {
+
+    private DocumentFile resolveTree(String folderUriStr) {
+        Uri treeUri = Uri.parse(folderUriStr);
+        DocumentFile tree = DocumentFile.fromTreeUri(getContext(), treeUri);
+        if (tree == null || !tree.isDirectory()) {
+            return null;
+        }
+        return tree;
+    }
 
     @PluginMethod
     public void pickFolder(PluginCall call) {
@@ -100,9 +113,8 @@ public class FolderPickerPlugin extends Plugin {
     }
 
     private void writeInternal(String folderUriStr, String fileName, String content, boolean append, PluginCall call) {
-        Uri treeUri = Uri.parse(folderUriStr);
-        DocumentFile tree = DocumentFile.fromTreeUri(getContext(), treeUri);
-        if (tree == null || !tree.isDirectory()) {
+        DocumentFile tree = resolveTree(folderUriStr);
+        if (tree == null) {
             call.reject("Invalid folder URI");
             return;
         }
@@ -136,6 +148,122 @@ public class FolderPickerPlugin extends Plugin {
         } catch (IOException e) {
             Log.e("FolderPickerPlugin", "Error writing to file", e);
             call.reject("Write failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void listFiles(PluginCall call) {
+        String folderUriStr = call.getString("folderUri");
+        if (folderUriStr == null) {
+            call.reject("Missing required parameters");
+            return;
+        }
+
+        DocumentFile tree = resolveTree(folderUriStr);
+        if (tree == null) {
+            call.reject("Invalid folder URI");
+            return;
+        }
+
+        try {
+            JSArray files = new JSArray();
+            for (DocumentFile child : tree.listFiles()) {
+                if (child == null || child.getName() == null) {
+                    continue;
+                }
+                JSObject entry = new JSObject();
+                entry.put("name", child.getName());
+                entry.put("isFile", child.isFile());
+                files.put(entry);
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("files", files);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("List files failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void readFile(PluginCall call) {
+        String folderUriStr = call.getString("folderUri");
+        String fileName = call.getString("fileName");
+
+        if (folderUriStr == null || fileName == null) {
+            call.reject("Missing required parameters");
+            return;
+        }
+
+        DocumentFile tree = resolveTree(folderUriStr);
+        if (tree == null) {
+            call.reject("Invalid folder URI");
+            return;
+        }
+
+        DocumentFile file = tree.findFile(fileName);
+        if (file == null || !file.isFile()) {
+            call.reject("File not found");
+            return;
+        }
+
+        try (InputStream input = getContext().getContentResolver().openInputStream(file.getUri())) {
+            if (input == null) {
+                call.reject("Unable to open file");
+                return;
+            }
+
+            BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+            StringBuilder content = new StringBuilder();
+            String line;
+            boolean first = true;
+            while ((line = reader.readLine()) != null) {
+                if (!first) {
+                    content.append('\n');
+                }
+                content.append(line);
+                first = false;
+            }
+
+            JSObject ret = new JSObject();
+            ret.put("content", content.toString());
+            call.resolve(ret);
+        } catch (IOException e) {
+            call.reject("Read failed: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
+    public void deleteFile(PluginCall call) {
+        String folderUriStr = call.getString("folderUri");
+        String fileName = call.getString("fileName");
+
+        if (folderUriStr == null || fileName == null) {
+            call.reject("Missing required parameters");
+            return;
+        }
+
+        DocumentFile tree = resolveTree(folderUriStr);
+        if (tree == null) {
+            call.reject("Invalid folder URI");
+            return;
+        }
+
+        DocumentFile file = tree.findFile(fileName);
+        if (file == null || !file.isFile()) {
+            call.reject("File not found");
+            return;
+        }
+
+        try {
+            boolean deleted = file.delete();
+            if (!deleted) {
+                call.reject("Delete failed");
+                return;
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Delete failed: " + e.getMessage());
         }
     }
 }

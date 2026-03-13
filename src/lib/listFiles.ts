@@ -1,6 +1,7 @@
 import type { TodoList, StoredTodoList, Note, StoredNote } from './lists'
 import { FolderPicker } from '../plugins/folder-picker'
 import {
+  buildFrontmatter,
   coerceBoolean,
   formatDate,
   getListFileName,
@@ -306,13 +307,32 @@ export async function saveNoteToFile(
 ): Promise<StoredNote> {
   const updated = formatDate()
 
+  // Preserve the existing file's type so editing a task/list file in NoteView
+  // doesn't accidentally reclassify it as a note.
+  let preservedType = 'note'
+  try {
+    const existing = await FolderPicker.readFile({ folderUri, fileName: note.fileName })
+    const existingFm = parseFrontmatter(existing.content)
+    if (existingFm.type)
+      preservedType = existingFm.type as string
+  }
+  catch {
+    // New file — default to note
+  }
+
+  const created = note.created || formatDate()
+  const frontmatter = buildFrontmatter({
+    type: preservedType,
+    id: note.id,
+    created,
+    updated,
+    pinned: !!note.pinned,
+  })
+
   await FolderPicker.writeFile({
     folderUri,
     fileName: note.fileName,
-    content: noteToMarkdown({
-      ...note,
-      updated,
-    }),
+    content: `${frontmatter}\n\n${note.content}`,
   })
 
   return {

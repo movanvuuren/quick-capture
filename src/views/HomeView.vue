@@ -152,8 +152,49 @@ function openList(fileName: string) {
   router.push(`/list/${encodeURIComponent(fileName)}`)
 }
 
-function openTaskList(fileName: string) {
-  router.push(`/task-list/${encodeURIComponent(fileName)}`)
+function inferTaskPresetId(task: StoredTodoList): string | undefined {
+  const nonEmptyItems = task.items.filter(item => item.text.trim().length > 0)
+
+  // Prefer explicit tag matches in task text.
+  const tagMatches = settings.quickTaskPresets
+    .map((preset) => {
+      const tag = preset.tag?.trim()
+      if (!tag)
+        return { preset, count: 0 }
+
+      const count = nonEmptyItems.filter(item => item.text.includes(tag)).length
+      return { preset, count }
+    })
+    .filter(match => match.count > 0)
+    .sort((a, b) => b.count - a.count)
+
+  if (tagMatches.length === 1)
+    return tagMatches[0]?.preset.id
+
+  // Fallback: match preset by single-file filename.
+  const fileNameMatches = settings.quickTaskPresets.filter((preset) => {
+    if (preset.saveMode !== 'single_file')
+      return false
+
+    const presetFile = preset.fileName || settings.listFileName || 'tasks.md'
+    return presetFile === task.fileName
+  })
+
+  if (fileNameMatches.length === 1)
+    return fileNameMatches[0]?.id
+
+  return undefined
+}
+
+function openQuickTasks(task: StoredTodoList) {
+  const presetId = inferTaskPresetId(task)
+
+  if (presetId) {
+    router.push({ path: '/tasks', query: { preset: presetId } })
+    return
+  }
+
+  router.push('/tasks')
 }
 
 function openNote(fileName: string) {
@@ -167,7 +208,7 @@ function openCard(card: DashboardCard) {
   }
 
   if (card.kind === 'task') {
-    openTaskList(card.item.fileName)
+    openQuickTasks(card.item)
     return
   }
 
