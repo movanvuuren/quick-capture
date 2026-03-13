@@ -84,8 +84,8 @@ watch(listId, () => {
 })
 
 // when we navigate to a specific list, focus its first input so user sees an editable field
-watch(currentList, (list) => {
-  if (list) {
+watch(listId, (id) => {
+  if (id) {
     nextTick(() => {
       const el = ensureInputs()[0]
       if (el)

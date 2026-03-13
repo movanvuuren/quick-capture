@@ -1,19 +1,27 @@
 <script setup lang="ts">
 import Editor from '@toast-ui/editor'
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
+import { stripFrontmatter } from '../lib/lists'
+import { createNoteFile, saveNoteToFile } from '../lib/listFiles'
 import '@toast-ui/editor/dist/toastui-editor.css'
 import '@toast-ui/editor/dist/theme/toastui-editor-dark.css'
 
 const router = useRouter()
+const route = useRoute()
 const settings = loadSettings()
+
+const noteId = computed(() => route.params.id as string | undefined)
 
 const editorElement = ref<HTMLElement | null>(null)
 let editorInstance: any = null
 
 function initEditor(theme: 'light' | 'dark' | 'dim', initialValue = '') {
+  if (editorInstance)
+    destroyEditor()
+
   if (editorElement.value) {
     editorInstance = new Editor({
       el: editorElement.value,
@@ -34,8 +42,22 @@ function destroyEditor() {
   }
 }
 
-onMounted(() => {
-  initEditor(settings.theme)
+onMounted(async () => {
+  let initialContent = ''
+  if (noteId.value && settings.baseFolderUri) {
+    try {
+      const result = await FolderPicker.readFile({
+        folderUri: settings.baseFolderUri,
+        fileName: noteId.value,
+      })
+      // Strip the frontmatter so the user only edits the note body
+      initialContent = stripFrontmatter(result.content)
+    }
+    catch (err) {
+      console.error(`Failed to load note ${noteId.value}`, err)
+    }
+  }
+  initEditor(settings.theme, initialContent)
 })
 
 onBeforeUnmount(() => {
@@ -46,41 +68,37 @@ function goBack() {
   router.back()
 }
 
-function todayIso(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 async function saveNote() {
   if (!editorInstance)
     return
-  const text = editorInstance.getMarkdown().trim()
-  if (!text)
+  const content = editorInstance.getMarkdown().trim()
+  if (!content)
     return
 
-  if (settings.baseFolderUri) {
-    const fileName
-      = settings.noteSaveMode === 'daily_note'
-        ? `${todayIso()}.md`
-        : settings.noteFileName || 'notes.md'
+  if (!settings.baseFolderUri) {
+    console.warn('No system folder configured – note not saved to disk')
+    return
+  }
 
-    try {
-      await FolderPicker.appendToFile({
-        folderUri: settings.baseFolderUri,
-        fileName,
-        content: `${text}\n\n`,
+  try {
+    if (noteId.value) {
+      // We are editing an existing note
+      await saveNoteToFile(settings.baseFolderUri, {
+        id: noteId.value,
+        fileName: noteId.value,
+        content,
       })
-      console.log('Note appended to file')
     }
-    catch (err) {
-      console.error('Failed to append note', err)
+    else {
+      // We are creating a new note
+      await createNoteFile(settings.baseFolderUri, {
+        id: crypto.randomUUID(),
+        content,
+      })
     }
   }
-  else {
-    console.warn('No system folder configured – note not saved to disk')
+  catch (err) {
+    console.error('Failed to save note', err)
   }
 
   editorInstance.setMarkdown('')

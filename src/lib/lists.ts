@@ -225,6 +225,37 @@ export function isListMarkdown(markdown: string): boolean {
   return frontmatter.type === 'list'
 }
 
+export interface Note {
+  id: string
+  content: string
+  // For consistency with other types
+  title?: string
+  pinned?: boolean
+  created?: string
+  updated?: string
+  type?: 'note'
+}
+
+export interface StoredNote extends Note {
+  fileName: string
+}
+
+export function noteToMarkdown(note: Note): string {
+  const created = note.created || formatDate()
+  const updated = formatDate()
+
+  const frontmatter = buildFrontmatter({
+    type: 'note',
+    id: note.id,
+    created,
+    updated,
+    pinned: !!note.pinned,
+  })
+
+  // Prepend frontmatter to the note content
+  return `${frontmatter}\n\n${note.content}`
+}
+
 export type TodoState = 'pending' | 'done' | 'cancelled'
 
 
