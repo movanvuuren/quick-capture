@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, ref } from 'vue'
-import { CheckSquare, FileText, List, Plus, Settings } from 'lucide-vue-next'
+import { Capacitor } from '@capacitor/core'
+import { CheckSquare, FileText, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
+import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import type { AppFile } from '../lib/listFiles'
 import {
@@ -34,6 +36,13 @@ type DashboardCard =
 const selectedKinds = ref<DashboardCard['kind'][]>(['list', 'note', 'task'])
 const allFilterKinds: DashboardCard['kind'][] = ['list', 'note', 'task']
 const allFiltersActive = computed(() => selectedKinds.value.length === allFilterKinds.length)
+const isWebPlatform = computed(() => Capacitor.getPlatform() === 'web')
+const SWIPE_REVEAL_WIDTH = 112
+const swipeOffsets = ref<Record<string, number>>({})
+const activeSwipeCardId = ref<string | null>(null)
+const draggingCardId = ref<string | null>(null)
+const dragStartX = ref(0)
+const dragStartOffset = ref(0)
 
 const dashboardCards = computed<DashboardCard[]>(() => {
   const cards: DashboardCard[] = [
@@ -215,6 +224,119 @@ function openCard(card: DashboardCard) {
   openNote(card.item.name)
 }
 
+function getCardId(card: DashboardCard): string {
+  if (card.kind === 'note')
+    return `${card.kind}:${card.item.id}`
+
+  return `${card.kind}:${card.item.fileName}`
+}
+
+function getCardFileName(card: DashboardCard): string {
+  if (card.kind === 'note')
+    return card.item.name
+
+  return card.item.fileName
+}
+
+function getCardOffset(cardId: string): number {
+  return swipeOffsets.value[cardId] ?? 0
+}
+
+function shouldShowSwipeDelete(cardId: string): boolean {
+  return getCardOffset(cardId) < -8
+}
+
+function setCardOffset(cardId: string, value: number) {
+  swipeOffsets.value[cardId] = Math.max(-SWIPE_REVEAL_WIDTH, Math.min(0, value))
+}
+
+function closeAllSwipeCards() {
+  Object.keys(swipeOffsets.value).forEach((cardId) => {
+    swipeOffsets.value[cardId] = 0
+  })
+  activeSwipeCardId.value = null
+}
+
+function onCardTouchStart(card: DashboardCard, event: TouchEvent) {
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const cardId = getCardId(card)
+  if (activeSwipeCardId.value && activeSwipeCardId.value !== cardId)
+    closeAllSwipeCards()
+
+  draggingCardId.value = cardId
+  dragStartX.value = touch.clientX
+  dragStartOffset.value = getCardOffset(cardId)
+}
+
+function onCardTouchMove(event: TouchEvent) {
+  if (!draggingCardId.value)
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const deltaX = touch.clientX - dragStartX.value
+  setCardOffset(draggingCardId.value, dragStartOffset.value + deltaX)
+}
+
+function onCardTouchEnd(card: DashboardCard) {
+  const cardId = getCardId(card)
+  const offset = getCardOffset(cardId)
+  const shouldOpen = Math.abs(offset) > SWIPE_REVEAL_WIDTH * 0.45
+
+  setCardOffset(cardId, shouldOpen ? -SWIPE_REVEAL_WIDTH : 0)
+  activeSwipeCardId.value = shouldOpen ? cardId : null
+  draggingCardId.value = null
+}
+
+function onCardClick(card: DashboardCard) {
+  const cardId = getCardId(card)
+  if (activeSwipeCardId.value === cardId) {
+    setCardOffset(cardId, 0)
+    activeSwipeCardId.value = null
+    return
+  }
+
+  openCard(card)
+}
+
+async function deleteCard(card: DashboardCard) {
+  if (!baseFolderUri.value)
+    return
+
+  const typeLabel = getCardTypeLabel(card.kind).toLowerCase()
+  const confirmed = window.confirm(`Are you sure you want to delete this ${typeLabel}?`)
+  if (!confirmed)
+    return
+
+  try {
+    const fileName = getCardFileName(card)
+    await FolderPicker.deleteFile({
+      folderUri: baseFolderUri.value,
+      fileName,
+    })
+
+    if (card.kind === 'list') {
+      lists.value = lists.value.filter(list => list.fileName !== card.item.fileName)
+    }
+    else if (card.kind === 'task') {
+      tasks.value = tasks.value.filter(task => task.fileName !== card.item.fileName)
+    }
+    else {
+      notes.value = notes.value.filter(note => note.name !== card.item.name)
+    }
+
+    closeAllSwipeCards()
+  }
+  catch (err) {
+    console.error('Failed to delete card item', err)
+  }
+}
+
 function getCardIcon(kind: DashboardCard['kind']) {
   if (kind === 'list')
     return List
@@ -362,53 +484,71 @@ async function toggleNotePin(note: AppFile) {
       </div>
 
       <div class="card-grid">
-        <button v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
-          class="glass-button collection-card" @click="openCard(card)">
-          <div class="collection-top">
-            <div class="collection-main">
-              <div class="type-icon-wrap">
-                <component :is="getCardIcon(card.kind)" :size="18" class="type-icon" />
+        <div v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
+          class="swipe-item">
+          <button class="delete-action-button" :class="{ 'is-visible': shouldShowSwipeDelete(getCardId(card)) }"
+            type="button" @click="deleteCard(card)">
+            Delete
+          </button>
+
+          <div class="glass-button collection-card swipe-card"
+            :class="{ 'is-dragging': draggingCardId === getCardId(card) }"
+            :style="{ transform: `translateX(${getCardOffset(getCardId(card))}px)` }"
+            @touchstart="onCardTouchStart(card, $event)" @touchmove="onCardTouchMove($event)"
+            @touchend="onCardTouchEnd(card)" @touchcancel="onCardTouchEnd(card)" @click="onCardClick(card)">
+            <div class="collection-top">
+              <div class="collection-main">
+                <div class="type-icon-wrap">
+                  <component :is="getCardIcon(card.kind)" :size="18" class="type-icon" />
+                </div>
+                <div class="collection-body">
+                  <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
+
+                  <template v-if="card.kind === 'note'">
+                    <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
+                  </template>
+
+                  <template v-else>
+                    <ul class="todo-preview-list">
+                      <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index"
+                        class="todo-preview-item">
+                        <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
+                        <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
+                          previewItem.text }}</span>
+                      </li>
+                    </ul>
+                  </template>
+                </div>
               </div>
-              <div class="collection-body">
-                <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
 
-                <template v-if="card.kind === 'note'">
-                  <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
-                </template>
-
-                <template v-else>
-                  <ul class="todo-preview-list">
-                    <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index"
-                      class="todo-preview-item">
-                      <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
-                      <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
-                        previewItem.text }}</span>
-                    </li>
-                  </ul>
-                </template>
+              <div class="card-actions">
+                <PinToggleButton :pinned="card.item.pinned" :item-label="getCardTypeLabel(card.kind).toLowerCase()"
+                  @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
+                <button v-if="isWebPlatform" class="glass-icon-button delete-icon-button" type="button"
+                  :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
+                  <Trash2 :size="16" />
+                </button>
               </div>
             </div>
 
-            <PinToggleButton :pinned="card.item.pinned" :item-label="getCardTypeLabel(card.kind).toLowerCase()"
-              @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
-          </div>
+            <div v-if="card.kind !== 'note'" class="summary-progress-track">
+              <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
+            </div>
 
-          <div v-if="card.kind !== 'note'" class="summary-progress-track">
-            <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
-          </div>
-
-          <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
-            <div class="footer-spacer" />
-            <div class="footer-meta">
-              <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
-              <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item) }}/{{
-                getActiveItems(card.item).length }} done</span>
-              <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{ getProgressPercent(card.item)
-              }}%</span>
-              <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
+            <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
+              <div class="footer-spacer" />
+              <div class="footer-meta">
+                <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
+                <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item)
+                }}/{{
+                    getActiveItems(card.item).length }} done</span>
+                <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{ getProgressPercent(card.item)
+                }}%</span>
+                <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
+              </div>
             </div>
           </div>
-        </button>
+        </div>
       </div>
     </template>
 
@@ -492,6 +632,35 @@ h1 {
   grid-template-columns: 1fr;
   margin-bottom: 20px;
 }
+
+.swipe-item {
+  position: relative;
+  border-radius: 30px;
+  overflow: hidden;
+}
+
+.delete-action-button.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.swipe-card {
+  position: relative;
+  z-index: 1;
+  transition: transform 180ms ease;
+}
+
+.swipe-card.is-dragging {
+  transition: none;
+}
+
+.card-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
 
 .collection-card {
   text-align: left;
