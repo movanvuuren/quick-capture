@@ -299,89 +299,75 @@ async function toggleNotePin(note: AppFile) {
 
     <template v-else>
       <div class="filter-bar">
-        <button
-          class="glass-button filter-chip"
-          :class="{ 'filter-chip--active': allFiltersActive }"
-          type="button"
-          @click="resetFilters"
-        >
+        <button class="glass-button filter-chip" :class="{ 'filter-chip--active': allFiltersActive }" type="button"
+          @click="resetFilters">
           All
         </button>
-        <button
-          class="glass-button filter-chip"
-          :class="{ 'filter-chip--active': isKindEnabled('list') && !allFiltersActive }"
-          type="button"
-          @click="toggleKind('list')"
-        >
+        <button class="glass-button filter-chip"
+          :class="{ 'filter-chip--active': isKindEnabled('list') && !allFiltersActive }" type="button"
+          @click="toggleKind('list')">
           Lists
         </button>
-        <button
-          class="glass-button filter-chip"
-          :class="{ 'filter-chip--active': isKindEnabled('note') && !allFiltersActive }"
-          type="button"
-          @click="toggleKind('note')"
-        >
+        <button class="glass-button filter-chip"
+          :class="{ 'filter-chip--active': isKindEnabled('note') && !allFiltersActive }" type="button"
+          @click="toggleKind('note')">
           Notes
         </button>
-        <button
-          class="glass-button filter-chip"
-          :class="{ 'filter-chip--active': isKindEnabled('task') && !allFiltersActive }"
-          type="button"
-          @click="toggleKind('task')"
-        >
+        <button class="glass-button filter-chip"
+          :class="{ 'filter-chip--active': isKindEnabled('task') && !allFiltersActive }" type="button"
+          @click="toggleKind('task')">
           Tasks
         </button>
       </div>
 
       <div class="card-grid">
-        <button v-for="card in filteredDashboardCards"
-        :key="card.kind === 'note' ? card.item.id : card.item.fileName"
-        class="glass-button collection-card"
-        @click="openCard(card)">
-        <div class="collection-top">
-          <div class="collection-main">
-            <div class="type-icon-wrap">
-              <component :is="getCardIcon(card.kind)" :size="18" class="type-icon" />
-            </div>
-            <div class="collection-body">
-              <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
+        <button v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
+          class="glass-button collection-card" @click="openCard(card)">
+          <div class="collection-top">
+            <div class="collection-main">
+              <div class="type-icon-wrap">
+                <component :is="getCardIcon(card.kind)" :size="18" class="type-icon" />
+              </div>
+              <div class="collection-body">
+                <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
 
-              <template v-if="card.kind === 'note'">
-                <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
-              </template>
+                <template v-if="card.kind === 'note'">
+                  <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
+                </template>
 
-              <template v-else>
-                <ul class="todo-preview-list">
-                  <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index" class="todo-preview-item">
-                    <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
-                    <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{ previewItem.text }}</span>
-                  </li>
-                </ul>
-              </template>
+                <template v-else>
+                  <ul class="todo-preview-list">
+                    <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index"
+                      class="todo-preview-item">
+                      <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
+                      <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
+                        previewItem.text }}</span>
+                    </li>
+                  </ul>
+                </template>
+              </div>
             </div>
+
+            <PinToggleButton :pinned="card.item.pinned" :item-label="getCardTypeLabel(card.kind).toLowerCase()"
+              @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
           </div>
 
-          <PinToggleButton
-            :pinned="card.item.pinned"
-            :item-label="getCardTypeLabel(card.kind).toLowerCase()"
-            @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)"
-          />
-        </div>
-
-        <div v-if="card.kind !== 'note'" class="summary-progress-track">
-          <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
-        </div>
-
-        <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
-          <div class="footer-spacer" />
-          <div class="footer-meta">
-            <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
-            <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item) }}/{{ getActiveItems(card.item).length }} done</span>
-            <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{ getProgressPercent(card.item) }}%</span>
-            <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
+          <div v-if="card.kind !== 'note'" class="summary-progress-track">
+            <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
           </div>
-        </div>
-      </button>
+
+          <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
+            <div class="footer-spacer" />
+            <div class="footer-meta">
+              <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
+              <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item) }}/{{
+                getActiveItems(card.item).length }} done</span>
+              <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{ getProgressPercent(card.item)
+                }}%</span>
+              <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
+            </div>
+          </div>
+        </button>
       </div>
     </template>
 
@@ -564,8 +550,8 @@ h1 {
   border-radius: 999px;
   transition: width 0.2s ease;
   background: linear-gradient(90deg,
-    color-mix(in srgb, var(--primary) 84%, white 10%),
-    color-mix(in srgb, #7dc8ff 68%, var(--primary) 32%));
+      color-mix(in srgb, var(--primary) 84%, white 10%),
+      color-mix(in srgb, #7dc8ff 68%, var(--primary) 32%));
 }
 
 .note-preview {
