@@ -11,7 +11,7 @@ import TasksView from '../views/TasksView.vue'
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: HomeView },
+    { path: '/', name: 'home', component: HomeView, meta: { keepAlive: true } },
     { path: '/task/:preset', component: TaskView },
     { path: '/note/:id?', component: NoteView },
     { path: '/notes', name: 'notes', component: NotesView },

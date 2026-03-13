@@ -8,12 +8,24 @@ import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import type { AppFile } from '../lib/listFiles'
 import {
-  loadAllFiles,
-  loadTodoFilesFromFolder,
+  loadDashboardData,
   saveListToFile,
   setFilePinned,
 } from '../lib/listFiles'
 import type { StoredTodoList } from '../lib/lists'
+
+const HOME_REFRESH_DEBOUNCE_MS = 1200
+
+interface DashboardSnapshot {
+  lists: StoredTodoList[]
+  tasks: StoredTodoList[]
+  notes: AppFile[]
+}
+
+let cachedFolderUri = ''
+let cachedAt = 0
+let cachedSnapshot: DashboardSnapshot | null = null
+let activeRefreshPromise: Promise<void> | null = null
 
 const router = useRouter()
 const settings = loadSettings()
@@ -90,7 +102,30 @@ function sortPinnedFiles(items: AppFile[]): AppFile[] {
   })
 }
 
-async function refreshDashboard() {
+function hasDashboardContent() {
+  return lists.value.length > 0 || tasks.value.length > 0 || notes.value.length > 0
+}
+
+function applySnapshot(snapshot: DashboardSnapshot) {
+  lists.value = sortPinnedTodos(snapshot.lists)
+  tasks.value = sortPinnedTodos(snapshot.tasks)
+  notes.value = sortPinnedFiles(snapshot.notes)
+}
+
+function syncDashboardCache() {
+  if (!baseFolderUri.value)
+    return
+
+  cachedFolderUri = baseFolderUri.value
+  cachedAt = Date.now()
+  cachedSnapshot = {
+    lists: [...lists.value],
+    tasks: [...tasks.value],
+    notes: [...notes.value],
+  }
+}
+
+async function refreshDashboard(options: { preferCache?: boolean } = {}) {
   if (!baseFolderUri.value) {
     lists.value = []
     tasks.value = []
@@ -100,31 +135,49 @@ async function refreshDashboard() {
     return
   }
 
-  isLoading.value = true
-  error.value = ''
+  const shouldDebounceRefresh = cachedSnapshot
+    && cachedFolderUri === baseFolderUri.value
+    && Date.now() - cachedAt < HOME_REFRESH_DEBOUNCE_MS
 
-  try {
-    const [allFiles, listFiles, taskFiles] = await Promise.all([
-      loadAllFiles(baseFolderUri.value),
-      loadTodoFilesFromFolder(baseFolderUri.value, 'list'),
-      loadTodoFilesFromFolder(baseFolderUri.value, 'task'),
-    ])
-
-    notes.value = sortPinnedFiles(allFiles.filter(file => file.type === 'note'))
-    lists.value = sortPinnedTodos(listFiles)
-    tasks.value = sortPinnedTodos(taskFiles)
-  }
-  catch (err) {
-    console.error('Failed to load dashboard', err)
-    error.value = 'Failed to load files. Check folder permissions.'
-  }
-  finally {
+  if (options.preferCache && cachedSnapshot && cachedFolderUri === baseFolderUri.value) {
+    applySnapshot(cachedSnapshot)
     isLoading.value = false
   }
+
+  if (shouldDebounceRefresh)
+    return
+
+  if (activeRefreshPromise)
+    return activeRefreshPromise
+
+  if (!hasDashboardContent())
+    isLoading.value = true
+
+  error.value = ''
+
+  activeRefreshPromise = (async () => {
+    try {
+      const dashboard = await loadDashboardData(baseFolderUri.value)
+      lists.value = dashboard.lists
+      tasks.value = dashboard.tasks
+      notes.value = sortPinnedFiles(dashboard.files.filter(file => file.type === 'note'))
+      syncDashboardCache()
+    }
+    catch (err) {
+      console.error('Failed to load dashboard', err)
+      error.value = 'Failed to load files. Check folder permissions.'
+    }
+    finally {
+      isLoading.value = false
+      activeRefreshPromise = null
+    }
+  })()
+
+  return activeRefreshPromise
 }
 
-onMounted(refreshDashboard)
-onActivated(refreshDashboard)
+onMounted(() => refreshDashboard({ preferCache: true }))
+onActivated(() => refreshDashboard({ preferCache: true }))
 
 function getActiveItems(list: StoredTodoList) {
   return list.items.filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
@@ -330,6 +383,7 @@ async function deleteCard(card: DashboardCard) {
       notes.value = notes.value.filter(note => note.name !== card.item.name)
     }
 
+    syncDashboardCache()
     closeAllSwipeCards()
   }
   catch (err) {
@@ -390,6 +444,7 @@ async function toggleTodoPin(item: StoredTodoList, collection: 'list' | 'task') 
 
   try {
     await saveListToFile(baseFolderUri.value, item)
+    syncDashboardCache()
   }
   catch (err) {
     item.pinned = previousPinned
@@ -413,6 +468,7 @@ async function toggleNotePin(note: AppFile) {
 
   try {
     await setFilePinned(baseFolderUri.value, note.name, nextPinned)
+    syncDashboardCache()
   }
   catch (err) {
     note.pinned = previousPinned

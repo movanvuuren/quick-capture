@@ -26,6 +26,12 @@ export interface AppFile {
 
 export type TodoFileType = 'list' | 'task'
 
+export interface DashboardData {
+  files: AppFile[]
+  lists: StoredTodoList[]
+  tasks: StoredTodoList[]
+}
+
 function setPinnedInMarkdown(markdown: string, pinned: boolean): string {
   const frontmatterMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
 
@@ -80,9 +86,45 @@ export function markdownToPreviewText(markdown: string): string {
     .trim()
 }
 
-export async function loadAllFiles(folderUri: string): Promise<AppFile[]> {
+function getFileTitle(fileName: string, markdownBody: string): string {
+  const h1Match = markdownBody.match(/^#\s+(.*)/)
+  const heading = h1Match?.[1]?.trim()
+
+  if (heading)
+    return heading
+
+  return fileName
+    .replace(/\.md$/i, '')
+    .replace(/^\d{4}-\d{2}-\d{2}-/, '')
+    .replace(/[-_]/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase())
+}
+
+function sortAppFiles(items: AppFile[]): AppFile[] {
+  return [...items].sort((a, b) => {
+    if (a.pinned && !b.pinned)
+      return -1
+    if (!a.pinned && b.pinned)
+      return 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+function sortTodoFiles(items: StoredTodoList[]): StoredTodoList[] {
+  return [...items].sort((a, b) => {
+    if (a.pinned && !b.pinned)
+      return -1
+    if (!a.pinned && b.pinned)
+      return 1
+    return a.fileName.localeCompare(b.fileName)
+  })
+}
+
+export async function loadDashboardData(folderUri: string): Promise<DashboardData> {
   const result = await FolderPicker.listFiles({ folderUri })
-  const allFiles: AppFile[] = []
+  const files: AppFile[] = []
+  const lists: StoredTodoList[] = []
+  const tasks: StoredTodoList[] = []
 
   for (const file of result.files) {
     if (!file.isFile || !file.name.toLowerCase().endsWith('.md'))
@@ -96,59 +138,52 @@ export async function loadAllFiles(folderUri: string): Promise<AppFile[]> {
 
       const frontmatter = parseFrontmatter(fileContent.content)
       const body = stripFrontmatter(fileContent.content)
-
-      // Logic to find title, adapted from markdownToList
-      let title = ''
-      const h1Match = body.match(/^#\s+(.*)/)
-      const heading = h1Match?.[1]?.trim()
-
-      if (heading) {
-        title = heading
-      }
-      else {
-        title = file.name
-          .replace(/\.md$/i, '')
-          .replace(/^\d{4}-\d{2}-\d{2}-/, '')
-          .replace(/[-_]/g, ' ')
-          .replace(/\b\w/g, char => char.toUpperCase())
-      }
-
-      // Determine file type, default to 'note' if not specified
       const type = ['list', 'task', 'note'].includes(frontmatter.type as any)
         ? (frontmatter.type as AppFile['type'])
-        : 'note' // Defaulting to note
+        : 'note'
 
       const plainTextBody = markdownToPreviewText(body)
-      const preview = plainTextBody.substring(0, 80) +
-        (plainTextBody.length > 80 ? '…' : '')
+      const preview = plainTextBody.substring(0, 80) + (plainTextBody.length > 80 ? '…' : '')
 
-      allFiles.push({
-        id: file.name, // Always use the filename as the unique ID for navigation
+      files.push({
+        id: file.name,
         name: file.name,
-        title: title || file.name, // Fallback title
+        title: getFileTitle(file.name, body),
         type,
         pinned: coerceBoolean(frontmatter.pinned),
         created: frontmatter.created as string,
         updated: frontmatter.updated as string,
         preview,
       })
+
+      if (type === 'list' || type === 'task') {
+        const list = markdownToList(fileContent.content, file.name)
+        const storedList = {
+          ...list,
+          fileName: file.name,
+        }
+
+        if (type === 'task')
+          tasks.push(storedList)
+        else
+          lists.push(storedList)
+      }
     }
     catch (err) {
       console.warn('Failed to read or parse file', file.name, err)
     }
   }
 
-  // Sort files with pinned items first, then by name
-  allFiles.sort((a, b) => {
-    if (a.pinned && !b.pinned)
-      return -1
-    if (!a.pinned && b.pinned)
-      return 1
-    // Add more sorting here if needed, e.g., by updated date or name
-    return a.name.localeCompare(b.name)
-  })
+  return {
+    files: sortAppFiles(files),
+    lists: sortTodoFiles(lists),
+    tasks: sortTodoFiles(tasks),
+  }
+}
 
-  return allFiles
+export async function loadAllFiles(folderUri: string): Promise<AppFile[]> {
+  const dashboard = await loadDashboardData(folderUri)
+  return dashboard.files
 }
 
 export async function setFilePinned(
