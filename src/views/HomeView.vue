@@ -143,10 +143,19 @@ function goTask(presetId: string) {
     <!-- File Browser Grid -->
     <div v-else class="grid">
       <div v-for="file in files" :key="file.id" class="glass-button file-card" @click="navigateToFile(file)">
-        <div class="card-title-row">
+        <div class="file-row">
           <component :is="getIconForFileType(file.type)" :size="18" class="file-icon" />
-          <span class="file-title">{{ file.title }}</span>
-          <Pin v-if="file.pinned" :size="16" class="pin-icon" />
+
+          <div class="file-content">
+            <div class="file-title-row">
+              <span class="file-title">{{ file.title }}</span>
+              <Pin v-if="file.pinned" :size="16" class="pin-icon" />
+            </div>
+
+            <div class="file-preview">
+              {{ file.preview }}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -222,14 +231,19 @@ h1 {
 }
 
 .file-title {
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   flex-grow: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  white-space: normal;
 }
 
 .pin-icon {
   flex-shrink: 0;
+  color: var(--primary);
+  margin-left: auto;
   color: var(--primary);
 }
 
@@ -306,5 +320,43 @@ h1 {
   justify-content: center;
   /* Center content */
   gap: 6px;
+}
+
+.file-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.file-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.file-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview {
+  font-size: 0.85rem;
+  color: var(--text-soft);
+  line-height: 1.3;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  /* show 2 preview lines */
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 </style>
