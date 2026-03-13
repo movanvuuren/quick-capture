@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { Moon, Sparkles, Sun, Trash } from 'lucide-vue-next'
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { applyTheme, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 
 const router = useRouter()
+const MAX_QUICK_TASK_PRESETS = 3
 
 // A single reactive object for all settings, loaded from storage.
 const settings = reactive(loadSettings())
@@ -48,6 +50,9 @@ async function pickBaseFolder() {
 }
 
 function addPreset() {
+  if (settings.quickTaskPresets.length >= MAX_QUICK_TASK_PRESETS)
+    return
+
   settings.quickTaskPresets.push({
     id: crypto.randomUUID(),
     label: '',
@@ -64,6 +69,14 @@ function removePreset(id: string) {
   if (index > -1)
     settings.quickTaskPresets.splice(index, 1)
 }
+
+const themeOptions = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'dim', label: 'Dim', icon: Sparkles },
+]
+
+const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK_TASK_PRESETS)
 </script>
 
 <template>
@@ -102,22 +115,7 @@ function removePreset(id: string) {
       <h2 class="card-title">
         Appearance
       </h2>
-      <div class="theme-switcher" :data-active="settings.theme">
-        <button class="theme-option" :class="{ 'is-active': settings.theme === 'light' }" aria-label="Light theme"
-          @click="settings.theme = 'light'">
-          <Sun />
-        </button>
-
-        <button class="theme-option" :class="{ 'is-active': settings.theme === 'dark' }" aria-label="Dark theme"
-          @click="settings.theme = 'dark'">
-          <Moon />
-        </button>
-
-        <button class="theme-option" :class="{ 'is-active': settings.theme === 'dim' }" aria-label="Dim theme"
-          @click="settings.theme = 'dim'">
-          <Sparkles />
-        </button>
-      </div>
+      <OptionSwitcher v-model="settings.theme" :options="themeOptions" aria-label="Theme" />
     </div>
 
     <!-- lists card -->
@@ -212,9 +210,13 @@ function removePreset(id: string) {
       </label>
     </div>
 
-    <button class="glass-button glass-button--block glass-button--secondary add-button" @click="addPreset">
+    <button class="glass-button glass-button--block glass-button--secondary add-button" :disabled="!canAddPreset"
+      @click="addPreset">
       + Add Task
     </button>
+    <p class="hint add-limit-hint">
+      {{ settings.quickTaskPresets.length }}/{{ MAX_QUICK_TASK_PRESETS }} presets used
+    </p>
   </div>
 </template>
 
@@ -375,6 +377,11 @@ h1 {
 
 .add-button {
   margin-top: 4px;
+}
+
+.add-limit-hint {
+  margin: 6px 0 0;
+  text-align: right;
 }
 
 .primary-button,

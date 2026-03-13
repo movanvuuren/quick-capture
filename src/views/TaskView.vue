@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 
@@ -11,6 +12,12 @@ const settings = loadSettings()
 
 const taskText = ref('')
 const selectedDate = ref('')
+const dueMode = ref<'none' | 'due'>('none')
+
+const dueModeOptions = [
+  { value: 'none', label: 'No date' },
+  { value: 'due', label: 'Due date' },
+]
 
 const preset = computed(() =>
   settings.quickTaskPresets.find(
@@ -21,9 +28,14 @@ const preset = computed(() =>
 const previewTask = computed(() => {
   const text = taskText.value.trim()
   const tag = preset.value?.tag ?? ''
-  const due = selectedDate.value ? ` 📅 ${selectedDate.value}` : ''
+  const due = dueMode.value === 'due' && selectedDate.value ? ` 📅 ${selectedDate.value}` : ''
 
   return ['- [ ]', tag, text].filter(Boolean).join(' ') + due
+})
+
+watch(dueMode, (mode) => {
+  if (mode === 'none')
+    selectedDate.value = ''
 })
 
 function goBack() {
@@ -91,8 +103,12 @@ async function saveTask() {
       <textarea v-model="taskText" class="glass-input task-textarea" placeholder="Enter task..." rows="4" autofocus />
 
       <div class="field">
-        <label class="field-label">Due date</label>
+        <label class="field-label">Date mode</label>
+        <OptionSwitcher v-model="dueMode" :options="dueModeOptions" aria-label="Task due date mode" />
+      </div>
 
+      <div v-if="dueMode === 'due'" class="field">
+        <label class="field-label">Due date</label>
         <input v-model="selectedDate" class="date-input glass-input" type="date">
       </div>
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
@@ -38,6 +39,13 @@ const selectedPresetId = ref(settings.quickTaskPresets[0]?.id || '')
 
 const selectedPreset = computed(() =>
   settings.quickTaskPresets.find(preset => preset.id === selectedPresetId.value),
+)
+
+const presetOptions = computed(() =>
+  settings.quickTaskPresets.map(preset => ({
+    value: preset.id,
+    label: preset.label?.trim() || 'Preset',
+  })),
 )
 
 const sortedTasks = computed(() => {
@@ -333,11 +341,9 @@ onMounted(async () => {
 
     <div class="card glass-card quick-add-card">
       <div class="quick-add-row">
-        <select v-model="selectedPresetId" class="glass-input preset-select">
-          <option v-for="preset in settings.quickTaskPresets" :key="preset.id" :value="preset.id">
-            {{ preset.label || 'Preset' }}
-          </option>
-        </select>
+        <div class="preset-switcher-wrap">
+          <OptionSwitcher v-model="selectedPresetId" :options="presetOptions" aria-label="Task preset" />
+        </div>
 
         <input v-model="newTaskText" class="glass-input" type="text" placeholder="Add quick task..."
           @keydown.enter.prevent="addQuickTask">
@@ -435,10 +441,26 @@ h1 {
   margin-bottom: 12px;
 }
 
+.preset-switcher-wrap {
+  min-width: 0;
+}
+
+.field-label {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .quick-add-row {
   display: grid;
-  grid-template-columns: minmax(140px, 0.8fr) 1fr minmax(140px, 0.6fr) auto;
+  grid-template-columns: 190px minmax(0, 1fr) 166px auto;
   gap: 10px;
+}
+
+.date-input {
+
+  padding-left: 10px;
+  padding-right: 10px;
 }
 
 .glass-input {

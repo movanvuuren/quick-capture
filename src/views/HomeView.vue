@@ -363,7 +363,7 @@ async function toggleNotePin(note: AppFile) {
               <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item) }}/{{
                 getActiveItems(card.item).length }} done</span>
               <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{ getProgressPercent(card.item)
-                }}%</span>
+              }}%</span>
               <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
             </div>
           </div>
@@ -427,7 +427,7 @@ h1 {
 .filter-chip {
   min-height: 40px;
   padding: 10px 16px;
-  border-radius: 999px;
+  border-radius: 16px;
   font-size: 0.9rem;
   justify-content: center;
 }
