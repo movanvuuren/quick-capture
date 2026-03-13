@@ -18,7 +18,7 @@ export interface FrontmatterData {
   type?: string
   created?: string
   updated?: string
-  pinned?: boolean
+  pinned?: boolean | string
   id?: string
   [key: string]: string | boolean | undefined
 }
@@ -89,14 +89,24 @@ export function parseYamlValue(raw: string): string | boolean {
   return value
 }
 
+export function coerceBoolean(value: unknown): boolean {
+  if (typeof value === 'boolean')
+    return value
+
+  if (typeof value === 'string')
+    return value.trim().toLowerCase() === 'true'
+
+  return false
+}
+
 export function parseFrontmatter(markdown: string): FrontmatterData {
   const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/)
-if (!match)
-  return {}
+  if (!match)
+    return {}
 
-const [, frontmatter = ''] = match
-const result: FrontmatterData = {}
-const lines = frontmatter.split(/\r?\n/)
+  const [, frontmatter = ''] = match
+  const result: FrontmatterData = {}
+  const lines = frontmatter.split(/\r?\n/)
 
   for (const line of lines) {
     const trimmed = line.trim()
@@ -212,7 +222,7 @@ export function markdownToList(markdown: string, fileName = ''): TodoList {
       : fileName || slugify(title),
     title,
     items: items.length > 0 ? items : [{ text: '', state: 'pending' }],
-    pinned: frontmatter.pinned === true,
+    pinned: coerceBoolean(frontmatter.pinned),
     created: typeof frontmatter.created === 'string' ? frontmatter.created : undefined,
     updated: typeof frontmatter.updated === 'string' ? frontmatter.updated : undefined,
     type: typeof frontmatter.type === 'string' ? frontmatter.type : 'list',

@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onActivated, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { FileText, List, CheckSquare, Settings, Pin, Plus } from 'lucide-vue-next'
+import { FileText, List, CheckSquare, Settings, Plus } from 'lucide-vue-next'
+import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
 import type { AppFile } from '../lib/listFiles'
-import { loadAllFiles } from '../lib/listFiles'
+import { loadAllFiles, setFilePinned } from '../lib/listFiles'
 
 const router = useRouter()
 const settings = loadSettings()
@@ -45,7 +46,10 @@ function navigateToFile(file: AppFile) {
   switch (file.type) {
     case 'list':
     case 'task':
-      router.push(`/list/${encodeURIComponent(file.name)}`)
+      router.push({
+        name: 'list-detail',
+        params: { id: file.name },
+      })
       break
     case 'note':
       router.push(`/note/${encodeURIComponent(file.name)}`)
@@ -73,6 +77,35 @@ function go(path: string) {
 
 function goTask(presetId: string) {
   router.push(`/task/${presetId}`)
+}
+
+function sortPinnedFirst(items: AppFile[]): AppFile[] {
+  return [...items].sort((a, b) => {
+    if (a.pinned && !b.pinned)
+      return -1
+    if (!a.pinned && b.pinned)
+      return 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+async function toggleFilePin(file: AppFile) {
+  if (!baseFolderUri.value)
+    return
+
+  const nextPinned = !file.pinned
+  const previousPinned = file.pinned
+  file.pinned = nextPinned
+  files.value = sortPinnedFirst(files.value)
+
+  try {
+    await setFilePinned(baseFolderUri.value, file.name, nextPinned)
+  }
+  catch (err) {
+    file.pinned = previousPinned
+    files.value = sortPinnedFirst(files.value)
+    console.error('Failed to update pinned state', err)
+  }
 }
 </script>
 
@@ -131,7 +164,7 @@ function goTask(presetId: string) {
         Create a new list or note to get started.
       </p>
       <div class="button-group">
-        <button class="primary-button" @click="go('/list')">
+        <button class="primary-button" @click="go('/lists')">
           + New List
         </button>
         <button class="primary-button" @click="go('/note')">
@@ -151,7 +184,7 @@ function goTask(presetId: string) {
           <div class="file-content">
             <div class="file-title-row">
               <span class="file-title">{{ file.title }}</span>
-              <Pin v-if="file.pinned" :size="14" class="pin-icon" />
+              <PinToggleButton :pinned="file.pinned" item-label="file" @toggle="toggleFilePin(file)" />
             </div>
 
             <div class="file-preview">
@@ -172,7 +205,7 @@ function goTask(presetId: string) {
         @click="goTask(preset.id)">
         {{ preset.label }}
       </button>
-      <button class="glass-icon-button quick-add-button" @click="go('/list')">
+      <button class="glass-icon-button quick-add-button" @click="go('/lists')">
         <Plus :size="12" />
         View Lists
       </button>
@@ -242,6 +275,7 @@ h1 {
   text-overflow: ellipsis;
   flex-grow: 1;
   display: -webkit-box;
+  line-clamp: 3;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   white-space: normal;
@@ -393,11 +427,6 @@ h1 {
   white-space: nowrap;
 }
 
-.pin-icon {
-  flex-shrink: 0;
-  color: var(--primary);
-}
-
 .file-preview {
   margin-top: 4px;
   font-size: 0.9rem;
@@ -406,6 +435,7 @@ h1 {
   text-align: left;
 
   display: -webkit-box;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;

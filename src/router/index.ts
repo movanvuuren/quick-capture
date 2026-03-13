@@ -12,8 +12,10 @@ const router = createRouter({
     { path: '/', component: HomeView },
     { path: '/task/:preset', component: TaskView },
     { path: '/note/:id?', component: NoteView },
-    // overview and detail share the same component; id is optional
-    { path: '/list/:id?', component: ListView },
+
+    { path: '/lists', name: 'lists', component: ListView },
+    { path: '/list/:id', name: 'list-detail', component: ListView },
+
     { path: '/settings', component: SettingsView },
   ],
 })

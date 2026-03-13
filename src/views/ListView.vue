@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
-import { GripVertical, Pin, PinOff, Trash } from 'lucide-vue-next'
+import { GripVertical, Trash } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
 import { createListFile, deleteListFile, loadListsFromFolder, saveListToFile } from '../lib/listFiles'
 import type { StoredTodoList, TodoState, TodoList } from '../lib/lists'
@@ -11,7 +12,10 @@ import type { StoredTodoList, TodoState, TodoList } from '../lib/lists'
 const router = useRouter()
 const route = useRoute()
 
-const listId = computed(() => (route.params.id as string) || undefined)
+const listId = computed(() => {
+  const id = route.params.id as string | undefined
+  return id ? decodeURIComponent(id) : undefined
+})
 const lists = ref<StoredTodoList[]>([])
 const isLoading = ref(true)
 const saveError = ref('')
@@ -56,10 +60,18 @@ lists.value.forEach((l) => {
 const currentList = computed(() => {
   if (!listId.value)
     return undefined
-  const found = lists.value.find(l => l.id === listId.value)
+
+  const found = lists.value.find(l => l.fileName === listId.value)
+
   if (!found) {
-    console.warn('list not found for id', listId.value, 'existing lists', lists.value.map(l => l.id))
+    console.warn(
+      'list not found for fileName',
+      listId.value,
+      'existing lists',
+      lists.value.map(l => l.fileName),
+    )
   }
+
   return found
 })
 
@@ -126,6 +138,10 @@ function togglePin(list: StoredTodoList) {
   queueSave(list)
 }
 
+function togglePinFromOverview(list: StoredTodoList) {
+  togglePin(list)
+}
+
 function addItem(list: StoredTodoList) {
   list.items.push({ text: '', state: 'pending' })
   queueSave(list)
@@ -176,7 +192,7 @@ function goBack() {
   // if we're viewing a specific list return to overview;
   // if we're already at overview just go to root instead of history.back()
   if (listId.value) {
-    router.push('/list')
+    router.push('/lists')
   }
   else {
     router.push('/')
@@ -198,7 +214,7 @@ async function addList() {
   })
 
   lists.value.push(newList)
-  router.push(`/list/${newList.id}`)
+  router.push(`/list/${encodeURIComponent(newList.fileName)}`)
 }
 
 async function removeList(id: string) {
@@ -206,13 +222,13 @@ async function removeList(id: string) {
   if (!list)
     return
 
-  const wasCurrent = id === listId.value
+  const wasCurrent = list.fileName === listId.value
 
   try {
     await deleteListFile(baseFolderUri.value, list)
     lists.value = lists.value.filter(l => l.id !== id)
     if (wasCurrent)
-      router.push('/list')
+      router.push('/lists')
   }
   catch (err) {
     console.error('Failed to delete list', err)
@@ -327,7 +343,7 @@ function getProgressPercent(list: StoredTodoList) {
     <!-- overview of all lists -->
     <template v-if="!currentList">
       <div v-for="list in sortedLists" :key="list.id" class="list-card summary polished-summary"
-        @click="router.push(`/list/${list.id}`)">
+        @click="router.push(`/list/${encodeURIComponent(list.fileName)}`)">
         <div class="summary-row">
           <div class="summary-icon-wrap">
             ☰
@@ -338,7 +354,7 @@ function getProgressPercent(list: StoredTodoList) {
               <div class="card-title">
                 {{ list.title || 'Untitled list' }}
               </div>
-              <Pin v-if="list.pinned" :size="16" class="pin-icon" />
+              <PinToggleButton :pinned="list.pinned" item-label="list" @toggle="togglePinFromOverview(list)" />
             </div>
 
             <ul class="preview-items">
@@ -388,10 +404,8 @@ function getProgressPercent(list: StoredTodoList) {
         <div class="card-header">
           <!-- header-buttons remain here; title moved to main header -->
           <div class="header-buttons">
-            <button class="glass-icon-button" :aria-label="currentList.pinned ? 'Unpin list' : 'Pin list'"
-              @click="togglePin(currentList)">
-              <component :is="currentList.pinned ? Pin : PinOff" :size="20" />
-            </button>
+            <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list"
+              @toggle="togglePin(currentList)" />
 
             <button class="glass-icon-button" aria-label="Delete list" @click="removeList(currentList.id)">
               <Trash :size="20" />
@@ -664,11 +678,6 @@ function getProgressPercent(list: StoredTodoList) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.pin-icon {
-  flex-shrink: 0;
-  color: var(--primary);
 }
 
 .preview-items {
