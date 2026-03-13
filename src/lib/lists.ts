@@ -158,9 +158,10 @@ export function listToMarkdown(list: TodoList): string {
   const created = list.created || formatDate()
   const updated = formatDate()
   const title = (list.title || 'Untitled List').trim()
+  const todoType = list.type === 'task' ? 'task' : 'list'
 
   const frontmatter = buildFrontmatter({
-    type: 'list',
+    type: todoType,
     created,
     updated,
     pinned: !!list.pinned,

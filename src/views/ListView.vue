@@ -5,7 +5,7 @@ import { computed, nextTick, ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
-import { createListFile, deleteListFile, loadListsFromFolder, saveListToFile } from '../lib/listFiles'
+import { createListFile, deleteListFile, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
 import type { StoredTodoList, TodoState, TodoList } from '../lib/lists'
 
 
@@ -24,22 +24,45 @@ const saveError = ref('')
 
 const settings = loadSettings()
 const baseFolderUri = computed(() => settings.baseFolderUri || '') // replace with your settings source
+const collectionType = computed<'list' | 'task'>(() => {
+  if (route.path.startsWith('/tasks') || route.path.startsWith('/task-list'))
+    return 'task'
 
-onMounted(async () => {
+  return 'list'
+})
+const collectionTitle = computed(() => collectionType.value === 'task' ? 'Tasks' : 'Lists')
+const collectionSubtitle = computed(() => collectionType.value === 'task'
+  ? 'Your task files - tap to edit'
+  : 'Your to-do lists - tap to edit')
+const singularLabel = computed(() => collectionType.value === 'task' ? 'task' : 'list')
+const summaryTypeLabel = computed(() => collectionType.value === 'task' ? 'Task' : 'List')
+const collectionOverviewPath = computed(() => collectionType.value === 'task' ? '/tasks' : '/lists')
+const collectionDetailBasePath = computed(() => collectionType.value === 'task' ? '/task-list' : '/list')
+
+async function loadCollection() {
   if (!baseFolderUri.value) {
     isLoading.value = false
     return
   }
 
+  isLoading.value = true
   try {
-    lists.value = await loadListsFromFolder(baseFolderUri.value)
+    lists.value = await loadTodoFilesFromFolder(baseFolderUri.value, collectionType.value)
   }
   catch (err) {
-    console.error('Failed to load lists', err)
+    console.error('Failed to load collection', collectionType.value, err)
   }
   finally {
     isLoading.value = false
   }
+}
+
+onMounted(async () => {
+  await loadCollection()
+})
+
+watch(collectionType, async () => {
+  await loadCollection()
 })
 
 
@@ -192,7 +215,7 @@ function goBack() {
   // if we're viewing a specific list return to overview;
   // if we're already at overview just go to root instead of history.back()
   if (listId.value) {
-    router.push('/lists')
+    router.push(collectionOverviewPath.value)
   }
   else {
     router.push('/')
@@ -210,11 +233,11 @@ async function addList() {
     title: '',
     items: [{ text: '', state: 'pending' }],
     pinned: false,
-    type: 'list',
+    type: collectionType.value,
   })
 
   lists.value.push(newList)
-  router.push(`/list/${encodeURIComponent(newList.fileName)}`)
+  router.push(`${collectionDetailBasePath.value}/${encodeURIComponent(newList.fileName)}`)
 }
 
 async function removeList(id: string) {
@@ -228,11 +251,15 @@ async function removeList(id: string) {
     await deleteListFile(baseFolderUri.value, list)
     lists.value = lists.value.filter(l => l.id !== id)
     if (wasCurrent)
-      router.push('/lists')
+      router.push(collectionOverviewPath.value)
   }
   catch (err) {
     console.error('Failed to delete list', err)
   }
+}
+
+function openCollectionItem(fileName: string) {
+  router.push(`${collectionDetailBasePath.value}/${encodeURIComponent(fileName)}`)
 }
 
 
@@ -311,9 +338,9 @@ function getProgressPercent(list: StoredTodoList) {
       </button>
 
       <div v-if="!currentList">
-        <h1>Lists</h1>
+        <h1>{{ collectionTitle }}</h1>
         <p class="subtitle">
-          Your to-do lists – tap to edit
+          {{ collectionSubtitle }}
         </p>
       </div>
       <div v-if="isLoading" class="empty-state">
@@ -330,20 +357,20 @@ function getProgressPercent(list: StoredTodoList) {
         ☰
       </div>
       <p class="empty-title">
-        No lists yet
+        No {{ collectionTitle.toLowerCase() }} yet
       </p>
       <p class="empty-text">
-        Create your first list to get started.
+        Create your first {{ singularLabel }} to get started.
       </p>
       <button class="primary-button add-main-button" @click="addList">
-        + New list
+        + New {{ singularLabel }}
       </button>
     </div>
 
     <!-- overview of all lists -->
     <template v-if="!currentList">
       <div v-for="list in sortedLists" :key="list.id" class="list-card summary polished-summary"
-        @click="router.push(`/list/${encodeURIComponent(list.fileName)}`)">
+        @click="openCollectionItem(list.fileName)">
         <div class="summary-row">
           <div class="summary-icon-wrap">
             ☰
@@ -382,7 +409,7 @@ function getProgressPercent(list: StoredTodoList) {
             </div>
 
             <div class="summary-meta">
-              <span class="summary-type">List</span>
+              <span class="summary-type">{{ summaryTypeLabel }}</span>
               <span v-if="list.updated" class="summary-date">{{ list.updated }}</span>
             </div>
           </div>
@@ -390,7 +417,7 @@ function getProgressPercent(list: StoredTodoList) {
       </div>
 
       <button class="glass-button glass-button--primary glass-button--block primary-button" @click="addList">
-        + New list
+        + New {{ singularLabel }}
       </button>
 
       <p v-if="saveError" class="subtitle">
