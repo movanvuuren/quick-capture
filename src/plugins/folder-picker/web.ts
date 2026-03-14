@@ -14,7 +14,7 @@ import type {
 // A virtual, in-memory file system to simulate a real one.
 const virtualFileSystem = new Map<string, string>([
   [
-    'tasks.md',
+    'shopping-list.md',
     `---
 type: list
 id: "1"
