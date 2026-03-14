@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ArrowUpDown, CalendarDays, Filter, ListChecks } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
@@ -8,6 +9,8 @@ import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
+type TaskFilter = 'all' | TaskState | 'overdue'
+type TaskSortMode = 'status' | 'due'
 
 interface ParsedTaskLine {
   state: TaskState
@@ -38,9 +41,17 @@ const tasks = ref<QuickTaskItem[]>([])
 const newTaskText = ref('')
 const newDueDate = ref('')
 const selectedPresetId = ref(settings.quickTaskPresets[0]?.id || '')
+const selectedTaskFilter = ref<TaskFilter>('all')
+const selectedSortMode = ref<TaskSortMode>('status')
 const editingTaskId = ref<string | null>(null)
 const editingTaskText = ref('')
 const editingDueDateTaskId = ref<string | null>(null)
+
+const taskStateOrder: Record<TaskState, number> = {
+  pending: 0,
+  done: 1,
+  cancelled: 2,
+}
 
 const selectedPreset = computed(() =>
   settings.quickTaskPresets.find(preset => preset.id === selectedPresetId.value),
@@ -53,16 +64,50 @@ const presetOptions = computed(() =>
   })),
 )
 
-const sortedTasks = computed(() => {
-  const order: Record<TaskState, number> = {
-    pending: 0,
-    done: 1,
-    cancelled: 2,
-  }
+function isOverdue(task: QuickTaskItem): boolean {
+  if (!task.dueDate)
+    return false
+  if (task.state !== 'pending')
+    return false
 
-  return [...tasks.value].sort((a, b) => {
-    if (order[a.state] !== order[b.state])
-      return order[a.state] - order[b.state]
+  return task.dueDate < todayIso()
+}
+
+const presetTasks = computed(() => {
+  if (!selectedPresetId.value)
+    return [...tasks.value]
+
+  return tasks.value.filter(task => task.presetId === selectedPresetId.value)
+})
+
+const visibleTasks = computed(() => {
+  let filteredTasks: QuickTaskItem[]
+
+  if (selectedTaskFilter.value === 'all')
+    filteredTasks = [...presetTasks.value]
+
+  else if (selectedTaskFilter.value === 'overdue')
+    filteredTasks = presetTasks.value.filter(task => isOverdue(task))
+
+  else
+    filteredTasks = presetTasks.value.filter(task => task.state === selectedTaskFilter.value)
+
+  return filteredTasks.sort((a, b) => {
+    if (selectedSortMode.value === 'due') {
+      const aDue = a.dueDate || '9999-99-99'
+      const bDue = b.dueDate || '9999-99-99'
+
+      if (aDue !== bDue)
+        return aDue.localeCompare(bDue)
+
+      if (taskStateOrder[a.state] !== taskStateOrder[b.state])
+        return taskStateOrder[a.state] - taskStateOrder[b.state]
+
+      return a.fileName.localeCompare(b.fileName)
+    }
+
+    if (taskStateOrder[a.state] !== taskStateOrder[b.state])
+      return taskStateOrder[a.state] - taskStateOrder[b.state]
 
     const aDue = a.dueDate || '9999-99-99'
     const bDue = b.dueDate || '9999-99-99'
@@ -73,25 +118,43 @@ const sortedTasks = computed(() => {
   })
 })
 
-const visibleTasks = computed(() => {
-  if (!selectedPresetId.value)
-    return sortedTasks.value
-
-  return sortedTasks.value.filter(task => task.presetId === selectedPresetId.value)
-})
-
 const taskCounts = computed(() => {
-  const pending = visibleTasks.value.filter(task => task.state === 'pending').length
-  const done = visibleTasks.value.filter(task => task.state === 'done').length
-  const cancelled = visibleTasks.value.filter(task => task.state === 'cancelled').length
+  const pending = presetTasks.value.filter(task => task.state === 'pending').length
+  const done = presetTasks.value.filter(task => task.state === 'done').length
+  const cancelled = presetTasks.value.filter(task => task.state === 'cancelled').length
+  const overdue = presetTasks.value.filter(task => isOverdue(task)).length
 
   return {
     pending,
     done,
     cancelled,
-    total: visibleTasks.value.length,
+    overdue,
+    total: presetTasks.value.length,
   }
 })
+
+const taskFilterOptions = computed(() => [
+  { value: 'all', label: `All · ${taskCounts.value.total}` },
+  { value: 'pending', label: `Pending · ${taskCounts.value.pending}` },
+  { value: 'done', label: `Done · ${taskCounts.value.done}` },
+  { value: 'cancelled', label: `Cancelled · ${taskCounts.value.cancelled}` },
+  { value: 'overdue', label: `Overdue · ${taskCounts.value.overdue}` },
+])
+
+const taskSortOptions = [
+  { value: 'status', label: 'By status', icon: ListChecks },
+  { value: 'due', label: 'By due date', icon: CalendarDays },
+]
+
+function onTaskFilterChange(value: string) {
+  if (value === 'all' || value === 'pending' || value === 'done' || value === 'cancelled' || value === 'overdue')
+    selectedTaskFilter.value = value
+}
+
+function onTaskSortChange(value: string) {
+  if (value === 'status' || value === 'due')
+    selectedSortMode.value = value
+}
 
 function goBack() {
   router.push('/')
@@ -467,10 +530,16 @@ onMounted(async () => {
     </div>
 
     <div class="stats-row card glass-card">
-      <span>Pending: {{ taskCounts.pending }}</span>
-      <span>Done: {{ taskCounts.done }}</span>
-      <span>Cancelled: {{ taskCounts.cancelled }}</span>
-      <span>Total: {{ taskCounts.total }}</span>
+      <div class="filter-switcher-row">
+        <Filter :size="16" class="switcher-icon" />
+        <OptionSwitcher :model-value="selectedTaskFilter" :options="taskFilterOptions" aria-label="Task status filter"
+          @update:model-value="onTaskFilterChange" />
+      </div>
+      <div class="sort-switcher-row">
+        <ArrowUpDown :size="16" class="switcher-icon" />
+        <OptionSwitcher :model-value="selectedSortMode" :options="taskSortOptions" aria-label="Task sort mode"
+          @update:model-value="onTaskSortChange" />
+      </div>
     </div>
 
     <div v-if="isLoading" class="card glass-card empty-state">
@@ -486,7 +555,8 @@ onMounted(async () => {
     </div>
 
     <div v-else class="task-list">
-      <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row" :class="task.state">
+      <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row"
+        :class="[task.state, { overdue: isOverdue(task) }]">
         <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
           @click="toggleTaskState(task)">
           {{ task.state === 'done' ? '✓' : task.state === 'cancelled' ? '–' : '○' }}
@@ -614,11 +684,29 @@ h1 {
 }
 
 .stats-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 18px;
+  display: grid;
+  grid-template-columns: 1.7fr 1fr;
+  gap: 10px;
   color: var(--text-soft);
   font-size: 0.92rem;
+}
+
+.filter-switcher-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-switcher-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.switcher-icon {
+  color: var(--text-soft);
 }
 
 .empty-state {
@@ -708,6 +796,19 @@ h1 {
   opacity: 0.65;
 }
 
+.task-row.overdue {
+  border-color: color-mix(in srgb, #fca5a5 46%, var(--border));
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, #fca5a5 16%, var(--surface) 84%),
+      color-mix(in srgb, #ef4444 9%, var(--surface) 91%));
+}
+
+.task-row.overdue .inline-date,
+.task-row.overdue .add-date-button {
+  border-color: color-mix(in srgb, #f87171 40%, var(--c-light));
+}
+
 .task-meta {
   margin-top: 2px;
   display: flex;
@@ -732,6 +833,10 @@ h1 {
 }
 
 @media (max-width: 860px) {
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
+
   .quick-add-row {
     grid-template-columns: 1fr;
   }
