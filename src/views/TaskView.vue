@@ -39,7 +39,7 @@ watch(dueMode, (mode) => {
 })
 
 function goBack() {
-  router.back()
+  router.replace('/')
 }
 
 function todayIso(): string {
@@ -79,11 +79,12 @@ async function saveTask() {
     console.warn('No system folder configured – task not saved to disk')
   }
 
-  // reset form and go back
+  // reset form and return to Home instead of relying on history,
+  // which can bounce through list/task pages.
   taskText.value = ''
   selectedDate.value = ''
 
-  router.back()
+  router.replace('/')
 }
 </script>
 

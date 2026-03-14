@@ -8,6 +8,7 @@ import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import type { AppFile } from '../lib/listFiles'
 import {
+  createListFile,
   loadDashboardData,
   saveListToFile,
   setFilePinned,
@@ -30,7 +31,6 @@ let activeRefreshPromise: Promise<void> | null = null
 const router = useRouter()
 const settings = loadSettings()
 const baseFolderUri = computed(() => settings.baseFolderUri || '')
-const quickTaskPresets = computed(() => settings.quickTaskPresets.slice(0, 2))
 
 const lists = ref<StoredTodoList[]>([])
 const tasks = ref<StoredTodoList[]>([])
@@ -206,8 +206,38 @@ function go(path: string) {
   router.push(path)
 }
 
-function goTaskPreset(presetId: string) {
-  router.push(`/task/${presetId}`)
+function makeDraftTitle(kind: 'list' | 'task') {
+  const prefix = kind === 'task' ? 'Task' : 'List'
+  const now = new Date()
+  const time = now.toISOString().slice(11, 19).replace(/:/g, '')
+  const millis = String(now.getMilliseconds()).padStart(3, '0')
+  const stamp = `${time}${millis}`
+  return `${prefix} ${stamp}`
+}
+
+async function createTodoFile(kind: 'list' | 'task') {
+  if (!baseFolderUri.value) {
+    router.push('/settings')
+    return
+  }
+
+  try {
+    const created = await createListFile(baseFolderUri.value, {
+      id: crypto.randomUUID(),
+      title: makeDraftTitle(kind),
+      items: [{ text: '', state: 'pending' }],
+      pinned: false,
+      type: kind,
+    })
+
+    if (kind === 'task')
+      router.push(`/task-list/${encodeURIComponent(created.fileName)}`)
+    else
+      router.push(`/list/${encodeURIComponent(created.fileName)}`)
+  }
+  catch (err) {
+    console.error(`Failed to create ${kind} file`, err)
+  }
 }
 
 function openList(fileName: string) {
@@ -542,8 +572,8 @@ async function toggleNotePin(note: AppFile) {
       <div class="card-grid">
         <div v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
           class="swipe-item">
-          <button class="delete-action-button" :class="{ 'is-visible': shouldShowSwipeDelete(getCardId(card)) }"
-            type="button" @click="deleteCard(card)">
+          <button v-if="!isWebPlatform" class="delete-action-button"
+            :class="{ 'is-visible': shouldShowSwipeDelete(getCardId(card)) }" type="button" @click="deleteCard(card)">
             Delete
           </button>
 
@@ -609,22 +639,36 @@ async function toggleNotePin(note: AppFile) {
     </template>
 
     <div class="quick-add-bar">
-      <button v-for="preset in quickTaskPresets" :key="preset.id" class="glass-icon-button quick-add-button"
-        @click="goTaskPreset(preset.id)">
-        {{ preset.label }}
-      </button>
-      <button class="glass-icon-button quick-add-button" @click="go('/lists')">
-        <Plus :size="12" />
-        Lists
-      </button>
-      <button class="glass-icon-button quick-add-button" @click="go('/tasks')">
-        <Plus :size="12" />
-        Tasks
-      </button>
-      <button class="glass-icon-button quick-add-button" @click="go('/note')">
-        <Plus :size="12" />
-        Note
-      </button>
+      <div class="quick-add-shell">
+        <div class="quick-add-heading">
+          <Plus :size="14" />
+          <span>Quick Add</span>
+        </div>
+
+        <div class="quick-add-actions">
+          <!-- 
+          <button v-for="preset in quickTaskPresets" :key="preset.id"
+            class="glass-icon-button quick-add-button quick-add-button--icon" :title="`Quick add ${preset.label}`"
+            :aria-label="`Quick add ${preset.label}`" @click="goTaskPreset(preset.id)">
+            <CheckSquare :size="16" />
+          </button>
+ -->
+          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create list"
+            aria-label="Create list" @click="createTodoFile('list')">
+            <List :size="16" />
+          </button>
+
+          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Quick tasks"
+            aria-label="Quick tasks" @click="go('/tasks')">
+            <CheckSquare :size="16" />
+          </button>
+
+          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create note"
+            aria-label="Create note" @click="go('/note')">
+            <FileText :size="16" />
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -632,7 +676,7 @@ async function toggleNotePin(note: AppFile) {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 24px 20px 120px;
+  padding: 24px 20px calc(176px + env(safe-area-inset-bottom, 0px));
   color: var(--text);
 }
 
@@ -693,6 +737,27 @@ h1 {
   position: relative;
   border-radius: 30px;
   overflow: hidden;
+}
+
+.delete-action-button {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: 8px;
+  width: calc(112px - 16px);
+  border: none;
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--danger) 78%, #a50808 22%);
+  color: #fff;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
 }
 
 .delete-action-button.is-visible {
@@ -979,24 +1044,54 @@ h1 {
   bottom: 0;
   left: 0;
   right: 0;
+  z-index: 50;
   display: flex;
   justify-content: center;
-  gap: 10px;
-  padding: 16px 20px;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
   background: color-mix(in srgb, var(--bg) 80%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
 }
 
+.quick-add-shell {
+  width: min(780px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-add-heading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.quick-add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
 .quick-add-button {
-  padding: 10px 18px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  width: 44px;
+  height: 44px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+}
+
+.quick-add-button--icon {
+  border-radius: 14px;
 }
 
 @media (min-width: 720px) {
