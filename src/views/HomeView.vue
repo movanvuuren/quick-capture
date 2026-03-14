@@ -231,9 +231,21 @@ async function createTodoFile(kind: 'list' | 'task') {
     })
 
     if (kind === 'task')
-      router.push(`/task-list/${encodeURIComponent(created.fileName)}`)
+      router.push({
+        path: `/task-list/${encodeURIComponent(created.fileName)}`,
+        query: {
+          draft: '1',
+          draftTitle: created.title,
+        },
+      })
     else
-      router.push(`/list/${encodeURIComponent(created.fileName)}`)
+      router.push({
+        path: `/list/${encodeURIComponent(created.fileName)}`,
+        query: {
+          draft: '1',
+          draftTitle: created.title,
+        },
+      })
   }
   catch (err) {
     console.error(`Failed to create ${kind} file`, err)

@@ -2,7 +2,7 @@
 import type { ComponentPublicInstance } from 'vue'
 import { GripVertical, Trash } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
 import { deleteListFile, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
@@ -24,6 +24,11 @@ const saveError = ref('')
 
 const settings = loadSettings()
 const baseFolderUri = computed(() => settings.baseFolderUri || '')
+const isDraftRoute = computed(() => route.query.draft === '1')
+const draftTitle = computed(() => {
+  const value = route.query.draftTitle
+  return typeof value === 'string' ? value : ''
+})
 const collectionType = computed<'list' | 'task'>(() => {
   if (route.path.startsWith('/tasks') || route.path.startsWith('/task-list'))
     return 'task'
@@ -92,6 +97,7 @@ const currentList = computed(() => {
 })
 
 const itemInputs = ref<(HTMLInputElement | null)[]>([])
+const isDiscardingDraft = ref(false)
 
 function ensureInputs(): (HTMLInputElement | null)[] {
   if (!itemInputs.value)
@@ -203,6 +209,38 @@ watch(
 function goBack() {
   router.push('/')
 }
+
+function isMeaningfulList(list: StoredTodoList) {
+  const hasNonEmptyItems = list.items.some(item => item.text.trim().length > 0)
+  const hasChangedTitle = (list.title || '').trim() !== draftTitle.value.trim()
+  return hasNonEmptyItems || hasChangedTitle || !!list.pinned
+}
+
+async function discardUntouchedDraft() {
+  if (isDiscardingDraft.value || !isDraftRoute.value || !baseFolderUri.value || !currentList.value)
+    return
+
+  if (isMeaningfulList(currentList.value))
+    return
+
+  isDiscardingDraft.value = true
+
+  try {
+    const draftId = currentList.value.id
+    await deleteListFile(baseFolderUri.value, currentList.value)
+    lists.value = lists.value.filter(list => list.id !== draftId)
+  }
+  catch (err) {
+    console.error('Failed to discard empty draft', err)
+  }
+  finally {
+    isDiscardingDraft.value = false
+  }
+}
+
+onBeforeRouteLeave(async () => {
+  await discardUntouchedDraft()
+})
 
 async function removeList(id: string) {
   const list = lists.value.find(l => l.id === id)
