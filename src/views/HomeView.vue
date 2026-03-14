@@ -531,8 +531,7 @@ async function toggleNotePin(note: AppFile) {
               <div class="footer-meta">
                 <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
                 <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item)
-                }}/{
-                  { getActiveItems(card.item).length }} done</span>
+                }}/{{ getActiveItems(card.item).length }} done</span>
                 <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{
                   getProgressPercent(card.item)
                 }}%</span>
