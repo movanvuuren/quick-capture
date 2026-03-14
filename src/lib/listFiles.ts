@@ -4,12 +4,10 @@ import {
   buildFrontmatter,
   coerceBoolean,
   formatDate,
-  getListFileName,
   listToMarkdown,
   markdownToList,
   noteToMarkdown,
   parseFrontmatter,
-  slugify,
   stripFrontmatter,
 } from './lists'
 
@@ -118,6 +116,34 @@ function sortTodoFiles(items: StoredTodoList[]): StoredTodoList[] {
       return 1
     return a.fileName.localeCompare(b.fileName)
   })
+}
+
+function getDefaultDisplayName(type: 'list' | 'task' | 'note', date: string): string {
+  const label = type === 'task' ? 'Task' : type === 'list' ? 'List' : 'Note'
+  return `${label} ${date}`
+}
+
+function getDefaultFileStem(type: 'list' | 'task' | 'note', date: string): string {
+  return `${type} ${date}`
+}
+
+async function getUniqueMarkdownFileName(folderUri: string, stem: string): Promise<string> {
+  const result = await FolderPicker.listFiles({ folderUri })
+  const existingFileNames = new Set(
+    result.files
+      .filter(file => file.isFile)
+      .map(file => file.name.toLowerCase()),
+  )
+
+  let candidate = `${stem}.md`
+  let counter = 1
+
+  while (existingFileNames.has(candidate.toLowerCase())) {
+    candidate = `${stem}-${counter}.md`
+    counter += 1
+  }
+
+  return candidate
 }
 
 export async function loadDashboardData(folderUri: string): Promise<DashboardData> {
@@ -272,14 +298,17 @@ export async function createListFile(
   list: TodoList,
 ): Promise<StoredTodoList> {
   const created = list.created || formatDate()
+  const todoType = list.type === 'task' ? 'task' : 'list'
+  const defaultTitle = getDefaultDisplayName(todoType, created)
   const base: TodoList = {
     ...list,
+    title: list.title?.trim() || defaultTitle,
     created,
     updated: created,
-    type: list.type === 'task' ? 'task' : 'list',
+    type: todoType,
   }
 
-  const fileName = getListFileName(base)
+  const fileName = await getUniqueMarkdownFileName(folderUri, getDefaultFileStem(todoType, created))
 
   await FolderPicker.writeFile({
     folderUri,
@@ -303,13 +332,6 @@ export async function deleteListFile(
   })
 }
 
-function getNoteFileName(note: Note): string {
-  const created = note.created || formatDate()
-  const firstLine = note.content?.split('\n')[0]?.trim() || 'untitled note'
-  const base = slugify(firstLine)
-  return `${created}-${base}.md`
-}
-
 export async function createNoteFile(
   folderUri: string,
   note: Note,
@@ -322,7 +344,7 @@ export async function createNoteFile(
     type: 'note',
   }
 
-  const fileName = getNoteFileName(base)
+  const fileName = await getUniqueMarkdownFileName(folderUri, getDefaultFileStem('note', created))
 
   await FolderPicker.writeFile({
     folderUri,

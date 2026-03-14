@@ -208,11 +208,8 @@ function go(path: string) {
 
 function makeDraftTitle(kind: 'list' | 'task') {
   const prefix = kind === 'task' ? 'Task' : 'List'
-  const now = new Date()
-  const time = now.toISOString().slice(11, 19).replace(/:/g, '')
-  const millis = String(now.getMilliseconds()).padStart(3, '0')
-  const stamp = `${time}${millis}`
-  return `${prefix} ${stamp}`
+  const date = new Date().toISOString().slice(0, 10)
+  return `${prefix} ${date}`
 }
 
 async function createTodoFile(kind: 'list' | 'task') {

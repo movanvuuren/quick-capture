@@ -14,9 +14,40 @@ const route = useRoute()
 const settings = loadSettings()
 
 const noteId = computed(() => route.params.id as string | undefined)
+const noteTitle = ref('')
 
 const editorElement = ref<HTMLElement | null>(null)
 let editorInstance: any = null
+
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function splitNoteContent(markdown: string): { title: string, body: string } {
+  const normalized = markdown.replace(/\r\n/g, '\n').trim()
+  const match = normalized.match(/^#\s+(.+)\n(?:\n)?([\s\S]*)$/)
+
+  if (!match)
+    return { title: '', body: normalized }
+
+  return {
+    title: match[1]?.trim() || '',
+    body: (match[2] || '').trim(),
+  }
+}
+
+function buildNoteMarkdown(title: string, body: string): string {
+  const trimmedTitle = title.trim()
+  const trimmedBody = body.trim()
+
+  if (trimmedTitle && trimmedBody)
+    return `# ${trimmedTitle}\n\n${trimmedBody}`
+
+  if (trimmedTitle)
+    return `# ${trimmedTitle}`
+
+  return trimmedBody
+}
 
 function initEditor(theme: 'light' | 'dark' | 'dim', initialValue = '') {
   if (editorInstance)
@@ -57,7 +88,10 @@ onMounted(async () => {
       console.error(`Failed to load note ${noteId.value}`, err)
     }
   }
-  initEditor(settings.theme, initialContent)
+
+  const parsed = splitNoteContent(initialContent)
+  noteTitle.value = parsed.title || (!noteId.value ? `Note ${todayIso()}` : '')
+  initEditor(settings.theme, parsed.body)
 })
 
 onBeforeUnmount(() => {
@@ -71,8 +105,9 @@ function goBack() {
 async function saveNote() {
   if (!editorInstance)
     return
-  const content = editorInstance.getMarkdown().trim()
-  if (!content)
+  const body = editorInstance.getMarkdown().trim()
+  const content = buildNoteMarkdown(noteTitle.value, body)
+  if (!content.trim())
     return
 
   if (!settings.baseFolderUri) {
@@ -118,6 +153,8 @@ async function saveNote() {
     </div>
 
     <div class="glass-card card">
+      <input v-model="noteTitle" class="title-input" type="text" placeholder="Note title">
+
       <div ref="editorElement" />
 
       <button class="glass-button glass-button--primary save-button" @click="saveNote">
@@ -149,6 +186,24 @@ async function saveNote() {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.title-input {
+  width: 100%;
+  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
+  color: var(--text);
+  font-size: 1.05rem;
+  font-weight: 700;
+  backdrop-filter: blur(10px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(10px) saturate(var(--saturation));
+}
+
+.title-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
 }
 
 .glass-card {
