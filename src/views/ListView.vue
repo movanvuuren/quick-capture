@@ -5,7 +5,7 @@ import { computed, nextTick, ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
-import { createListFile, deleteListFile, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
+import { deleteListFile, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
 import type { StoredTodoList, TodoState, TodoList } from '../lib/lists'
 
 
@@ -23,21 +23,14 @@ const saveError = ref('')
 
 
 const settings = loadSettings()
-const baseFolderUri = computed(() => settings.baseFolderUri || '') // replace with your settings source
+const baseFolderUri = computed(() => settings.baseFolderUri || '')
 const collectionType = computed<'list' | 'task'>(() => {
   if (route.path.startsWith('/tasks') || route.path.startsWith('/task-list'))
     return 'task'
 
   return 'list'
 })
-const collectionTitle = computed(() => collectionType.value === 'task' ? 'Tasks' : 'Lists')
-const collectionSubtitle = computed(() => collectionType.value === 'task'
-  ? 'Your task files - tap to edit'
-  : 'Your to-do lists - tap to edit')
-const singularLabel = computed(() => collectionType.value === 'task' ? 'task' : 'list')
-const summaryTypeLabel = computed(() => collectionType.value === 'task' ? 'Task' : 'List')
-const collectionOverviewPath = computed(() => collectionType.value === 'task' ? '/tasks' : '/lists')
-const collectionDetailBasePath = computed(() => collectionType.value === 'task' ? '/task-list' : '/list')
+const editorTypeLabel = computed(() => collectionType.value === 'task' ? 'Task file' : 'List')
 
 async function loadCollection() {
   if (!baseFolderUri.value) {
@@ -65,15 +58,15 @@ watch(collectionType, async () => {
   await loadCollection()
 })
 
-
-// maintain a sorted view where pinned lists appear first
-const sortedLists = computed(() => {
-  return [...lists.value].sort((a, b) => {
-    const pa = a.pinned ? 0 : 1
-    const pb = b.pinned ? 0 : 1
-    return pa - pb
-  })
-})
+watch(
+  listId,
+  (id) => {
+    // This view is now detail-only. Route all overview hits back to Home.
+    if (!id)
+      router.replace('/')
+  },
+  { immediate: true },
+)
 
 lists.value.forEach((l) => {
   if (l.items.length === 0)
@@ -161,10 +154,6 @@ function togglePin(list: StoredTodoList) {
   queueSave(list)
 }
 
-function togglePinFromOverview(list: StoredTodoList) {
-  togglePin(list)
-}
-
 function addItem(list: StoredTodoList) {
   list.items.push({ text: '', state: 'pending' })
   queueSave(list)
@@ -212,32 +201,7 @@ watch(
 )
 
 function goBack() {
-  // if we're viewing a specific list return to overview;
-  // if we're already at overview just go to root instead of history.back()
-  if (listId.value) {
-    router.push(collectionOverviewPath.value)
-  }
-  else {
-    router.push('/')
-  }
-}
-
-async function addList() {
-  if (!baseFolderUri.value) {
-    router.push('/settings')
-    return
-  }
-
-  const newList = await createListFile(baseFolderUri.value, {
-    id: crypto.randomUUID(),
-    title: '',
-    items: [{ text: '', state: 'pending' }],
-    pinned: false,
-    type: collectionType.value,
-  })
-
-  lists.value.push(newList)
-  router.push(`${collectionDetailBasePath.value}/${encodeURIComponent(newList.fileName)}`)
+  router.push('/')
 }
 
 async function removeList(id: string) {
@@ -251,15 +215,11 @@ async function removeList(id: string) {
     await deleteListFile(baseFolderUri.value, list)
     lists.value = lists.value.filter(l => l.id !== id)
     if (wasCurrent)
-      router.push(collectionOverviewPath.value)
+      router.push('/')
   }
   catch (err) {
     console.error('Failed to delete list', err)
   }
-}
-
-function openCollectionItem(fileName: string) {
-  router.push(`${collectionDetailBasePath.value}/${encodeURIComponent(fileName)}`)
 }
 
 
@@ -307,27 +267,6 @@ function onDrop(e: DragEvent, idx: number) {
   dragIndex.value = null
 }
 
-function getActiveItems(list: StoredTodoList) {
-  return list.items.filter(
-    item => item.text.trim().length > 0 && item.state !== 'cancelled',
-  )
-}
-
-function getCompletedCount(list: StoredTodoList) {
-  return list.items.filter(
-    item => item.state === 'done' && item.text.trim().length > 0,
-  ).length
-}
-
-function getProgressPercent(list: StoredTodoList) {
-  const active = getActiveItems(list)
-  if (active.length === 0)
-    return 0
-
-  const done = active.filter(item => item.state === 'done').length
-  return Math.round((done / active.length) * 100)
-}
-
 </script>
 
 <template>
@@ -337,99 +276,28 @@ function getProgressPercent(list: StoredTodoList) {
         ←
       </button>
 
-      <div v-if="!currentList">
-        <h1>{{ collectionTitle }}</h1>
-        <p class="subtitle">
-          {{ collectionSubtitle }}
-        </p>
+      <div>
+        <h1>{{ editorTypeLabel }}</h1>
+        <p class="subtitle">Liquid glass editor</p>
       </div>
-      <div v-if="isLoading" class="empty-state">
-        <p class="empty-title">Loading lists…</p>
-      </div>
-      <div v-else-if="currentList" class="detail-header">
+    </div>
+
+    <div v-if="isLoading" class="empty-state">
+      <p class="empty-title">Loading…</p>
+    </div>
+
+    <template v-else-if="currentList">
+      <div class="detail-header glass-panel">
         <input v-model="currentList.title" placeholder="Title" class="header-title"
           @input="currentList && queueSave(currentList)">
-      </div>
-    </div>
-
-    <div v-if="lists.length === 0" class="empty-state">
-      <div class="empty-icon">
-        ☰
-      </div>
-      <p class="empty-title">
-        No {{ collectionTitle.toLowerCase() }} yet
-      </p>
-      <p class="empty-text">
-        Create your first {{ singularLabel }} to get started.
-      </p>
-      <button class="primary-button add-main-button" @click="addList">
-        + New {{ singularLabel }}
-      </button>
-    </div>
-
-    <!-- overview of all lists -->
-    <template v-if="!currentList">
-      <div v-for="list in sortedLists" :key="list.id" class="list-card summary polished-summary"
-        @click="openCollectionItem(list.fileName)">
-        <div class="summary-row">
-          <div class="summary-icon-wrap">
-            ☰
-          </div>
-
-          <div class="summary-content">
-            <div class="summary-title-row">
-              <div class="card-title">
-                {{ list.title || 'Untitled list' }}
-              </div>
-              <PinToggleButton :pinned="list.pinned" item-label="list" @toggle="togglePinFromOverview(list)" />
-            </div>
-
-            <ul class="preview-items">
-              <li v-for="(item, j) in list.items
-                .filter(item => item.text.trim() && item.state !== 'cancelled')
-                .slice(0, 3)" :key="j" class="preview-item" :class="item.state">
-                <span class="preview-state">
-                  {{ item.state === 'done' ? '✓' : '○' }}
-                </span>
-
-                <span class="preview-text">
-                  {{ item.text }}
-                </span>
-              </li>
-            </ul>
-
-            <div class="summary-progress-block">
-              <div class="summary-progress-label">
-                <span>{{ getCompletedCount(list) }}/{{ getActiveItems(list).length }} done</span>
-                <span>{{ getProgressPercent(list) }}%</span>
-              </div>
-              <div class="summary-progress-track">
-                <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(list)}%` }" />
-              </div>
-            </div>
-
-            <div class="summary-meta">
-              <span class="summary-type">{{ summaryTypeLabel }}</span>
-              <span v-if="list.updated" class="summary-date">{{ list.updated }}</span>
-            </div>
-          </div>
+        <div class="detail-meta">
+          <span class="type-pill">{{ editorTypeLabel }}</span>
+          <span class="meta-date">{{ currentList.updated || currentList.created || '' }}</span>
         </div>
       </div>
 
-      <button class="glass-button glass-button--primary glass-button--block primary-button" @click="addList">
-        + New {{ singularLabel }}
-      </button>
-
-      <p v-if="saveError" class="subtitle">
-        {{ saveError }}
-      </p>
-    </template>
-
-    <!-- detail for a single list -->
-    <template v-else>
-      <div class="list-card">
+      <div class="list-card glass-panel">
         <div class="card-header">
-          <!-- header-buttons remain here; title moved to main header -->
           <div class="header-buttons">
             <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list"
               @toggle="togglePin(currentList)" />
@@ -441,9 +309,8 @@ function getProgressPercent(list: StoredTodoList) {
         </div>
 
         <div class="items">
-          <!-- indicate empty list explicitly when all texts are blank -->
-          <div v-if="currentList && currentList.items.every(i => !i.text)" class="empty-details">
-            No items yet – tap + or press Enter to start.
+          <div v-if="currentList && currentList.items.every(i => !i.text)" class="empty-details glass-panel--soft">
+            No items yet - tap + or press Enter to start.
           </div>
 
           <div v-for="(item, i) in currentList.items" :key="i" class="item-row" :class="{
@@ -472,22 +339,33 @@ function getProgressPercent(list: StoredTodoList) {
         </div>
       </div>
     </template>
+
+    <div v-else class="empty-state">
+      <div class="empty-icon">
+        !
+      </div>
+      <p class="empty-title">This item is no longer available</p>
+      <p class="empty-text">
+        It may have been renamed, deleted, or moved.
+      </p>
+      <button class="glass-button glass-button--primary" @click="goBack">Back Home</button>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 20px 16px 32px;
+  padding: 24px 20px 32px;
   color: var(--text);
 }
 
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 14px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .header h1 {
@@ -498,19 +376,28 @@ function getProgressPercent(list: StoredTodoList) {
 }
 
 .subtitle {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   color: var(--text-soft);
   font-size: 0.95rem;
 }
 
 .empty-state,
-.list-card {
-  background: var(--surface);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid var(--border);
+.list-card,
+.glass-panel {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 12%, transparent), transparent 28%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--c-light) 12%, transparent),
+      color-mix(in srgb, var(--c-glass) 10%, transparent)),
+    color-mix(in srgb, var(--surface) 84%, transparent);
+  backdrop-filter: blur(14px) saturate(var(--saturation));
+  -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
+  border: 1px solid color-mix(in srgb, var(--c-light) 20%, transparent);
   border-radius: 24px;
-  box-shadow: var(--shadow);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 8%), transparent),
+    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 9%), transparent),
+    0 18px 36px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 14%), transparent);
 }
 
 .empty-state {
@@ -557,21 +444,49 @@ function getProgressPercent(list: StoredTodoList) {
 /* header title shown when editing a specific list */
 .header-title {
   font-size: 1.3rem;
-  font-weight: 600;
+  font-weight: 700;
   width: 100%;
-  padding: 0;
-  margin-left: 8px;
+  padding: 10px 2px;
   border: none;
+  outline: none;
   background: transparent;
   color: var(--text);
 }
 
 .detail-header {
-  flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
 }
 
+.detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.type-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--c-light) 18%, transparent);
+  background: color-mix(in srgb, var(--c-light) 10%, transparent);
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.meta-date {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
 
 .card-title-row {
   display: flex;
@@ -581,13 +496,17 @@ function getProgressPercent(list: StoredTodoList) {
 
 /* give the empty-details message some breathing room */
 .empty-details {
-  padding: 8px 12px;
+  padding: 10px 12px;
   margin-bottom: 8px;
   font-size: 0.9rem;
   color: var(--text-soft);
   text-align: center;
-  background: rgba(248, 250, 252, 0.6);
   border-radius: 12px;
+}
+
+.glass-panel--soft {
+  background: color-mix(in srgb, var(--c-light) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-light) 14%, transparent);
 }
 
 .header-buttons {
@@ -608,7 +527,8 @@ function getProgressPercent(list: StoredTodoList) {
   gap: 10px;
   padding: 8px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.5);
+  background: color-mix(in srgb, var(--c-light) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-light) 14%, transparent);
   transition: background 0.2s ease;
 }
 
@@ -632,6 +552,7 @@ function getProgressPercent(list: StoredTodoList) {
   font-size: 0.98rem;
   border: none;
   background: transparent;
+  color: var(--text);
 }
 
 @media (min-width: 640px) {
@@ -641,171 +562,8 @@ function getProgressPercent(list: StoredTodoList) {
     padding: 28px 20px 40px;
   }
 
-  .card-header {
-    flex-direction: row;
-    align-items: center;
-  }
-
   .header-buttons {
     flex-shrink: 0;
   }
-}
-
-.polished-summary {
-  padding: 16px 18px;
-  min-height: 108px;
-  cursor: pointer;
-}
-
-.summary-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  width: 100%;
-}
-
-.summary-icon-wrap {
-  width: 42px;
-  height: 42px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: var(--primary-soft);
-  border: 1px solid var(--border);
-  color: var(--text-soft);
-  font-size: 1.05rem;
-  font-weight: 700;
-  margin-top: 2px;
-}
-
-.summary-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.summary-title-row {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.card-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 1rem;
-  font-weight: 700;
-  line-height: 1.25;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.preview-items {
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-  width: 100%;
-}
-
-.preview-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 0.9rem;
-  line-height: 1.4;
-  color: var(--text-soft);
-  text-align: left;
-}
-
-.preview-state {
-  width: 16px;
-  flex-shrink: 0;
-  text-align: center;
-  opacity: 0.9;
-}
-
-.preview-text {
-  flex: 1;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-
-.preview-item.done .preview-text {
-  text-decoration: line-through;
-  opacity: 0.75;
-}
-
-.preview-item.cancelled .preview-text {
-  opacity: 0.55;
-}
-
-.summary-progress-block {
-  width: 100%;
-  margin-top: 10px;
-}
-
-.summary-progress-label {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-  font-size: 0.74rem;
-  color: var(--text-soft);
-}
-
-.summary-progress-track {
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 85%, black 15%);
-  overflow: hidden;
-}
-
-.summary-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.2s ease;
-  background: var(--primary);
-}
-
-.summary-progress-fill[style*="100%"] {
-  height: 100%;
-  border-radius: 999px;
-  transition: width 0.2s ease;
-  background: #22c55e;
-}
-
-.summary-meta {
-  width: 100%;
-  margin-top: 10px;
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.74rem;
-  color: var(--text-soft);
-}
-
-.summary-type {
-  text-transform: capitalize;
-  padding: 4px 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 78%, transparent);
-}
-
-.summary-date {
-  white-space: nowrap;
-  opacity: 0.9;
 }
 </style>
