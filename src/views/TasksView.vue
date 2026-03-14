@@ -452,14 +452,17 @@ onMounted(async () => {
           <OptionSwitcher v-model="selectedPresetId" :options="presetOptions" aria-label="Task preset" />
         </div>
 
-        <input v-model="newTaskText" class="glass-input" type="text" placeholder="Add quick task..."
+        <input v-model="newTaskText" class="glass-input quick-task-input" type="text" placeholder="Add quick task..."
           @keydown.enter.prevent="addQuickTask">
 
-        <input v-model="newDueDate" class="glass-input date-input" type="date">
+        <div class="quick-add-actions">
+          <input v-model="newDueDate" class="glass-input date-input quick-add-date" type="date">
 
-        <button class="glass-button glass-button--primary" :disabled="isSaving" @click="addQuickTask">
-          Add
-        </button>
+          <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
+            @click="addQuickTask">
+            Add
+          </button>
+        </div>
       </div>
     </div>
 
@@ -490,25 +493,28 @@ onMounted(async () => {
         </button>
 
         <div class="task-content">
-          <input v-if="editingTaskId === task.id" v-model="editingTaskText" class="glass-input task-main-edit"
-            type="text" @keydown.enter.prevent="saveTaskText(task)" @keydown.esc.prevent="cancelEditTask"
-            @blur="saveTaskText(task)">
-          <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
-            {{ displayTaskBody(task) }}
-          </button>
+          <div class="task-main-line">
+            <input v-if="editingTaskId === task.id" v-model="editingTaskText" class="glass-input task-main-edit"
+              type="text" @keydown.enter.prevent="saveTaskText(task)" @keydown.esc.prevent="cancelEditTask"
+              @blur="saveTaskText(task)">
+            <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
+              {{ displayTaskBody(task) }}
+            </button>
+
+            <input v-if="task.dueDate || editingDueDateTaskId === task.id" class="glass-input inline-date" type="date"
+              :value="task.dueDate || ''" @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
+              @blur="hideDueDateEditor(task)">
+            <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
+              @click="showDueDateEditor(task)">
+              Add date
+            </button>
+          </div>
+
           <div class="task-meta">
             <span>{{ task.presetLabel || 'Preset' }}</span>
             <span>{{ task.fileName }}</span>
           </div>
         </div>
-
-        <input v-if="task.dueDate || editingDueDateTaskId === task.id" class="glass-input inline-date" type="date"
-          :value="task.dueDate || ''" @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
-          @blur="hideDueDateEditor(task)">
-        <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
-          @click="showDueDateEditor(task)">
-          Add date
-        </button>
       </div>
     </div>
   </div>
@@ -568,14 +574,35 @@ h1 {
 
 .quick-add-row {
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr) 166px auto;
+  grid-template-columns: 190px minmax(0, 1fr) auto;
   gap: 10px;
+}
+
+.quick-task-input {
+  min-width: 0;
+}
+
+.quick-add-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
 }
 
 .date-input {
 
   padding-left: 10px;
   padding-right: 10px;
+}
+
+.quick-add-date {
+  width: 100%;
+}
+
+.quick-add-submit {
+  min-height: 40px;
+  width: 100%;
+  padding: 0 14px;
 }
 
 .glass-input {
@@ -611,19 +638,19 @@ h1 {
 
 .task-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .state-button {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   border: 1px solid var(--state-pending-border);
   background: var(--state-pending-bg);
   color: var(--state-pending-text);
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
@@ -643,9 +670,16 @@ h1 {
   min-width: 0;
 }
 
+.task-main-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .task-main {
-  font-size: 1rem;
-  line-height: 1.35;
+  font-size: 0.95rem;
+  line-height: 1.25;
   word-break: break-word;
 }
 
@@ -661,6 +695,8 @@ h1 {
 
 .task-main-edit {
   width: 100%;
+  min-height: 34px;
+  padding: 7px 10px;
 }
 
 .task-row.done .task-main {
@@ -673,23 +709,25 @@ h1 {
 }
 
 .task-meta {
-  margin-top: 4px;
+  margin-top: 2px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  font-size: 0.78rem;
+  gap: 6px;
+  font-size: 0.72rem;
   color: var(--text-soft);
 }
 
 .inline-date {
-  width: 146px;
+  width: 130px;
+  min-height: 34px;
+  padding: 7px 9px;
 }
 
 .add-date-button {
-  min-height: 38px;
-  padding: 8px 12px;
+  min-height: 34px;
+  padding: 6px 10px;
   border-radius: 12px;
-  font-size: 0.85rem;
+  font-size: 0.78rem;
   white-space: nowrap;
 }
 
@@ -698,12 +736,16 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .inline-date {
+  .quick-add-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quick-add-date {
     width: 100%;
   }
 
-  .task-row {
-    grid-template-columns: auto 1fr;
+  .inline-date {
+    width: 124px;
   }
 }
 </style>
