@@ -9,7 +9,7 @@ import TaskView from '../views/TaskView.vue'
 import TasksView from '../views/TasksView.vue'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', name: 'home', component: HomeView, meta: { keepAlive: true } },
     { path: '/task/:preset', component: TaskView },
@@ -22,6 +22,7 @@ const router = createRouter({
     { path: '/task-list/:id', name: 'task-detail', component: ListView },
 
     { path: '/settings', component: SettingsView },
+    { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
 
