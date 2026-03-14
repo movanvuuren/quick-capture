@@ -424,10 +424,7 @@ async function toggleNotePin(note: AppFile) {
 <template>
   <div class="page">
     <div class="top-row">
-      <div>
-        <h1>Quick Capture</h1>
-        <p class="subtitle">Lists, notes, and task files in one place</p>
-      </div>
+      <h1>Quick Capture</h1>
 
       <button class="glass-icon-button" aria-label="Go to settings" @click="go('/settings')">
         <Settings :size="22" />
@@ -589,11 +586,6 @@ async function toggleNotePin(note: AppFile) {
 h1 {
   margin: 0;
   font-size: 1.8rem;
-}
-
-.subtitle {
-  margin: 8px 0 0;
-  color: var(--text-soft);
 }
 
 .filter-bar {

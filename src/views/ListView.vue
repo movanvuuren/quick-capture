@@ -314,10 +314,7 @@ function onDrop(e: DragEvent, idx: number) {
         ←
       </button>
 
-      <div>
-        <h1>{{ editorTypeLabel }}</h1>
-        <p class="subtitle">Liquid glass editor</p>
-      </div>
+      <h1>{{ editorTypeLabel }}</h1>
     </div>
 
     <div v-if="isLoading" class="empty-state">
@@ -329,27 +326,23 @@ function onDrop(e: DragEvent, idx: number) {
         <input v-model="currentList.title" placeholder="Title" class="header-title"
           @input="currentList && queueSave(currentList)">
         <div class="detail-meta">
-          <span class="type-pill">{{ editorTypeLabel }}</span>
-          <span class="meta-date">{{ currentList.updated || currentList.created || '' }}</span>
-        </div>
-      </div>
-
-      <div class="list-card glass-panel">
-        <div class="card-header">
-          <div class="header-buttons">
-            <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list"
+          <div class="meta-well">
+            <span class="meta-date">{{ currentList.updated || currentList.created || '' }}</span>
+            <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list" variant="glass"
               @toggle="togglePin(currentList)" />
-
-            <button class="glass-icon-button" aria-label="Delete list" @click="removeList(currentList.id)">
+            <button class="glass-icon-button meta-action-button" aria-label="Delete list"
+              @click="removeList(currentList.id)">
               <Trash :size="20" />
             </button>
           </div>
         </div>
+      </div>
 
+      <div class="list-card glass-panel">
         <div class="items">
-          <div v-if="currentList && currentList.items.every(i => !i.text)" class="empty-details glass-panel--soft">
+          <!-- <div v-if="currentList && currentList.items.every(i => !i.text)" class="empty-details glass-panel--soft">
             No items yet - tap + or press Enter to start.
-          </div>
+          </div> -->
 
           <div v-for="(item, i) in currentList.items" :key="i" class="item-row" :class="{
             done: item.state === 'done',
@@ -401,7 +394,7 @@ function onDrop(e: DragEvent, idx: number) {
 
 .header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -411,12 +404,6 @@ function onDrop(e: DragEvent, idx: number) {
   font-size: 1.9rem;
   line-height: 1.1;
   letter-spacing: -0.03em;
-}
-
-.subtitle {
-  margin: 6px 0 0;
-  color: var(--text-soft);
-  font-size: 0.95rem;
 }
 
 .empty-state,
@@ -470,13 +457,8 @@ function onDrop(e: DragEvent, idx: number) {
 .list-card {
   padding: 16px;
   margin-bottom: 16px;
-}
-
-.card-header {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 14px;
+  position: relative;
+  z-index: 1;
 }
 
 /* header title shown when editing a specific list */
@@ -484,7 +466,7 @@ function onDrop(e: DragEvent, idx: number) {
   font-size: 1.3rem;
   font-weight: 700;
   width: 100%;
-  padding: 10px 2px;
+  padding: 4px 0;
   border: none;
   outline: none;
   background: transparent;
@@ -492,38 +474,41 @@ function onDrop(e: DragEvent, idx: number) {
 }
 
 .detail-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 8px 14px;
   margin-bottom: 12px;
+  position: relative;
+  z-index: 2;
 }
 
 .detail-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.type-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--c-light) 18%, transparent);
+  white-space: nowrap;
+  justify-self: end;
+}
+
+.meta-well {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 12px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
   background: color-mix(in srgb, var(--c-light) 10%, transparent);
-  color: var(--text-soft);
-  font-size: 0.78rem;
-  font-weight: 600;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  justify-content: flex-end;
 }
 
 .meta-date {
   color: var(--text-soft);
   font-size: 0.8rem;
+  margin-right: 4px;
 }
 
 .card-title-row {
@@ -545,12 +530,6 @@ function onDrop(e: DragEvent, idx: number) {
 .glass-panel--soft {
   background: color-mix(in srgb, var(--c-light) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--c-light) 14%, transparent);
-}
-
-.header-buttons {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .items {
@@ -598,10 +577,6 @@ function onDrop(e: DragEvent, idx: number) {
     max-width: 760px;
     margin: 0 auto;
     padding: 28px 20px 40px;
-  }
-
-  .header-buttons {
-    flex-shrink: 0;
   }
 }
 </style>

@@ -503,10 +503,7 @@ onMounted(async () => {
         ←
       </button>
 
-      <div>
-        <h1>Quick Tasks</h1>
-        <p class="subtitle">Obsidian-style tasks from your quick presets</p>
-      </div>
+      <h1>Quick Tasks</h1>
     </div>
 
     <div class="card glass-card quick-add-card">
@@ -599,7 +596,7 @@ onMounted(async () => {
 
 .header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   margin-bottom: 20px;
 }
@@ -607,11 +604,6 @@ onMounted(async () => {
 h1 {
   margin: 0;
   font-size: 1.8rem;
-}
-
-.subtitle {
-  margin: 6px 0 0;
-  color: var(--text-soft);
 }
 
 .glass-card {

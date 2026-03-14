@@ -86,12 +86,7 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
         ←
       </button>
 
-      <div>
-        <h1>Settings</h1>
-        <p class="subtitle">
-          Your changes are saved automatically
-        </p>
-      </div>
+      <h1>Settings</h1>
     </div>
 
     <!-- system folder card -->
@@ -234,7 +229,7 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
 
 .header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   margin-bottom: 24px;
 }
@@ -258,11 +253,6 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
 h1 {
   margin: 0;
   font-size: 1.8rem;
-}
-
-.subtitle {
-  margin: 6px 0 0;
-  color: var(--text-soft);
 }
 
 .card {

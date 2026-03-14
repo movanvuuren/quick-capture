@@ -5,10 +5,12 @@ const props = withDefaults(defineProps<{
   pinned?: boolean
   size?: number
   itemLabel?: string
+  variant?: 'glass' | 'flat'
 }>(), {
   pinned: false,
   size: 16,
   itemLabel: 'item',
+  variant: 'glass',
 })
 
 const emit = defineEmits<{
@@ -23,8 +25,8 @@ function onClick(event: MouseEvent) {
 </script>
 
 <template>
-  <button class="glass-icon-button pin-toggle-button" :class="{ 'is-active': pinned }" type="button"
-    :aria-label="pinned ? `Unpin ${itemLabel}` : `Pin ${itemLabel}`" @click="onClick">
+  <button class="glass-icon-button pin-toggle-button" :class="[{ 'is-active': pinned }, `variant-${props.variant}`]"
+    type="button" :aria-label="pinned ? `Unpin ${itemLabel}` : `Pin ${itemLabel}`" @click="onClick">
     <component :is="pinned ? Pin : PinOff" :size="size" />
   </button>
 </template>
@@ -55,5 +57,28 @@ function onClick(event: MouseEvent) {
     inset -1px -2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 68%), transparent),
     inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 12%), transparent),
     0 8px 18px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.pin-toggle-button.variant-flat {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.pin-toggle-button.variant-flat:hover {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--text));
+  background: color-mix(in srgb, var(--c-glass) 14%, transparent);
+  box-shadow: none;
+  transform: none;
+}
+
+.pin-toggle-button.variant-flat.is-active {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 34%, var(--text));
+  background: color-mix(in srgb, var(--primary) 12%, var(--c-glass) 14%);
+  box-shadow: none;
+  transform: none;
 }
 </style>
