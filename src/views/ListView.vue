@@ -20,6 +20,7 @@ const listId = computed(() => {
 })
 const lists = ref<StoredTodoList[]>([])
 const isLoading = ref(true)
+const isLayoutReady = ref(false)
 const saveError = ref('')
 // watch sortedLists mainly for view purposes but we still save underlying lists
 
@@ -45,6 +46,7 @@ async function loadCollection() {
     return
   }
 
+  isLayoutReady.value = false
   isLoading.value = true
   try {
     if (listId.value) {
@@ -60,6 +62,7 @@ async function loadCollection() {
   }
   finally {
     isLoading.value = false
+    finalizeLayout()
   }
 }
 
@@ -133,8 +136,21 @@ function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = `${el.scrollHeight}px`
 }
 
+function finalizeLayout() {
+  nextTick(() => {
+    window.requestAnimationFrame(() => {
+      ensureInputs().forEach((el) => {
+        if (el)
+          autoGrow(el)
+      })
+      isLayoutReady.value = true
+    })
+  })
+}
+
 watch(listId, () => {
   itemInputs.value = []
+  isLayoutReady.value = false
 })
 
 // when we navigate to a specific list, focus its first input so user sees an editable field
@@ -348,42 +364,45 @@ function onDrop(e: DragEvent, idx: number) {
     </div>
 
     <template v-else-if="currentList">
-      <div class="detail-header glass-panel">
-        <input v-model="currentList.title" placeholder="Title" class="header-title"
-          @input="currentList && queueSave(currentList)">
-      </div>
+      <div class="detail-content" :class="{ 'is-layout-pending': !isLayoutReady }">
+        <div class="detail-header glass-panel">
+          <input v-model="currentList.title" placeholder="Title" class="header-title"
+            @input="currentList && queueSave(currentList)">
+        </div>
 
-      <div class="list-card glass-panel">
-        <div class="items">
-          <!-- <div v-if="currentList && currentList.items.every(i => !i.text)" class="empty-details glass-panel--soft">
-            No items yet - tap + or press Enter to start.
-          </div> -->
+        <div class="list-card glass-panel">
+          <div class="items">
+            <!-- <div v-if="currentList && currentList.items.every(i => !i.text)" class="empty-details glass-panel--soft">
+              No items yet - tap + or press Enter to start.
+            </div> -->
 
-          <div v-for="(item, i) in currentList.items" :key="i" class="item-row" :class="{
-            done: item.state === 'done',
-            cancelled: item.state === 'cancelled',
-          }" draggable="true" @dragstart="(e) => onDragStart(e, i)" @dragover="onDragOver" @drop="(e) => onDrop(e, i)">
-            <GripVertical class="drag-handle" />
+            <div v-for="(item, i) in currentList.items" :key="i" class="item-row" :class="{
+              done: item.state === 'done',
+              cancelled: item.state === 'cancelled',
+            }" draggable="true" @dragstart="(e) => onDragStart(e, i)" @dragover="onDragOver"
+              @drop="(e) => onDrop(e, i)">
+              <GripVertical class="drag-handle" />
 
-            <button class="state-box" :class="item.state" :aria-label="`Change state for item ${i + 1}`"
-              @click="cycleState(currentList, i)">
-              {{ item.state === 'done' ? '✓' : item.state === 'cancelled' ? '–' : '' }}
-            </button>
+              <button class="state-box" :class="item.state" :aria-label="`Change state for item ${i + 1}`"
+                @click="cycleState(currentList, i)">
+                {{ item.state === 'done' ? '✓' : item.state === 'cancelled' ? '–' : '' }}
+              </button>
 
-            <textarea :ref="el => setInputRef(i, el as HTMLTextAreaElement | null)" v-model="item.text"
-              placeholder="To-do item" class="item-input" rows="1"
-              @input="(e) => { autoGrow(e.target as HTMLTextAreaElement); currentList && queueSave(currentList) }"
-              @keydown.enter.prevent="currentList && addItemAt(currentList, i)" />
+              <textarea :ref="el => setInputRef(i, el as HTMLTextAreaElement | null)" v-model="item.text"
+                placeholder="To-do item" class="item-input" rows="1"
+                @input="(e) => { autoGrow(e.target as HTMLTextAreaElement); currentList && queueSave(currentList) }"
+                @keydown.enter.prevent="currentList && addItemAt(currentList, i)" />
 
-            <button class="glass-icon-button delete-item-button" aria-label="Remove item"
-              @click="removeItem(currentList, i)">
-              <Trash2 :size="14" />
+              <button class="glass-icon-button delete-item-button" aria-label="Remove item"
+                @click="removeItem(currentList, i)">
+                <Trash2 :size="14" />
+              </button>
+            </div>
+
+            <button class="glass-button glass-button--primary primary-button" @click="addItem(currentList)">
+              + Add item
             </button>
           </div>
-
-          <button class="glass-button glass-button--primary primary-button" @click="addItem(currentList)">
-            + Add item
-          </button>
         </div>
       </div>
     </template>
@@ -492,6 +511,10 @@ function onDrop(e: DragEvent, idx: number) {
   justify-self: end;
 }
 
+.detail-content.is-layout-pending {
+  visibility: hidden;
+}
+
 .card-title-row {
   display: flex;
   align-items: center;
@@ -516,18 +539,14 @@ function onDrop(e: DragEvent, idx: number) {
 .items {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 2px;
 }
 
 .item-row {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 8px;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--c-light) 10%, transparent);
-  border: 1px solid color-mix(in srgb, var(--c-light) 14%, transparent);
-  transition: background 0.2s ease;
+  padding: 4px 0;
 }
 
 .drag-handle {
@@ -535,6 +554,7 @@ function onDrop(e: DragEvent, idx: number) {
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+  margin-top: 3px;
   color: var(--text-soft);
 }
 
@@ -542,10 +562,11 @@ function onDrop(e: DragEvent, idx: number) {
   cursor: grabbing;
 }
 
+
 .item-input {
   flex: 1;
   min-width: 0;
-  padding: 12px 14px;
+  padding: 0px 8px;
   border-radius: 14px;
   font-size: 0.98rem;
   border: none;
@@ -559,10 +580,12 @@ function onDrop(e: DragEvent, idx: number) {
 }
 
 .delete-item-button {
-  width: 34px;
+  /* width: 34px;
   height: 34px;
-  border-radius: 12px;
+
+  margin-top: 1px; */
   color: var(--text-soft);
+
 }
 
 .delete-item-button:hover {

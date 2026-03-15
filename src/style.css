@@ -624,17 +624,7 @@ body {
     0 4px 10px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 8%), transparent);
 }
 
-.item-row {
-  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
-}
 
-.item-row.done {
-  background: color-mix(in srgb, var(--success) 10%, transparent);
-}
-
-.item-row.cancelled {
-  background: color-mix(in srgb, var(--c-dark) 8%, var(--c-glass) 8%);
-}
 
 .item-row.done .item-input {
   color: var(--state-done-text);
