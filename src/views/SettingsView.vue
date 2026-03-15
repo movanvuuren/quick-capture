@@ -25,14 +25,18 @@ watch(
 
 // Also watch the theme specifically to apply it to the document.
 watch(
-  () => settings.theme,
-  (newTheme) => {
-    applyTheme(newTheme)
+  () => [settings.theme, settings.accentColor],
+  ([newTheme, newAccent]) => {
+    applyTheme(newTheme as any, (newAccent as string | undefined))
   },
 )
 
 // Apply the initial theme when the component loads.
-applyTheme(settings.theme)
+applyTheme(settings.theme, settings.accentColor)
+
+function resetAccentColor() {
+  settings.accentColor = undefined
+}
 
 function goBack() {
   router.back()
@@ -111,6 +115,16 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
         Appearance
       </h2>
       <OptionSwitcher v-model="settings.theme" :options="themeOptions" aria-label="Theme" />
+
+      <div class="field accent-field">
+        <span>Accent color</span>
+        <div class="accent-controls">
+          <input v-model="settings.accentColor" class="accent-picker" type="color" aria-label="Accent color picker">
+          <button class="glass-button glass-button--secondary accent-reset" type="button" @click="resetAccentColor">
+            Reset default
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-for="(preset, index) in settings.quickTaskPresets" :key="preset.id" class="card">
@@ -249,6 +263,55 @@ h1 {
 
 .field input:disabled {
   opacity: 0.55;
+}
+
+.accent-field {
+  margin-top: 14px;
+  margin-bottom: 0;
+}
+
+.accent-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accent-picker {
+  width: 38px;
+  height: 38px;
+  padding: 2px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
+  cursor: pointer;
+}
+
+.field input.accent-picker {
+  padding: 2px;
+  border-radius: 10px;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.accent-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.accent-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 8px;
+}
+
+.accent-picker::-moz-color-swatch {
+  border: none;
+  border-radius: 8px;
+}
+
+.accent-reset {
+  min-height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
 }
 
 .radio-option {

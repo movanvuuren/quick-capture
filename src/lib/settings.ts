@@ -18,6 +18,9 @@ export interface AppSettings {
   /** light or dark appearance */
   theme: Theme
 
+  /** optional user override for accent/action color */
+  accentColor?: string
+
   /** settings for the file that tasks (lists) are appended to */
   listSaveMode: SaveMode
   listFileName?: string
@@ -36,6 +39,7 @@ export const defaultSettings: AppSettings = {
   baseFolderName: undefined,
   // start in dark mode by default so it’s obvious the class toggles correctly
   theme: 'dark',
+  accentColor: undefined,
   listSaveMode: 'single_file',
   listFileName: 'tasks.md',
   noteSaveMode: 'single_file',
@@ -56,6 +60,20 @@ export const defaultSettings: AppSettings = {
       fileName: 'tasks.md',
     },
   ],
+}
+
+function normalizeAccentColor(value: unknown): string | undefined {
+  if (typeof value !== 'string')
+    return undefined
+
+  const trimmed = value.trim()
+  if (!trimmed)
+    return undefined
+
+  if (/^#([0-9a-fA-F]{6})$/.test(trimmed))
+    return trimmed.toLowerCase()
+
+  return undefined
 }
 
 function normalizePreset(value: Partial<QuickTaskPreset> | undefined): QuickTaskPreset | null {
@@ -90,6 +108,7 @@ export function loadSettings(): AppSettings {
       theme: ['light', 'dark', 'dim'].includes(parsed.theme as any)
         ? (parsed.theme as Theme)
         : defaultSettings.theme,
+      accentColor: normalizeAccentColor(parsed.accentColor),
       listSaveMode: parsed.listSaveMode === 'daily_note' ? 'daily_note' : 'single_file',
       listFileName: parsed.listFileName?.trim() || defaultSettings.listFileName,
       noteSaveMode: parsed.noteSaveMode === 'daily_note' ? 'daily_note' : 'single_file',
@@ -110,8 +129,13 @@ export function saveSettings(settings: AppSettings): void {
  * Update document class to reflect chosen theme. Should be called at startup
  * and whenever the user changes the preference.
  */
-export function applyTheme(theme: Theme): void {
+export function applyTheme(theme: Theme, accentColor?: string): void {
   document.documentElement.dataset.theme = theme
+
+  if (accentColor && /^#([0-9a-fA-F]{6})$/.test(accentColor.trim()))
+    document.documentElement.style.setProperty('--c-action', accentColor)
+  else
+    document.documentElement.style.removeProperty('--c-action')
 }
 
 export function resetSettings(): AppSettings {
@@ -119,6 +143,7 @@ export function resetSettings(): AppSettings {
     baseFolderUri: defaultSettings.baseFolderUri,
     baseFolderName: defaultSettings.baseFolderName,
     theme: defaultSettings.theme,
+    accentColor: defaultSettings.accentColor,
     listSaveMode: defaultSettings.listSaveMode,
     listFileName: defaultSettings.listFileName,
     noteSaveMode: defaultSettings.noteSaveMode,

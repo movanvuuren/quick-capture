@@ -9,6 +9,6 @@ import './style.css'
 
 // immediately apply saved theme so the UI doesn't flash
 const settings = loadSettings()
-applyTheme(settings.theme)
+applyTheme(settings.theme, settings.accentColor)
 
 createApp(App).use(router).mount('#app')
