@@ -57,9 +57,6 @@ async function loadCollection() {
       lists.value = await loadTodoFilesFromFolder(baseFolderUri.value, collectionType.value)
     }
   }
-  catch (err) {
-    console.error('Failed to load collection', collectionType.value, err)
-  }
   finally {
     isLoading.value = false
     finalizeLayout()
@@ -111,8 +108,29 @@ const currentList = computed(() => {
   return found
 })
 
+const activeIndexes = computed<number[]>(() => {
+  if (!currentList.value)
+    return []
+
+  return currentList.value.items
+    .map((item, index) => ({ state: item.state, index }))
+    .filter(({ state }) => state === 'pending')
+    .map(({ index }) => index)
+})
+
+const completedIndexes = computed<number[]>(() => {
+  if (!currentList.value)
+    return []
+
+  return currentList.value.items
+    .map((item, index) => ({ state: item.state, index }))
+    .filter(({ state }) => state !== 'pending')
+    .map(({ index }) => index)
+})
+
 const itemInputs = ref<(HTMLTextAreaElement | null)[]>([])
 const isDiscardingDraft = ref(false)
+const pendingFocusIndex = ref<number | null>(null)
 
 function ensureInputs(): (HTMLTextAreaElement | null)[] {
   if (!itemInputs.value)
@@ -127,8 +145,15 @@ function setInputRef(
   const arr = ensureInputs()
   const textarea = el instanceof HTMLTextAreaElement ? el : null
   arr[idx] = textarea
-  if (textarea)
+  if (textarea) {
     autoGrow(textarea)
+    if (pendingFocusIndex.value === idx) {
+      textarea.focus()
+      const end = textarea.value.length
+      textarea.setSelectionRange(end, end)
+      pendingFocusIndex.value = null
+    }
+  }
 }
 
 function autoGrow(el: HTMLTextAreaElement) {
@@ -157,7 +182,7 @@ watch(listId, () => {
 watch(listId, (id) => {
   if (id) {
     nextTick(() => {
-      const el = ensureInputs()[0]
+      const el = ensureInputs().find((input): input is HTMLTextAreaElement => !!input)
       if (el)
         el.focus()
     })
@@ -298,11 +323,26 @@ async function removeList(id: string) {
 
 
 function addItemAt(list: TodoList, idx: number) {
+  pendingFocusIndex.value = idx + 1
   list.items.splice(idx + 1, 0, { text: '', state: 'pending' })
+  queueSave(list as StoredTodoList)
+  focusInputAt(idx + 1)
+}
+
+function focusInputAt(index: number, retries = 1) {
   nextTick(() => {
-    const el = ensureInputs()[idx + 1]
-    if (el)
-      el.focus()
+    window.requestAnimationFrame(() => {
+      const el = ensureInputs()[index]
+      if (el) {
+        el.focus()
+        const end = el.value.length
+        el.setSelectionRange(end, end)
+        return
+      }
+
+      if (retries > 0)
+        focusInputAt(index, retries - 1)
+    })
   })
 }
 
@@ -376,25 +416,23 @@ function onDrop(e: DragEvent, idx: number) {
               No items yet - tap + or press Enter to start.
             </div> -->
 
-            <div v-for="(item, i) in currentList.items" :key="i" class="item-row" :class="{
-              done: item.state === 'done',
-              cancelled: item.state === 'cancelled',
-            }" draggable="true" @dragstart="(e) => onDragStart(e, i)" @dragover="onDragOver"
-              @drop="(e) => onDrop(e, i)">
+            <div v-for="index in activeIndexes" :key="`active-${index}`" class="item-row" draggable="true"
+              @dragstart="(e) => onDragStart(e, index)" @dragover="onDragOver" @drop="(e) => onDrop(e, index)">
               <GripVertical class="drag-handle" />
 
-              <button class="state-box" :class="item.state" :aria-label="`Change state for item ${i + 1}`"
-                @click="cycleState(currentList, i)">
-                {{ item.state === 'done' ? '✓' : item.state === 'cancelled' ? '–' : '' }}
+              <button class="state-box" :class="currentList.items[index]?.state"
+                :aria-label="`Change state for item ${index + 1}`" @click="cycleState(currentList, index)">
+                {{ currentList.items[index]?.state === 'done' ? '✓' : currentList.items[index]?.state === 'cancelled' ?
+                '–' : '' }}
               </button>
 
-              <textarea :ref="el => setInputRef(i, el as HTMLTextAreaElement | null)" v-model="item.text"
-                placeholder="To-do item" class="item-input" rows="1"
+              <textarea :ref="el => setInputRef(index, el as HTMLTextAreaElement | null)"
+                v-model="currentList.items[index]!.text" placeholder="To-do item" class="item-input" rows="1"
                 @input="(e) => { autoGrow(e.target as HTMLTextAreaElement); currentList && queueSave(currentList) }"
-                @keydown.enter.prevent="currentList && addItemAt(currentList, i)" />
+                @keydown.enter.prevent="currentList && addItemAt(currentList, index)" />
 
               <button class="glass-icon-button delete-item-button" aria-label="Remove item"
-                @click="removeItem(currentList, i)">
+                @click="removeItem(currentList, index)">
                 <Trash2 :size="14" />
               </button>
             </div>
@@ -402,6 +440,33 @@ function onDrop(e: DragEvent, idx: number) {
             <button class="glass-button glass-button--primary primary-button" @click="addItem(currentList)">
               + Add item
             </button>
+
+            <div v-if="completedIndexes.length > 0" class="completed-panel glass-panel--soft">
+              <p class="completed-heading">Completed</p>
+
+              <div v-for="index in completedIndexes" :key="`completed-${index}`" class="item-row" :class="{
+                done: currentList.items[index]?.state === 'done',
+                cancelled: currentList.items[index]?.state === 'cancelled',
+              }">
+                <GripVertical class="drag-handle" />
+
+                <button class="state-box" :class="currentList.items[index]?.state"
+                  :aria-label="`Change state for item ${index + 1}`" @click="cycleState(currentList, index)">
+                  {{ currentList.items[index]?.state === 'done' ? '✓' : currentList.items[index]?.state === 'cancelled'
+                  ? '–' : '' }}
+                </button>
+
+                <textarea :ref="el => setInputRef(index, el as HTMLTextAreaElement | null)"
+                  v-model="currentList.items[index]!.text" placeholder="To-do item" class="item-input" rows="1"
+                  @input="(e) => { autoGrow(e.target as HTMLTextAreaElement); currentList && queueSave(currentList) }"
+                  @keydown.enter.prevent="currentList && addItemAt(currentList, index)" />
+
+                <button class="glass-icon-button delete-item-button" aria-label="Remove item"
+                  @click="removeItem(currentList, index)">
+                  <Trash2 :size="14" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -540,6 +605,21 @@ function onDrop(e: DragEvent, idx: number) {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+.completed-panel {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.completed-heading {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-soft);
 }
 
 .item-row {
