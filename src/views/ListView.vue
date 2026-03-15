@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
-import { GripVertical, Trash, Trash2 } from 'lucide-vue-next'
+import { GripVertical, Trash2 } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch, onMounted } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import MetaWell from '../components/MetaWell.vue'

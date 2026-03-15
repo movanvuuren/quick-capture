@@ -85,7 +85,8 @@ export function markdownToPreviewText(markdown: string): string {
 }
 
 function getFileTitle(fileName: string, markdownBody: string): string {
-  const h1Match = markdownBody.match(/^#\s+(.*)/)
+  const normalizedBody = markdownBody.replace(/^\uFEFF/, '').trimStart()
+  const h1Match = normalizedBody.match(/^#\s+(.*)/)
   const heading = h1Match?.[1]?.trim()
 
   if (heading)
@@ -96,6 +97,13 @@ function getFileTitle(fileName: string, markdownBody: string): string {
     .replace(/^\d{4}-\d{2}-\d{2}-/, '')
     .replace(/[-_]/g, ' ')
     .replace(/\b\w/g, char => char.toUpperCase())
+}
+
+function stripLeadingHeading(markdownBody: string): string {
+  return markdownBody
+    .replace(/^\uFEFF/, '')
+    .replace(/^\s*#\s+.+?(?:\r?\n){1,2}/, '')
+    .trimStart()
 }
 
 function sortAppFiles(items: AppFile[]): AppFile[] {
@@ -168,7 +176,8 @@ export async function loadDashboardData(folderUri: string): Promise<DashboardDat
         ? (frontmatter.type as AppFile['type'])
         : 'note'
 
-      const plainTextBody = markdownToPreviewText(body)
+      const previewSource = type === 'note' ? stripLeadingHeading(body) : body
+      const plainTextBody = markdownToPreviewText(previewSource)
       const preview = plainTextBody.substring(0, 80) + (plainTextBody.length > 80 ? '…' : '')
 
       files.push({

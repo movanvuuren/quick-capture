@@ -912,10 +912,12 @@ h1 {
 .collection-body {
   min-width: 0;
   flex: 1;
+  width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
+  overflow: hidden;
 }
 
 .collection-top h3 {
@@ -975,6 +977,7 @@ h1 {
 
 .note-preview {
   margin: 0;
+  width: 100%;
   color: var(--text-soft);
   font-size: 1rem;
   line-height: 1.45;
@@ -999,6 +1002,7 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
 }
 
 .todo-preview-item {
@@ -1006,6 +1010,8 @@ h1 {
   align-items: center;
   gap: 10px;
   color: var(--text-soft);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .todo-preview-more {

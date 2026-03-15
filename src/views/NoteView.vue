@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import Editor from '@toast-ui/editor'
-import { Trash } from 'lucide-vue-next'
+import { Trash2 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MetaWell from '../components/MetaWell.vue'
