@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onActivated, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import { CheckSquare, FileText, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
@@ -37,8 +37,8 @@ let cachedSnapshot: DashboardSnapshot | null = null
 let activeRefreshPromise: Promise<void> | null = null
 
 const router = useRouter()
-const settings = loadSettings()
-const baseFolderUri = computed(() => settings.baseFolderUri || '')
+const settings = ref(loadSettings())
+const baseFolderUri = computed(() => settings.value.baseFolderUri || '')
 
 const lists = ref<StoredTodoList[]>([])
 const tasks = ref<StoredTodoList[]>([])
@@ -179,8 +179,34 @@ async function refreshDashboard(options: { preferCache?: boolean } = {}) {
   return activeRefreshPromise
 }
 
-onMounted(() => refreshDashboard({ preferCache: true }))
-onActivated(() => refreshDashboard({ preferCache: true }))
+async function syncSettingsAndRefresh(options: { preferCache?: boolean } = {}) {
+  settings.value = loadSettings()
+  await refreshDashboard(options)
+}
+
+function handleWindowFocus() {
+  void syncSettingsAndRefresh({ preferCache: true })
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible')
+    void syncSettingsAndRefresh({ preferCache: true })
+}
+
+onMounted(() => {
+  void syncSettingsAndRefresh({ preferCache: true })
+  window.addEventListener('focus', handleWindowFocus)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+})
+
+onActivated(() => {
+  void syncSettingsAndRefresh({ preferCache: true })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', handleWindowFocus)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 
 function getActiveItems(list: StoredTodoList) {
   return list.items.filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
@@ -261,7 +287,7 @@ function openList(fileName: string) {
 function inferTaskPresetId(task: StoredTodoList): string | undefined {
   const nonEmptyItems = task.items.filter(item => item.text.trim().length > 0)
 
-  const tagMatches = settings.quickTaskPresets
+  const tagMatches = settings.value.quickTaskPresets
     .map((preset) => {
       const tag = preset.tag?.trim()
       if (!tag)
@@ -276,11 +302,11 @@ function inferTaskPresetId(task: StoredTodoList): string | undefined {
   if (tagMatches.length === 1)
     return tagMatches[0]?.preset.id
 
-  const fileNameMatches = settings.quickTaskPresets.filter((preset) => {
+  const fileNameMatches = settings.value.quickTaskPresets.filter((preset) => {
     if (preset.saveMode !== 'single_file')
       return false
 
-    const presetFile = preset.fileName || settings.listFileName || 'tasks.md'
+    const presetFile = preset.fileName || settings.value.listFileName || 'tasks.md'
     return presetFile === task.fileName
   })
 
