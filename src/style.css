@@ -34,6 +34,12 @@
   --shadow:
     0 10px 30px rgba(15, 23, 42, 0.08),
     0 2px 10px rgba(15, 23, 42, 0.04);
+  --page-top-offset: 0px;
+  --page-top-padding: calc(24px + env(safe-area-inset-top, 0px) + var(--page-top-offset));
+}
+
+:root[data-platform='android'] {
+  --page-top-offset: 10px;
 }
 
 /* dark theme mimicking Obsidian minimal */

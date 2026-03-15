@@ -218,7 +218,7 @@ async function saveNote() {
 /* reuse styles from TaskView for consistency */
 .page {
   min-height: 100vh;
-  padding: 24px 20px;
+  padding: var(--page-top-padding) 20px;
   background: var(--bg);
   color: var(--text);
 }

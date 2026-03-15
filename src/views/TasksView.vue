@@ -633,7 +633,7 @@ onMounted(async () => {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 24px 20px 40px;
+  padding: var(--page-top-padding) 20px 40px;
   color: var(--text);
 }
 

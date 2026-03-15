@@ -51,6 +51,7 @@ const error = ref('')
 const selectedKinds = ref<DashboardCard['kind'][]>(['list', 'note', 'task'])
 const allFilterKinds: DashboardCard['kind'][] = ['list', 'note', 'task']
 const allFiltersActive = computed(() => selectedKinds.value.length === allFilterKinds.length)
+const activeTheme = computed(() => settings.value.theme || 'light')
 
 const swipeOffsets = ref<Record<string, number>>({})
 const activeSwipeKey = ref<string | null>(null)
@@ -129,7 +130,7 @@ function syncDashboardCache() {
   }
 }
 
-async function refreshDashboard(options: { preferCache?: boolean } = {}) {
+async function refreshDashboard(options: { preferCache?: boolean, force?: boolean } = {}) {
   if (!baseFolderUri.value) {
     lists.value = []
     tasks.value = []
@@ -139,11 +140,12 @@ async function refreshDashboard(options: { preferCache?: boolean } = {}) {
     return
   }
 
-  const shouldDebounceRefresh = cachedSnapshot
+  const shouldDebounceRefresh = !options.force
+    && cachedSnapshot
     && cachedFolderUri === baseFolderUri.value
     && Date.now() - cachedAt < HOME_REFRESH_DEBOUNCE_MS
 
-  if (options.preferCache && cachedSnapshot && cachedFolderUri === baseFolderUri.value) {
+  if (!options.force && options.preferCache && cachedSnapshot && cachedFolderUri === baseFolderUri.value) {
     applySnapshot(cachedSnapshot)
     isLoading.value = false
   }
@@ -180,18 +182,18 @@ async function refreshDashboard(options: { preferCache?: boolean } = {}) {
   return activeRefreshPromise
 }
 
-async function syncSettingsAndRefresh(options: { preferCache?: boolean } = {}) {
+async function syncSettingsAndRefresh(options: { preferCache?: boolean, force?: boolean } = {}) {
   settings.value = loadSettings()
   await refreshDashboard(options)
 }
 
 function handleWindowFocus() {
-  void syncSettingsAndRefresh({ preferCache: true })
+  void syncSettingsAndRefresh({ preferCache: true, force: true })
 }
 
 function handleVisibilityChange() {
   if (document.visibilityState === 'visible')
-    void syncSettingsAndRefresh({ preferCache: true })
+    void syncSettingsAndRefresh({ preferCache: true, force: true })
 }
 
 onMounted(() => {
@@ -201,7 +203,7 @@ onMounted(() => {
 })
 
 onActivated(() => {
-  void syncSettingsAndRefresh({ preferCache: true })
+  void syncSettingsAndRefresh({ preferCache: true, force: true })
 })
 
 onBeforeUnmount(() => {
@@ -659,7 +661,10 @@ async function toggleNotePin(note: AppFile) {
             @click="openCard(card)">
             <div class="collection-top">
               <div class="collection-main">
-                <div class="type-icon-wrap">
+                <div class="type-icon-wrap" :class="{
+                  'type-icon-wrap--dark': activeTheme === 'dark',
+                  'type-icon-wrap--dim': activeTheme === 'dim',
+                }">
                   <component :is="getCardIcon(card.kind)" :size="18" class="type-icon" />
                 </div>
                 <div class="collection-body">
@@ -686,9 +691,10 @@ async function toggleNotePin(note: AppFile) {
               </div>
 
               <div class="card-actions" @click.stop>
-                <PinToggleButton :pinned="card.item.pinned" :item-label="getCardTypeLabel(card.kind).toLowerCase()"
+                <PinToggleButton class="home-card-action-button" :pinned="card.item.pinned" :size="16"
+                  :item-label="getCardTypeLabel(card.kind).toLowerCase()"
                   @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
-                <button class="glass-icon-button delete-icon-button" type="button"
+                <button class="glass-icon-button home-card-action-button delete-icon-button" type="button"
                   :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
                   <Trash2 :size="16" />
                 </button>
@@ -724,14 +730,15 @@ async function toggleNotePin(note: AppFile) {
         </div>
 
         <div class="quick-add-actions">
-          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create list"
-            aria-label="Create list" @click="createTodoFile('list')">
-            <List :size="16" />
-          </button>
 
           <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Quick tasks"
             aria-label="Quick tasks" @click="go('/tasks')">
             <CheckSquare :size="16" />
+          </button>
+
+          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create list"
+            aria-label="Create list" @click="createTodoFile('list')">
+            <List :size="16" />
           </button>
 
           <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create note"
@@ -747,7 +754,7 @@ async function toggleNotePin(note: AppFile) {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 24px 20px calc(176px + env(safe-area-inset-bottom, 0px));
+  padding: var(--page-top-padding) 20px calc(176px + env(safe-area-inset-bottom, 0px));
   color: var(--text);
 }
 
@@ -892,6 +899,16 @@ h1 {
   stroke-width: 2.2;
 }
 
+.type-icon-wrap--dark,
+.type-icon-wrap--dim {
+  border-color: color-mix(in srgb, var(--c-light) 42%, var(--c-dark) 18%);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--c-dark) 66%, var(--c-glass) 8%),
+      color-mix(in srgb, var(--c-dark) 56%, var(--c-light) 14%));
+  color: color-mix(in srgb, var(--c-light) 84%, white 10%);
+}
+
 .collection-body {
   min-width: 0;
   flex: 1;
@@ -916,25 +933,27 @@ h1 {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
-.delete-icon-button {
+.home-card-action-button {
   width: 34px;
   height: 34px;
   min-width: 34px;
   min-height: 34px;
   padding: 0;
   border-radius: 11px;
-  border-color: color-mix(in srgb, var(--danger) 36%, var(--border) 64%);
-  color: color-mix(in srgb, var(--danger) 80%, var(--text-soft) 20%);
-  background: color-mix(in srgb, var(--danger) 8%, var(--c-glass) 92%);
+  color: var(--text-soft);
 }
 
-.delete-icon-button:hover,
-.delete-icon-button:focus-visible {
-  border-color: color-mix(in srgb, var(--danger) 56%, var(--border) 44%);
-  background: color-mix(in srgb, var(--danger) 16%, var(--c-glass) 84%);
-  color: color-mix(in srgb, var(--danger) 90%, var(--text) 10%);
+.home-card-action-button:hover,
+.home-card-action-button:focus-visible {
+  color: var(--primary);
+}
+
+.delete-icon-button {
+  border-color: color-mix(in srgb, var(--text) 18%, transparent);
+  background: color-mix(in srgb, var(--c-glass) 14%, transparent);
 }
 
 .summary-progress-track {
@@ -1167,6 +1186,30 @@ h1 {
 
 .quick-add-button--icon {
   border-radius: 14px;
+}
+
+@media (max-width: 560px) {
+  .collection-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .collection-main {
+    width: auto;
+    min-width: 0;
+  }
+
+  .collection-body {
+    min-width: 0;
+  }
+
+  .card-actions {
+    width: auto;
+    flex-direction: column;
+    justify-content: flex-start;
+    margin-top: 0;
+  }
 }
 
 @media (min-width: 720px) {

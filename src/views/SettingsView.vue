@@ -189,7 +189,7 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 24px 20px 40px;
+  padding: var(--page-top-padding) 20px 40px;
   background: var(--bg);
   color: var(--text);
 }

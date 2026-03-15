@@ -385,7 +385,7 @@ function onDrop(e: DragEvent, idx: number) {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: 24px 20px 32px;
+  padding: var(--page-top-padding) 20px 32px;
   color: var(--text);
 }
 
