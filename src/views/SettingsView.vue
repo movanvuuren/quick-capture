@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Moon, Sparkles, Sun, Trash } from 'lucide-vue-next'
+import { Moon, Sparkles, Sun, Trash2 } from 'lucide-vue-next'
 import { computed, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
@@ -113,66 +113,12 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
       <OptionSwitcher v-model="settings.theme" :options="themeOptions" aria-label="Theme" />
     </div>
 
-    <!-- lists card -->
-    <div class="card">
-      <h2 class="card-title">
-        Lists file
-      </h2>
-      <div class="field row">
-        <div class="field">
-          <div class="segmented-control" :data-active="settings.listSaveMode === 'daily_note' ? 'right' : 'left'">
-            <button type="button" class="segmented-option"
-              :class="{ 'is-active': settings.listSaveMode === 'single_file' }"
-              @click="settings.listSaveMode = 'single_file'">
-              Custom filename
-            </button>
-
-            <button type="button" class="segmented-option"
-              :class="{ 'is-active': settings.listSaveMode === 'daily_note' }"
-              @click="settings.listSaveMode = 'daily_note'">
-              Today’s date
-            </button>
-          </div>
-        </div>
-
-        <input v-model="settings.listFileName" type="text" placeholder="tasks.md"
-          :disabled="settings.listSaveMode === 'daily_note'">
-      </div>
-    </div>
-
-    <!-- notes card -->
-    <div class="card">
-      <h2 class="card-title">
-        Notes file
-      </h2>
-      <div class="field row">
-        <div class="field">
-          <div class="segmented-control" :data-active="settings.noteSaveMode === 'daily_note' ? 'right' : 'left'">
-            <button type="button" class="segmented-option"
-              :class="{ 'is-active': settings.noteSaveMode === 'single_file' }"
-              @click="settings.noteSaveMode = 'single_file'">
-              Custom filename
-            </button>
-
-            <button type="button" class="segmented-option"
-              :class="{ 'is-active': settings.noteSaveMode === 'daily_note' }"
-              @click="settings.noteSaveMode = 'daily_note'">
-              Today’s date
-            </button>
-          </div>
-
-          <input v-model="settings.noteFileName" type="text" placeholder="notes.md"
-            :disabled="settings.noteSaveMode === 'daily_note'">
-        </div>
-      </div>
-    </div>
-
     <div v-for="(preset, index) in settings.quickTaskPresets" :key="preset.id" class="card">
       <div class="card-header">
         <h2>Task {{ index + 1 }}</h2>
         <button class="glass-icon-button remove-button" :disabled="settings.quickTaskPresets.length === 1"
           @click="removePreset(preset.id)">
-          <Trash />
+          <Trash2 :size="14" />
         </button>
       </div>
 
@@ -209,7 +155,7 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
       </label>
     </div>
 
-    <button class="glass-button glass-button--block glass-button--secondary add-button" :disabled="!canAddPreset"
+    <button v-if="canAddPreset" class="glass-button glass-button--block glass-button--secondary add-button"
       @click="addPreset">
       + Add Task
     </button>
@@ -232,16 +178,6 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
   align-items: center;
   gap: 12px;
   margin-bottom: 24px;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.flex-grow {
-  flex: 1;
 }
 
 .card-title {
@@ -276,13 +212,14 @@ h1 {
 }
 
 .remove-button {
-  padding: 6px 14px;
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--text);
-  font-weight: 600;
-  border: 1px solid transparent;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: var(--text-soft);
+}
+
+.remove-button:hover {
+  color: var(--danger);
 }
 
 .field {
