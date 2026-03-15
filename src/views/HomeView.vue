@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { CSSProperties } from 'vue'
 import { CheckSquare, FileText, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
@@ -372,6 +373,16 @@ function getCardStyle(card: DashboardCard) {
   }
 }
 
+function getDeleteButtonStyle(card: DashboardCard): CSSProperties {
+  const offset = getCardOffset(card)
+  const opacity = Math.max(0, Math.min(1, offset / SWIPE_OPEN_THRESHOLD))
+
+  return {
+    opacity,
+    pointerEvents: offset > 6 ? 'auto' : 'none',
+  }
+}
+
 function closeAllSwipes(exceptKey?: string) {
   const nextOffsets: Record<string, number> = {}
 
@@ -637,7 +648,7 @@ async function toggleNotePin(note: AppFile) {
         <div v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
           class="swipe-item" @touchstart="onSwipeStart(card, $event)" @touchmove="onSwipeMove(card, $event)"
           @touchend="onSwipeEnd(card)" @touchcancel="onSwipeEnd(card)">
-          <button class="swipe-delete-button" type="button"
+          <button class="swipe-delete-button" type="button" :style="getDeleteButtonStyle(card)"
             :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
             <Trash2 :size="18" />
             <span>Delete</span>
@@ -809,6 +820,8 @@ h1 {
       color-mix(in srgb, var(--danger) 84%, black 6%),
       color-mix(in srgb, var(--danger) 74%, black 16%));
   z-index: 1;
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
 
 .swipe-delete-button:active {
