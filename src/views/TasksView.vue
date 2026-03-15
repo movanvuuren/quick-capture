@@ -590,7 +590,7 @@ onMounted(async () => {
     </div>
 
     <div v-else-if="visibleTasks.length === 0" class="card glass-card empty-state">
-      No quick-preset tasks found yet.
+      No tasks found yet.
     </div>
 
     <div v-else class="task-list">

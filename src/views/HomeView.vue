@@ -28,6 +28,12 @@ type DashboardCard =
   | { kind: 'task', item: StoredTodoList }
   | { kind: 'note', item: AppFile }
 
+type DashboardCardEntry = DashboardCard & {
+  sortPinned: number
+  sortDate: number
+  sortName: string
+}
+
 const SWIPE_DELETE_WIDTH = 92
 const SWIPE_OPEN_THRESHOLD = 46
 const SWIPE_MOVE_THRESHOLD = 10
@@ -60,25 +66,49 @@ const swipeStartOffset = ref(0)
 const swipeMoved = ref(false)
 
 const isEmpty = computed(() => lists.value.length === 0 && tasks.value.length === 0 && notes.value.length === 0)
+const dashboardCards = ref<DashboardCardEntry[]>([])
 
-const dashboardCards = computed<DashboardCard[]>(() => {
-  const cards: DashboardCard[] = [
-    ...lists.value.map(item => ({ kind: 'list' as const, item })),
-    ...tasks.value.map(item => ({ kind: 'task' as const, item })),
-    ...notes.value.map(item => ({ kind: 'note' as const, item })),
+function toSortDate(item: { updated?: string, created?: string }) {
+  const date = item.updated || item.created || ''
+  const parsed = Date.parse(date)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function buildSortedDashboardCards() {
+  const cards: DashboardCardEntry[] = [
+    ...lists.value.map(item => ({
+      kind: 'list' as const,
+      item,
+      sortPinned: item.pinned ? 0 : 1,
+      sortDate: toSortDate(item),
+      sortName: item.fileName,
+    })),
+    ...tasks.value.map(item => ({
+      kind: 'task' as const,
+      item,
+      sortPinned: item.pinned ? 0 : 1,
+      sortDate: toSortDate(item),
+      sortName: item.fileName,
+    })),
+    ...notes.value.map(item => ({
+      kind: 'note' as const,
+      item,
+      sortPinned: item.pinned ? 0 : 1,
+      sortDate: toSortDate(item),
+      sortName: item.name,
+    })),
   ]
 
-  return cards.sort((a, b) => {
-    if (a.item.pinned && !b.item.pinned)
-      return -1
-    if (!a.item.pinned && b.item.pinned)
-      return 1
-
-    const aDate = a.item.updated || a.item.created || ''
-    const bDate = b.item.updated || b.item.created || ''
-    return bDate.localeCompare(aDate)
+  cards.sort((a, b) => {
+    if (a.sortPinned !== b.sortPinned)
+      return a.sortPinned - b.sortPinned
+    if (a.sortDate !== b.sortDate)
+      return b.sortDate - a.sortDate
+    return a.sortName.localeCompare(b.sortName)
   })
-})
+
+  dashboardCards.value = cards
+}
 
 const filteredDashboardCards = computed(() => {
   if (allFiltersActive.value)
@@ -115,6 +145,7 @@ function applySnapshot(snapshot: DashboardSnapshot) {
   lists.value = sortPinnedTodos(snapshot.lists)
   tasks.value = sortPinnedTodos(snapshot.tasks)
   notes.value = sortPinnedFiles(snapshot.notes)
+  buildSortedDashboardCards()
 }
 
 function syncDashboardCache() {
@@ -135,6 +166,7 @@ async function refreshDashboard(options: { preferCache?: boolean, force?: boolea
     lists.value = []
     tasks.value = []
     notes.value = []
+    buildSortedDashboardCards()
     error.value = ''
     isLoading.value = false
     return
@@ -167,6 +199,7 @@ async function refreshDashboard(options: { preferCache?: boolean, force?: boolea
       lists.value = dashboard.lists
       tasks.value = dashboard.tasks
       notes.value = sortPinnedFiles(dashboard.files.filter(file => file.type === 'note'))
+      buildSortedDashboardCards()
       syncDashboardCache()
     }
     catch (err) {
@@ -486,6 +519,8 @@ async function deleteCard(card: DashboardCard) {
     else
       notes.value = notes.value.filter(note => note.name !== card.item.name)
 
+    buildSortedDashboardCards()
+
     const key = getCardKey(card)
     if (key in swipeOffsets.value) {
       const nextOffsets = { ...swipeOffsets.value }
@@ -551,6 +586,8 @@ async function toggleTodoPin(item: StoredTodoList, collection: 'list' | 'task') 
   else
     tasks.value = sortPinnedTodos(tasks.value)
 
+  buildSortedDashboardCards()
+
   try {
     await saveListToFile(baseFolderUri.value, item)
     syncDashboardCache()
@@ -561,6 +598,8 @@ async function toggleTodoPin(item: StoredTodoList, collection: 'list' | 'task') 
       lists.value = sortPinnedTodos(lists.value)
     else
       tasks.value = sortPinnedTodos(tasks.value)
+
+    buildSortedDashboardCards()
 
     console.error('Failed to update todo pin state', err)
   }
@@ -574,6 +613,7 @@ async function toggleNotePin(note: AppFile) {
   const previousPinned = note.pinned
   note.pinned = nextPinned
   notes.value = sortPinnedFiles(notes.value)
+  buildSortedDashboardCards()
 
   try {
     await setFilePinned(baseFolderUri.value, note.name, nextPinned)
@@ -582,6 +622,7 @@ async function toggleNotePin(note: AppFile) {
   catch (err) {
     note.pinned = previousPinned
     notes.value = sortPinnedFiles(notes.value)
+    buildSortedDashboardCards()
     console.error('Failed to update note pin state', err)
   }
 }

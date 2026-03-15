@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import Editor from '@toast-ui/editor'
 import { Trash2 } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -10,8 +9,12 @@ import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { parseFrontmatter, stripFrontmatter } from '../lib/lists'
 import { createNoteFile, saveNoteToFile, setFilePinned } from '../lib/listFiles'
-import '@toast-ui/editor/dist/toastui-editor.css'
-import '@toast-ui/editor/dist/theme/toastui-editor-dark.css'
+
+type ToastEditor = {
+  getMarkdown: () => string
+  setMarkdown: (content: string) => void
+  destroy: () => void
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -25,7 +28,7 @@ const noteUpdated = ref('')
 const noteMetaDate = computed(() => noteUpdated.value || noteCreated.value || (noteId.value ? noteId.value.replace(/\.md$/i, '') : todayIso()))
 
 const editorElement = ref<HTMLElement | null>(null)
-let editorInstance: any = null
+let editorInstance: ToastEditor | null = null
 
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10)
@@ -57,18 +60,27 @@ function buildNoteMarkdown(title: string, body: string): string {
   return trimmedBody
 }
 
-function initEditor(theme: 'light' | 'dark' | 'dim', initialValue = '') {
+async function initEditor(theme: 'light' | 'dark' | 'dim', initialValue = '') {
   if (editorInstance)
     destroyEditor()
 
   if (editorElement.value) {
+    const editorTheme = theme === 'light' ? 'light' : 'dark'
+    const [{ default: Editor }] = await Promise.all([
+      import('@toast-ui/editor'),
+      import('@toast-ui/editor/dist/toastui-editor.css'),
+      editorTheme === 'dark'
+        ? import('@toast-ui/editor/dist/theme/toastui-editor-dark.css')
+        : Promise.resolve(),
+    ])
+
     editorInstance = new Editor({
       el: editorElement.value,
       height: '400px',
       initialEditType: 'wysiwyg',
       initialValue,
       previewStyle: 'vertical',
-      theme,
+      theme: editorTheme,
       placeholder: 'Start writing your note...',
     })
   }
@@ -106,7 +118,7 @@ onMounted(async () => {
 
   const parsed = splitNoteContent(initialContent)
   noteTitle.value = parsed.title || (!noteId.value ? `Note ${todayIso()}` : '')
-  initEditor(settings.theme, parsed.body)
+  await initEditor(settings.theme, parsed.body)
 })
 
 onBeforeUnmount(() => {

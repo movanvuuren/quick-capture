@@ -375,6 +375,9 @@ function onDragStart(e: DragEvent, idx: number) {
   dragIndex.value = idx
   e.dataTransfer?.setData('text/plain', String(idx))
   e.dataTransfer!.effectAllowed = 'move'
+  const row = e.currentTarget as HTMLElement
+  const rect = row.getBoundingClientRect()
+  e.dataTransfer!.setDragImage(row, e.clientX - rect.left, e.clientY - rect.top)
 }
 
 function onDragOver(e: DragEvent) {
@@ -419,8 +422,8 @@ function onDrop(e: DragEvent, idx: number) {
       </template>
     </PageHeader>
 
-    <div v-if="isLoading" class="empty-state">
-      <p class="empty-title">Loading…</p>
+    <div v-if="isLoading" class="empty-state empty-state--loading" role="status" aria-label="Loading list">
+      <div class="loading-spinner" aria-hidden="true" />
     </div>
 
     <template v-else-if="currentList">
@@ -536,6 +539,29 @@ function onDrop(e: DragEvent, idx: number) {
   padding: 28px 20px;
   text-align: center;
   margin-bottom: 18px;
+}
+
+.empty-state--loading {
+  display: grid;
+  place-items: center;
+  min-height: 132px;
+}
+
+.loading-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 3px solid color-mix(in srgb, var(--primary) 18%, transparent);
+  border-top-color: var(--primary);
+  border-right-color: color-mix(in srgb, var(--primary) 72%, white 12%);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--primary) 8%, transparent);
+  animation: list-spinner 0.8s linear infinite;
+}
+
+@keyframes list-spinner {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty-icon {
