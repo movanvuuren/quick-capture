@@ -197,6 +197,13 @@ function getPreviewItems(list: StoredTodoList) {
     .slice(0, 3)
 }
 
+function getPreviewOverflowCount(list: StoredTodoList) {
+  const visibleCount = list.items
+    .filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
+    .length
+  return Math.max(visibleCount - 3, 0)
+}
+
 function go(path: string) {
   router.push(path)
 }
@@ -504,6 +511,9 @@ async function toggleNotePin(note: AppFile) {
                         <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
                           previewItem.text }}</span>
                       </li>
+                      <li v-if="getPreviewOverflowCount(card.item) > 0" class="todo-preview-more">
+                        ... and {{ getPreviewOverflowCount(card.item) }} more
+                      </li>
                     </ul>
                   </template>
                 </div>
@@ -754,6 +764,14 @@ h1 {
   align-items: center;
   gap: 10px;
   color: var(--text-soft);
+}
+
+.todo-preview-more {
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  font-weight: 600;
+  opacity: 0.85;
+  padding-left: 23px;
 }
 
 .todo-preview-dot {

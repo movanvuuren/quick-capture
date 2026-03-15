@@ -227,8 +227,8 @@ async function saveNote() {
 }
 
 .header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   margin-bottom: 24px;
@@ -238,6 +238,15 @@ async function saveNote() {
   display: inline-flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
+}
+
+.header h1 {
+  margin: 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .glass-panel {
@@ -293,6 +302,7 @@ async function saveNote() {
   margin-right: 4px;
   max-width: 170px;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
@@ -331,13 +341,36 @@ async function saveNote() {
 
 @media (max-width: 560px) {
   .header {
-    align-items: flex-start;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     gap: 8px;
-    flex-direction: column;
+    margin-bottom: 16px;
+  }
+
+  .header-main {
+    gap: 8px;
+  }
+
+  .header h1 {
+    font-size: 1.45rem;
+    line-height: 1.1;
   }
 
   .detail-meta {
-    justify-self: start;
+    justify-self: end;
+  }
+
+  .meta-well {
+    padding: 2px 4px 2px 8px;
+    gap: 2px;
+  }
+
+  .meta-date {
+    max-width: 110px;
+  }
+
+  .title-input {
+    font-size: 1.15rem;
   }
 }
 </style>

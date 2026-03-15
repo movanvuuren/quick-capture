@@ -396,8 +396,8 @@ function onDrop(e: DragEvent, idx: number) {
 
 
 .header {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 14px;
   margin-bottom: 16px;
@@ -407,13 +407,18 @@ function onDrop(e: DragEvent, idx: number) {
   display: inline-flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
 }
 
 .header h1 {
   margin: 0;
+  min-width: 0;
   font-size: 1.9rem;
   line-height: 1.1;
   letter-spacing: -0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .empty-state,
@@ -586,6 +591,36 @@ function onDrop(e: DragEvent, idx: number) {
     max-width: 760px;
     margin: 0 auto;
     padding: 28px 20px 40px;
+  }
+}
+
+@media (max-width: 560px) {
+  .header {
+    gap: 8px;
+  }
+
+  .header-main {
+    gap: 8px;
+  }
+
+  .header h1 {
+    font-size: 1.45rem;
+  }
+
+  .header-title {
+    font-size: 1.15rem;
+  }
+
+  .meta-well {
+    padding: 2px 4px 2px 8px;
+    gap: 2px;
+  }
+
+  .meta-date {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 </style>
