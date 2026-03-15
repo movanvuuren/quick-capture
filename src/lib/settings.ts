@@ -62,6 +62,14 @@ export const defaultSettings: AppSettings = {
   ],
 }
 
+export function getThemeAccentColor(theme: Theme): string {
+  if (theme === 'light')
+    return '#2563ff'
+  if (theme === 'dark')
+    return '#ce43b7'
+  return '#ff53b3'
+}
+
 function normalizeAccentColor(value: unknown): string | undefined {
   if (typeof value !== 'string')
     return undefined

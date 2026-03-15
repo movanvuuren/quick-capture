@@ -3,7 +3,7 @@ import { Moon, Sparkles, Sun, Trash2 } from 'lucide-vue-next'
 import { computed, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
-import { applyTheme, loadSettings, saveSettings } from '../lib/settings'
+import { applyTheme, getThemeAccentColor, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 
 const router = useRouter()
@@ -80,6 +80,13 @@ const themeOptions = [
   { value: 'dim', label: 'Dim', icon: Sparkles },
 ]
 
+const accentPickerValue = computed({
+  get: () => settings.accentColor || getThemeAccentColor(settings.theme),
+  set: (value: string) => {
+    settings.accentColor = value
+  },
+})
+
 const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK_TASK_PRESETS)
 </script>
 
@@ -119,7 +126,7 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
       <div class="field accent-field">
         <span>Accent color</span>
         <div class="accent-controls">
-          <input v-model="settings.accentColor" class="accent-picker" type="color" aria-label="Accent color picker">
+          <input v-model="accentPickerValue" class="accent-picker" type="color" aria-label="Accent color picker">
           <button class="glass-button glass-button--secondary accent-reset" type="button" @click="resetAccentColor">
             Reset default
           </button>
