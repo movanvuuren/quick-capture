@@ -98,10 +98,10 @@ const currentList = computed(() => {
   return found
 })
 
-const itemInputs = ref<(HTMLInputElement | null)[]>([])
+const itemInputs = ref<(HTMLTextAreaElement | null)[]>([])
 const isDiscardingDraft = ref(false)
 
-function ensureInputs(): (HTMLInputElement | null)[] {
+function ensureInputs(): (HTMLTextAreaElement | null)[] {
   if (!itemInputs.value)
     itemInputs.value = []
   return itemInputs.value
@@ -112,7 +112,15 @@ function setInputRef(
   el: Element | ComponentPublicInstance | null,
 ) {
   const arr = ensureInputs()
-  arr[idx] = el instanceof HTMLInputElement ? el : null
+  const textarea = el instanceof HTMLTextAreaElement ? el : null
+  arr[idx] = textarea
+  if (textarea)
+    autoGrow(textarea)
+}
+
+function autoGrow(el: HTMLTextAreaElement) {
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
 }
 
 watch(listId, () => {
@@ -318,7 +326,7 @@ function onDrop(e: DragEvent, idx: number) {
             <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list" variant="glass"
               @toggle="togglePin(currentList)" />
             <button class="glass-icon-button" aria-label="Delete list" @click="removeList(currentList.id)">
-              <Trash :size="20" />
+              <Trash2 :size="20" />
             </button>
           </MetaWell>
         </div>
@@ -352,9 +360,10 @@ function onDrop(e: DragEvent, idx: number) {
               {{ item.state === 'done' ? '✓' : item.state === 'cancelled' ? '–' : '' }}
             </button>
 
-            <input :ref="el => setInputRef(i, el as HTMLInputElement | null)" v-model="item.text"
-              placeholder="To-do item" class="item-input" @input="queueSave(currentList)"
-              @keydown.enter.prevent="addItemAt(currentList, i)">
+            <textarea :ref="el => setInputRef(i, el as HTMLTextAreaElement | null)" v-model="item.text"
+              placeholder="To-do item" class="item-input" rows="1"
+              @input="(e) => { autoGrow(e.target as HTMLTextAreaElement); currentList && queueSave(currentList) }"
+              @keydown.enter.prevent="currentList && addItemAt(currentList, i)" />
 
             <button class="glass-icon-button delete-item-button" aria-label="Remove item"
               @click="removeItem(currentList, i)">
@@ -502,7 +511,7 @@ function onDrop(e: DragEvent, idx: number) {
 
 .item-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 8px;
   border-radius: 18px;
@@ -532,6 +541,11 @@ function onDrop(e: DragEvent, idx: number) {
   border: none;
   background: transparent;
   color: var(--text);
+  resize: none;
+  overflow: hidden;
+  line-height: 1.45;
+  word-break: break-word;
+  white-space: pre-wrap;
 }
 
 .delete-item-button {

@@ -193,7 +193,7 @@ async function saveNote() {
             <PinToggleButton :pinned="notePinned" :size="20" item-label="note" variant="glass"
               @toggle="toggleNotePin" />
             <button v-if="noteId" class="glass-icon-button" aria-label="Delete note" @click="deleteNote">
-              <Trash :size="20" />
+              <Trash2 :size="20" />
             </button>
           </MetaWell>
         </div>

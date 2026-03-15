@@ -75,9 +75,9 @@ function removePreset(id: string) {
 }
 
 const themeOptions = [
-  { value: 'light', label: 'Light', icon: Sun },
-  { value: 'dark', label: 'Dark', icon: Moon },
-  { value: 'dim', label: 'Dim', icon: Sparkles },
+  { value: 'light', label: '', icon: Sun },
+  { value: 'dark', label: '', icon: Moon },
+  { value: 'dim', label: '', icon: Sparkles },
 ]
 
 const accentPickerValue = computed({
