@@ -9,7 +9,7 @@ import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
-type TaskFilter = 'all' | TaskState | 'overdue'
+type TaskFilter = 'all' | TaskState | 'overdue' | 'closed'
 type TaskSortMode = 'status' | 'due'
 
 interface ParsedTaskLine {
@@ -89,6 +89,9 @@ const visibleTasks = computed(() => {
   else if (selectedTaskFilter.value === 'overdue')
     filteredTasks = presetTasks.value.filter(task => isOverdue(task))
 
+  else if (selectedTaskFilter.value === 'closed')
+    filteredTasks = presetTasks.value.filter(task => task.state === 'done' || task.state === 'cancelled')
+
   else
     filteredTasks = presetTasks.value.filter(task => task.state === selectedTaskFilter.value)
 
@@ -122,12 +125,14 @@ const taskCounts = computed(() => {
   const pending = presetTasks.value.filter(task => task.state === 'pending').length
   const done = presetTasks.value.filter(task => task.state === 'done').length
   const cancelled = presetTasks.value.filter(task => task.state === 'cancelled').length
+  const closed = done + cancelled
   const overdue = presetTasks.value.filter(task => isOverdue(task)).length
 
   return {
     pending,
     done,
     cancelled,
+    closed,
     overdue,
     total: presetTasks.value.length,
   }
@@ -136,8 +141,7 @@ const taskCounts = computed(() => {
 const taskFilterOptions = computed(() => [
   { value: 'all', label: `All · ${taskCounts.value.total}` },
   { value: 'pending', label: `Pending · ${taskCounts.value.pending}` },
-  { value: 'done', label: `Done · ${taskCounts.value.done}` },
-  { value: 'cancelled', label: `Cancelled · ${taskCounts.value.cancelled}` },
+  { value: 'closed', label: `Done · ${taskCounts.value.closed}` },
   { value: 'overdue', label: `Overdue · ${taskCounts.value.overdue}` },
 ])
 
@@ -147,7 +151,7 @@ const taskSortOptions = [
 ]
 
 function onTaskFilterChange(value: string) {
-  if (value === 'all' || value === 'pending' || value === 'done' || value === 'cancelled' || value === 'overdue')
+  if (value === 'all' || value === 'pending' || value === 'done' || value === 'cancelled' || value === 'closed' || value === 'overdue')
     selectedTaskFilter.value = value
 }
 
