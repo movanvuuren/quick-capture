@@ -128,6 +128,20 @@ const completedIndexes = computed<number[]>(() => {
     .map(({ index }) => index)
 })
 
+const progressPercent = computed(() => {
+  if (!currentList.value)
+    return 0
+
+  const activeItems = currentList.value.items.filter(
+    item => item.text.trim().length > 0 && item.state !== 'cancelled',
+  )
+  if (activeItems.length === 0)
+    return 0
+
+  const doneCount = activeItems.filter(item => item.state === 'done').length
+  return Math.round((doneCount / activeItems.length) * 100)
+})
+
 const itemInputs = ref<(HTMLTextAreaElement | null)[]>([])
 const isDiscardingDraft = ref(false)
 const pendingFocusIndex = ref<number | null>(null)
@@ -389,6 +403,12 @@ function onDrop(e: DragEvent, idx: number) {
       <template #right>
         <div v-if="currentList" class="detail-meta">
           <MetaWell :date="currentList.updated || currentList.created || ''">
+            <div class="header-progress" :aria-label="`Progress ${progressPercent}%`" role="status">
+              <span class="header-progress-value">{{ progressPercent }}%</span>
+              <div class="header-progress-track" aria-hidden="true">
+                <div class="header-progress-fill" :style="{ width: `${progressPercent}%` }" />
+              </div>
+            </div>
             <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list" variant="glass"
               @toggle="togglePin(currentList)" />
             <button class="glass-icon-button" aria-label="Delete list" @click="removeList(currentList.id)">
@@ -423,7 +443,7 @@ function onDrop(e: DragEvent, idx: number) {
               <button class="state-box" :class="currentList.items[index]?.state"
                 :aria-label="`Change state for item ${index + 1}`" @click="cycleState(currentList, index)">
                 {{ currentList.items[index]?.state === 'done' ? '✓' : currentList.items[index]?.state === 'cancelled' ?
-                '–' : '' }}
+                  '–' : '' }}
               </button>
 
               <textarea :ref="el => setInputRef(index, el as HTMLTextAreaElement | null)"
@@ -433,7 +453,7 @@ function onDrop(e: DragEvent, idx: number) {
 
               <button class="glass-icon-button delete-item-button" aria-label="Remove item"
                 @click="removeItem(currentList, index)">
-                <Trash2 :size="14" />
+                <Trash2 :size="16" />
               </button>
             </div>
 
@@ -441,19 +461,19 @@ function onDrop(e: DragEvent, idx: number) {
               + Add item
             </button>
 
-            <div v-if="completedIndexes.length > 0" class="completed-panel glass-panel--soft">
+            <div v-if="completedIndexes.length > 0" class="completed-panel">
               <p class="completed-heading">Completed</p>
 
               <div v-for="index in completedIndexes" :key="`completed-${index}`" class="item-row" :class="{
                 done: currentList.items[index]?.state === 'done',
                 cancelled: currentList.items[index]?.state === 'cancelled',
               }">
-                <GripVertical class="drag-handle" />
+                <span class="drag-handle drag-handle--placeholder" aria-hidden="true" />
 
                 <button class="state-box" :class="currentList.items[index]?.state"
                   :aria-label="`Change state for item ${index + 1}`" @click="cycleState(currentList, index)">
                   {{ currentList.items[index]?.state === 'done' ? '✓' : currentList.items[index]?.state === 'cancelled'
-                  ? '–' : '' }}
+                    ? '–' : '' }}
                 </button>
 
                 <textarea :ref="el => setInputRef(index, el as HTMLTextAreaElement | null)"
@@ -463,7 +483,7 @@ function onDrop(e: DragEvent, idx: number) {
 
                 <button class="glass-icon-button delete-item-button" aria-label="Remove item"
                   @click="removeItem(currentList, index)">
-                  <Trash2 :size="14" />
+                  <Trash2 :size="16" />
                 </button>
               </div>
             </div>
@@ -576,6 +596,38 @@ function onDrop(e: DragEvent, idx: number) {
   justify-self: end;
 }
 
+.header-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 92px;
+}
+
+.header-progress-value {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-soft);
+  min-width: 34px;
+  text-align: right;
+}
+
+.header-progress-track {
+  width: 56px;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--c-light) 18%, transparent);
+}
+
+.header-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+      color-mix(in srgb, var(--primary) 82%, white 18%),
+      color-mix(in srgb, var(--primary) 62%, var(--success) 38%));
+  transition: width 0.22s ease;
+}
+
 .detail-content.is-layout-pending {
   visibility: hidden;
 }
@@ -609,8 +661,7 @@ function onDrop(e: DragEvent, idx: number) {
 
 .completed-panel {
   margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: 14px;
+  padding: 0;
 }
 
 .completed-heading {
@@ -642,6 +693,11 @@ function onDrop(e: DragEvent, idx: number) {
   cursor: grabbing;
 }
 
+.drag-handle--placeholder {
+  visibility: hidden;
+  cursor: default;
+}
+
 
 .item-input {
   flex: 1;
@@ -660,12 +716,17 @@ function onDrop(e: DragEvent, idx: number) {
 }
 
 .delete-item-button {
-  /* width: 34px;
-  height: 34px;
-
-  margin-top: 1px; */
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
   color: var(--text-soft);
-
 }
 
 .delete-item-button:hover {
@@ -683,6 +744,19 @@ function onDrop(e: DragEvent, idx: number) {
 @media (max-width: 560px) {
   .header-title {
     font-size: 1.15rem;
+  }
+
+  .header-progress {
+    min-width: 82px;
+    gap: 6px;
+  }
+
+  .header-progress-value {
+    min-width: 30px;
+  }
+
+  .header-progress-track {
+    width: 46px;
   }
 }
 </style>
