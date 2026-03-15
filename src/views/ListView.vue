@@ -362,8 +362,7 @@ function onDrop(e: DragEvent, idx: number) {
           <div v-for="(item, i) in currentList.items" :key="i" class="item-row" :class="{
             done: item.state === 'done',
             cancelled: item.state === 'cancelled',
-          }" draggable="false" @dragstart="(e) => onDragStart(e, i)" @dragover="onDragOver"
-            @drop="(e) => onDrop(e, i)">
+          }" draggable="true" @dragstart="(e) => onDragStart(e, i)" @dragover="onDragOver" @drop="(e) => onDrop(e, i)">
             <GripVertical class="drag-handle" />
 
             <button class="state-box" :class="item.state" :aria-label="`Change state for item ${i + 1}`"
@@ -581,40 +580,6 @@ function onDrop(e: DragEvent, idx: number) {
 @media (max-width: 560px) {
   .header-title {
     font-size: 1.15rem;
-
-    /* Reduce padding and size for mobile view */
-    .page-padding {
-      padding: 8px;
-    }
-
-    .list-card {
-      padding: 10px;
-    }
-
-    .items-gap {
-      margin-bottom: 8px;
-    }
-
-    .item-row {
-      padding: 4px;
-      margin: 4px 0;
-      border-radius: 4px;
-    }
-
-    .item-input {
-      padding: 6px;
-      font-size: 14px;
-      line-height: 1.4;
-    }
-
-    .drag-handle {
-      display: none;
-    }
-
-    .delete-button {
-      width: 16px;
-      height: 16px;
-    }
   }
 }
 </style>
