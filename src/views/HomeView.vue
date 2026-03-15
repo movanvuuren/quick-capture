@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, ref } from 'vue'
-import { Capacitor } from '@capacitor/core'
 import { CheckSquare, FileText, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
@@ -28,6 +27,10 @@ type DashboardCard =
   | { kind: 'task', item: StoredTodoList }
   | { kind: 'note', item: AppFile }
 
+const SWIPE_DELETE_WIDTH = 92
+const SWIPE_OPEN_THRESHOLD = 46
+const SWIPE_MOVE_THRESHOLD = 10
+
 let cachedFolderUri = ''
 let cachedAt = 0
 let cachedSnapshot: DashboardSnapshot | null = null
@@ -47,7 +50,12 @@ const error = ref('')
 const selectedKinds = ref<DashboardCard['kind'][]>(['list', 'note', 'task'])
 const allFilterKinds: DashboardCard['kind'][] = ['list', 'note', 'task']
 const allFiltersActive = computed(() => selectedKinds.value.length === allFilterKinds.length)
-const isWebPlatform = computed(() => Capacitor.getPlatform() === 'web')
+
+const swipeOffsets = ref<Record<string, number>>({})
+const activeSwipeKey = ref<string | null>(null)
+const swipeStartX = ref(0)
+const swipeStartOffset = ref(0)
+const swipeMoved = ref(false)
 
 const isEmpty = computed(() => lists.value.length === 0 && tasks.value.length === 0 && notes.value.length === 0)
 
@@ -298,6 +306,16 @@ function openNote(fileName: string) {
 }
 
 function openCard(card: DashboardCard) {
+  if (getCardOffset(card) > 0) {
+    closeSwipe(card)
+    return
+  }
+
+  if (swipeMoved.value) {
+    swipeMoved.value = false
+    return
+  }
+
   if (card.kind === 'list') {
     openList(card.item.fileName)
     return
@@ -311,6 +329,99 @@ function openCard(card: DashboardCard) {
   openNote(card.item.name)
 }
 
+function getCardKey(card: DashboardCard) {
+  if (card.kind === 'note')
+    return `note:${card.item.name}`
+
+  return `${card.kind}:${card.item.fileName}`
+}
+
+function getCardOffset(card: DashboardCard) {
+  return swipeOffsets.value[getCardKey(card)] ?? 0
+}
+
+function getCardStyle(card: DashboardCard) {
+  return {
+    transform: `translateX(-${getCardOffset(card)}px)`,
+  }
+}
+
+function closeAllSwipes(exceptKey?: string) {
+  const nextOffsets: Record<string, number> = {}
+
+  for (const [key, value] of Object.entries(swipeOffsets.value)) {
+    if (exceptKey && key === exceptKey && value > 0)
+      nextOffsets[key] = value
+  }
+
+  swipeOffsets.value = nextOffsets
+}
+
+function closeSwipe(card: DashboardCard) {
+  const key = getCardKey(card)
+  if (!swipeOffsets.value[key])
+    return
+
+  swipeOffsets.value = {
+    ...swipeOffsets.value,
+    [key]: 0,
+  }
+}
+
+function onSwipeStart(card: DashboardCard, event: TouchEvent) {
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const key = getCardKey(card)
+  closeAllSwipes(key)
+
+  activeSwipeKey.value = key
+  swipeStartX.value = touch.clientX
+  swipeStartOffset.value = swipeOffsets.value[key] ?? 0
+  swipeMoved.value = false
+}
+
+function onSwipeMove(card: DashboardCard, event: TouchEvent) {
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const key = getCardKey(card)
+  if (activeSwipeKey.value !== key)
+    return
+
+  const deltaX = swipeStartX.value - touch.clientX
+  const nextOffset = Math.min(
+    SWIPE_DELETE_WIDTH,
+    Math.max(0, swipeStartOffset.value + deltaX),
+  )
+
+  if (Math.abs(deltaX) > SWIPE_MOVE_THRESHOLD)
+    swipeMoved.value = true
+
+  swipeOffsets.value = {
+    ...swipeOffsets.value,
+    [key]: nextOffset,
+  }
+}
+
+function onSwipeEnd(card: DashboardCard) {
+  const key = getCardKey(card)
+  if (activeSwipeKey.value !== key)
+    return
+
+  const currentOffset = swipeOffsets.value[key] ?? 0
+  const shouldOpen = currentOffset >= SWIPE_OPEN_THRESHOLD
+
+  swipeOffsets.value = {
+    ...swipeOffsets.value,
+    [key]: shouldOpen ? SWIPE_DELETE_WIDTH : 0,
+  }
+
+  activeSwipeKey.value = null
+}
+
 async function deleteCard(card: DashboardCard) {
   if (!baseFolderUri.value)
     return
@@ -319,6 +430,8 @@ async function deleteCard(card: DashboardCard) {
   const confirmed = window.confirm(`Are you sure you want to delete this ${typeLabel}?`)
   if (!confirmed)
     return
+
+  closeSwipe(card)
 
   try {
     const fileName = card.kind === 'note' ? card.item.name : card.item.fileName
@@ -333,6 +446,13 @@ async function deleteCard(card: DashboardCard) {
       tasks.value = tasks.value.filter(task => task.fileName !== card.item.fileName)
     else
       notes.value = notes.value.filter(note => note.name !== card.item.name)
+
+    const key = getCardKey(card)
+    if (key in swipeOffsets.value) {
+      const nextOffsets = { ...swipeOffsets.value }
+      delete nextOffsets[key]
+      swipeOffsets.value = nextOffsets
+    }
 
     syncDashboardCache()
   }
@@ -489,8 +609,17 @@ async function toggleNotePin(note: AppFile) {
 
       <div class="card-grid">
         <div v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
-          class="swipe-item">
-          <div class="glass-button collection-card" @click="openCard(card)">
+          class="swipe-item" @touchstart="onSwipeStart(card, $event)" @touchmove="onSwipeMove(card, $event)"
+          @touchend="onSwipeEnd(card)" @touchcancel="onSwipeEnd(card)">
+          <button class="swipe-delete-button" type="button"
+            :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
+            <Trash2 :size="18" />
+            <span>Delete</span>
+          </button>
+
+          <div class="glass-button collection-card"
+            :class="{ 'collection-card--swiping': activeSwipeKey === getCardKey(card) }" :style="getCardStyle(card)"
+            @click="openCard(card)">
             <div class="collection-top">
               <div class="collection-main">
                 <div class="type-icon-wrap">
@@ -522,7 +651,7 @@ async function toggleNotePin(note: AppFile) {
               <div class="card-actions" @click.stop>
                 <PinToggleButton :pinned="card.item.pinned" :item-label="getCardTypeLabel(card.kind).toLowerCase()"
                   @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
-                <button v-if="isWebPlatform" class="glass-icon-button delete-icon-button" type="button"
+                <button class="glass-icon-button delete-icon-button" type="button"
                   :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
                   <Trash2 :size="16" />
                 </button>
@@ -629,6 +758,35 @@ h1 {
 .swipe-item {
   position: relative;
   border-radius: 30px;
+  overflow: hidden;
+}
+
+.swipe-delete-button {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 92px;
+  border: 0;
+  border-radius: 0 30px 30px 0;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, white 95%, var(--danger) 5%);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--danger) 84%, black 6%),
+      color-mix(in srgb, var(--danger) 74%, black 16%));
+  z-index: 1;
+}
+
+.swipe-delete-button:active {
+  filter: brightness(0.94);
 }
 
 .collection-card {
@@ -650,6 +808,13 @@ h1 {
       color-mix(in srgb, var(--c-glass) 12%, transparent)),
     color-mix(in srgb, var(--surface) 84%, transparent);
   color: var(--text);
+  position: relative;
+  z-index: 2;
+  transition: transform 0.2s ease;
+}
+
+.collection-card--swiping {
+  transition: none;
 }
 
 .collection-top {
@@ -712,6 +877,25 @@ h1 {
   flex-direction: column;
   align-items: center;
   gap: 8px;
+}
+
+.delete-icon-button {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 11px;
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border) 64%);
+  color: color-mix(in srgb, var(--danger) 80%, var(--text-soft) 20%);
+  background: color-mix(in srgb, var(--danger) 8%, var(--c-glass) 92%);
+}
+
+.delete-icon-button:hover,
+.delete-icon-button:focus-visible {
+  border-color: color-mix(in srgb, var(--danger) 56%, var(--border) 44%);
+  background: color-mix(in srgb, var(--danger) 16%, var(--c-glass) 84%);
+  color: color-mix(in srgb, var(--danger) 90%, var(--text) 10%);
 }
 
 .summary-progress-track {
