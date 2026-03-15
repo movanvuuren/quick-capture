@@ -3,6 +3,8 @@ import Editor from '@toast-ui/editor'
 import { Trash } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import MetaWell from '../components/MetaWell.vue'
+import PageHeader from '../components/PageHeader.vue'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -184,24 +186,19 @@ async function saveNote() {
 
 <template>
   <div class="page">
-    <div class="header">
-      <div class="header-main">
-        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-          ←
-        </button>
-        <h1>Note</h1>
-      </div>
-
-      <div class="detail-meta">
-        <div class="meta-well">
-          <span class="meta-date">{{ noteMetaDate }}</span>
-          <PinToggleButton :pinned="notePinned" :size="20" item-label="note" variant="glass" @toggle="toggleNotePin" />
-          <button v-if="noteId" class="glass-icon-button" aria-label="Delete note" @click="deleteNote">
-            <Trash :size="20" />
-          </button>
+    <PageHeader title="Note" @back="goBack">
+      <template #right>
+        <div class="detail-meta">
+          <MetaWell :date="noteMetaDate">
+            <PinToggleButton :pinned="notePinned" :size="20" item-label="note" variant="glass"
+              @toggle="toggleNotePin" />
+            <button v-if="noteId" class="glass-icon-button" aria-label="Delete note" @click="deleteNote">
+              <Trash :size="20" />
+            </button>
+          </MetaWell>
         </div>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div class="detail-header glass-panel">
       <input v-model="noteTitle" class="title-input" type="text" placeholder="Note title">
@@ -224,29 +221,6 @@ async function saveNote() {
   padding: 24px 20px;
   background: var(--bg);
   color: var(--text);
-}
-
-.header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 24px;
-}
-
-.header-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-}
-
-.header h1 {
-  margin: 0;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .glass-panel {
@@ -278,32 +252,7 @@ async function saveNote() {
 .detail-meta {
   display: inline-flex;
   align-items: center;
-  white-space: nowrap;
   justify-self: end;
-}
-
-.meta-well {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 10px;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
-  background: color-mix(in srgb, var(--c-light) 10%, transparent);
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-  max-width: 100%;
-}
-
-.meta-date {
-  color: var(--text-soft);
-  font-size: 0.8rem;
-  margin-right: 4px;
-  max-width: 170px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .title-input {
@@ -340,33 +289,8 @@ async function saveNote() {
 }
 
 @media (max-width: 560px) {
-  .header {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
-  }
-
-  .header-main {
-    gap: 8px;
-  }
-
-  .header h1 {
-    font-size: 1.45rem;
-    line-height: 1.1;
-  }
-
   .detail-meta {
     justify-self: end;
-  }
-
-  .meta-well {
-    padding: 2px 4px 2px 8px;
-    gap: 2px;
-  }
-
-  .meta-date {
-    max-width: 110px;
   }
 
   .title-input {

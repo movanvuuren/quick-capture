@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowUpDown, CalendarDays, Filter, ListChecks } from 'lucide-vue-next'
+import { ArrowUpDown, CalendarDays, Filter, ListChecks, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
@@ -418,6 +418,44 @@ async function saveTaskText(task: QuickTaskItem) {
   }
 }
 
+async function deleteTask(task: QuickTaskItem) {
+  if (!settings.baseFolderUri || isSaving.value)
+    return
+
+  isSaving.value = true
+
+  try {
+    const read = await FolderPicker.readFile({
+      folderUri: settings.baseFolderUri,
+      fileName: task.fileName,
+    })
+
+    const lines = read.content.split(/\r?\n/)
+    if (task.lineIndex >= 0 && task.lineIndex < lines.length)
+      lines.splice(task.lineIndex, 1)
+
+    await FolderPicker.writeFile({
+      folderUri: settings.baseFolderUri,
+      fileName: task.fileName,
+      content: lines.join('\n'),
+    })
+
+    if (editingTaskId.value === task.id)
+      cancelEditTask()
+    if (editingDueDateTaskId.value === task.id)
+      editingDueDateTaskId.value = null
+
+    await loadQuickTasks()
+  }
+  catch (err) {
+    console.error('Failed to delete task', err)
+    error.value = 'Could not delete task.'
+  }
+  finally {
+    isSaving.value = false
+  }
+}
+
 function getTargetFileName(preset: QuickTaskPreset): string {
   if (preset.saveMode === 'daily_note')
     return `${todayIso()}.md`
@@ -574,6 +612,11 @@ onMounted(async () => {
             <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
               @click="showDueDateEditor(task)">
               Add date
+            </button>
+
+            <button class="glass-icon-button delete-task-button" type="button" :disabled="isSaving"
+              aria-label="Delete task" @click="deleteTask(task)">
+              <Trash2 :size="14" />
             </button>
           </div>
 
@@ -752,7 +795,7 @@ h1 {
 
 .task-main-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
 }
@@ -822,6 +865,17 @@ h1 {
   border-radius: 12px;
   font-size: 0.78rem;
   white-space: nowrap;
+}
+
+.delete-task-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: var(--text-soft);
+}
+
+.delete-task-button:hover {
+  color: var(--danger);
 }
 
 @media (max-width: 860px) {

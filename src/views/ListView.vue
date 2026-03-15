@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from 'vue'
-import { GripVertical, Trash } from 'lucide-vue-next'
+import { GripVertical, Trash, Trash2 } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch, onMounted } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import MetaWell from '../components/MetaWell.vue'
+import PageHeader from '../components/PageHeader.vue'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
 import { deleteListFile, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
@@ -309,27 +311,19 @@ function onDrop(e: DragEvent, idx: number) {
 
 <template>
   <div class="page">
-    <div class="header">
-      <div class="header-main">
-        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-          ←
-        </button>
-
-        <h1>{{ editorTypeLabel }}</h1>
-      </div>
-
-      <div v-if="currentList" class="detail-meta">
-        <div class="meta-well">
-          <span class="meta-date">{{ currentList.updated || currentList.created || '' }}</span>
-          <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list" variant="glass"
-            @toggle="togglePin(currentList)" />
-          <button class="glass-icon-button meta-action-button" aria-label="Delete list"
-            @click="removeList(currentList.id)">
-            <Trash :size="20" />
-          </button>
+    <PageHeader :title="editorTypeLabel" @back="goBack">
+      <template #right>
+        <div v-if="currentList" class="detail-meta">
+          <MetaWell :date="currentList.updated || currentList.created || ''">
+            <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list" variant="glass"
+              @toggle="togglePin(currentList)" />
+            <button class="glass-icon-button" aria-label="Delete list" @click="removeList(currentList.id)">
+              <Trash :size="20" />
+            </button>
+          </MetaWell>
         </div>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div v-if="isLoading" class="empty-state">
       <p class="empty-title">Loading…</p>
@@ -362,8 +356,9 @@ function onDrop(e: DragEvent, idx: number) {
               placeholder="To-do item" class="item-input" @input="queueSave(currentList)"
               @keydown.enter.prevent="addItemAt(currentList, i)">
 
-            <button class="glass-icon-button" aria-label="Remove item" @click="removeItem(currentList, i)">
-              ×
+            <button class="glass-icon-button delete-item-button" aria-label="Remove item"
+              @click="removeItem(currentList, i)">
+              <Trash2 :size="14" />
             </button>
           </div>
 
@@ -394,32 +389,6 @@ function onDrop(e: DragEvent, idx: number) {
   color: var(--text);
 }
 
-
-.header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
-}
-
-.header-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  min-width: 0;
-}
-
-.header h1 {
-  margin: 0;
-  min-width: 0;
-  font-size: 1.9rem;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .empty-state,
 .list-card,
@@ -501,28 +470,7 @@ function onDrop(e: DragEvent, idx: number) {
 .detail-meta {
   display: inline-flex;
   align-items: center;
-  white-space: nowrap;
   justify-self: end;
-}
-
-.meta-well {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 6px 4px 12px;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
-  background: color-mix(in srgb, var(--c-light) 10%, transparent);
-  overflow: hidden;
-  position: relative;
-  z-index: 1;
-  justify-content: flex-end;
-}
-
-.meta-date {
-  color: var(--text-soft);
-  font-size: 0.8rem;
-  margin-right: 4px;
 }
 
 .card-title-row {
@@ -586,6 +534,17 @@ function onDrop(e: DragEvent, idx: number) {
   color: var(--text);
 }
 
+.delete-item-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: var(--text-soft);
+}
+
+.delete-item-button:hover {
+  color: var(--danger);
+}
+
 @media (min-width: 640px) {
   .page {
     max-width: 760px;
@@ -595,32 +554,8 @@ function onDrop(e: DragEvent, idx: number) {
 }
 
 @media (max-width: 560px) {
-  .header {
-    gap: 8px;
-  }
-
-  .header-main {
-    gap: 8px;
-  }
-
-  .header h1 {
-    font-size: 1.45rem;
-  }
-
   .header-title {
     font-size: 1.15rem;
-  }
-
-  .meta-well {
-    padding: 2px 4px 2px 8px;
-    gap: 2px;
-  }
-
-  .meta-date {
-    max-width: 110px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 }
 </style>
