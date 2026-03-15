@@ -7,7 +7,7 @@ import MetaWell from '../components/MetaWell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
-import { deleteListFile, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
+import { deleteListFile, loadTodoFileByName, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
 import type { StoredTodoList, TodoState, TodoList } from '../lib/lists'
 
 
@@ -47,7 +47,13 @@ async function loadCollection() {
 
   isLoading.value = true
   try {
-    lists.value = await loadTodoFilesFromFolder(baseFolderUri.value, collectionType.value)
+    if (listId.value) {
+      const current = await loadTodoFileByName(baseFolderUri.value, listId.value, collectionType.value)
+      lists.value = current ? [current] : []
+    }
+    else {
+      lists.value = await loadTodoFilesFromFolder(baseFolderUri.value, collectionType.value)
+    }
   }
   catch (err) {
     console.error('Failed to load collection', collectionType.value, err)
@@ -62,6 +68,10 @@ onMounted(async () => {
 })
 
 watch(collectionType, async () => {
+  await loadCollection()
+})
+
+watch(listId, async () => {
   await loadCollection()
 })
 

@@ -281,6 +281,36 @@ export async function loadTodoFilesFromFolder(
   return lists
 }
 
+export async function loadTodoFileByName(
+  folderUri: string,
+  fileName: string,
+  type: TodoFileType,
+): Promise<StoredTodoList | null> {
+  if (!fileName.toLowerCase().endsWith('.md'))
+    return null
+
+  try {
+    const read = await FolderPicker.readFile({
+      folderUri,
+      fileName,
+    })
+
+    const frontmatter = parseFrontmatter(read.content)
+    if (frontmatter.type !== type)
+      return null
+
+    const list = markdownToList(read.content, fileName)
+    return {
+      ...list,
+      fileName,
+    }
+  }
+  catch (err) {
+    console.warn('Failed to read list file', fileName, err)
+    return null
+  }
+}
+
 export async function saveListToFile(
   folderUri: string,
   list: StoredTodoList,
