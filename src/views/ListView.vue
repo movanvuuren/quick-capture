@@ -310,11 +310,25 @@ function onDrop(e: DragEvent, idx: number) {
 <template>
   <div class="page">
     <div class="header">
-      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-        ←
-      </button>
+      <div class="header-main">
+        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+          ←
+        </button>
 
-      <h1>{{ editorTypeLabel }}</h1>
+        <h1>{{ editorTypeLabel }}</h1>
+      </div>
+
+      <div v-if="currentList" class="detail-meta">
+        <div class="meta-well">
+          <span class="meta-date">{{ currentList.updated || currentList.created || '' }}</span>
+          <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list" variant="glass"
+            @toggle="togglePin(currentList)" />
+          <button class="glass-icon-button meta-action-button" aria-label="Delete list"
+            @click="removeList(currentList.id)">
+            <Trash :size="20" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <div v-if="isLoading" class="empty-state">
@@ -325,17 +339,6 @@ function onDrop(e: DragEvent, idx: number) {
       <div class="detail-header glass-panel">
         <input v-model="currentList.title" placeholder="Title" class="header-title"
           @input="currentList && queueSave(currentList)">
-        <div class="detail-meta">
-          <div class="meta-well">
-            <span class="meta-date">{{ currentList.updated || currentList.created || '' }}</span>
-            <PinToggleButton :pinned="currentList.pinned" :size="20" item-label="list" variant="glass"
-              @toggle="togglePin(currentList)" />
-            <button class="glass-icon-button meta-action-button" aria-label="Delete list"
-              @click="removeList(currentList.id)">
-              <Trash :size="20" />
-            </button>
-          </div>
-        </div>
       </div>
 
       <div class="list-card glass-panel">
@@ -394,9 +397,16 @@ function onDrop(e: DragEvent, idx: number) {
 
 .header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 14px;
   margin-bottom: 16px;
+}
+
+.header-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
 }
 
 .header h1 {
@@ -458,6 +468,7 @@ function onDrop(e: DragEvent, idx: number) {
   padding: 16px;
   margin-bottom: 16px;
   position: relative;
+  border-radius: 16px;
   z-index: 1;
 }
 
@@ -474,10 +485,8 @@ function onDrop(e: DragEvent, idx: number) {
 }
 
 .detail-header {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: start;
-  gap: 12px;
+  display: block;
+  border-radius: 16px;
   padding: 8px 14px;
   margin-bottom: 12px;
   position: relative;

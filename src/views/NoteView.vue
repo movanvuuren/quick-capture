@@ -20,6 +20,7 @@ const noteTitle = ref('')
 const notePinned = ref(false)
 const noteCreated = ref('')
 const noteUpdated = ref('')
+const noteMetaDate = computed(() => noteUpdated.value || noteCreated.value || (noteId.value ? noteId.value.replace(/\.md$/i, '') : todayIso()))
 
 const editorElement = ref<HTMLElement | null>(null)
 let editorInstance: any = null
@@ -96,6 +97,9 @@ onMounted(async () => {
     catch (err) {
       console.error(`Failed to load note ${noteId.value}`, err)
     }
+  }
+  else {
+    noteCreated.value = todayIso()
   }
 
   const parsed = splitNoteContent(initialContent)
@@ -181,24 +185,26 @@ async function saveNote() {
 <template>
   <div class="page">
     <div class="header">
-      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-        ←
-      </button>
-      <h1>Note</h1>
-    </div>
+      <div class="header-main">
+        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+          ←
+        </button>
+        <h1>Note</h1>
+      </div>
 
-    <div class="detail-header glass-panel">
-      <input v-model="noteTitle" class="title-input" type="text" placeholder="Note title">
       <div class="detail-meta">
         <div class="meta-well">
-          <span class="meta-date">{{ noteUpdated || noteCreated || (noteId ? noteId.replace(/\.md$/i, '') : '')
-          }}</span>
+          <span class="meta-date">{{ noteMetaDate }}</span>
           <PinToggleButton :pinned="notePinned" :size="20" item-label="note" variant="glass" @toggle="toggleNotePin" />
           <button v-if="noteId" class="glass-icon-button" aria-label="Delete note" @click="deleteNote">
             <Trash :size="20" />
           </button>
         </div>
       </div>
+    </div>
+
+    <div class="detail-header glass-panel">
+      <input v-model="noteTitle" class="title-input" type="text" placeholder="Note title">
     </div>
 
     <div class="glass-card card">
@@ -222,9 +228,16 @@ async function saveNote() {
 
 .header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
   gap: 12px;
   margin-bottom: 24px;
+}
+
+.header-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .glass-panel {
@@ -245,13 +258,11 @@ async function saveNote() {
 }
 
 .detail-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
+  display: block;
   padding: 8px 14px;
   margin-bottom: 12px;
   position: relative;
+  border-radius: 16px;
   z-index: 2;
 }
 
@@ -319,9 +330,10 @@ async function saveNote() {
 }
 
 @media (max-width: 560px) {
-  .detail-header {
-    grid-template-columns: 1fr;
+  .header {
+    align-items: flex-start;
     gap: 8px;
+    flex-direction: column;
   }
 
   .detail-meta {
