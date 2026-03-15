@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowUpDown, CalendarDays, Filter, ListChecks, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
+import type { FolderFileEntry } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
@@ -28,6 +29,23 @@ interface QuickTaskItem {
   presetId?: string
   presetLabel?: string
 }
+
+interface ScannedQuickTaskLine {
+  lineIndex: number
+  state: TaskState
+  body: string
+  dueDate?: string
+}
+
+interface CachedQuickTaskFile {
+  signature: string
+  tasks: ScannedQuickTaskLine[]
+}
+
+const QUICK_TASK_READ_CONCURRENCY = 6
+
+let quickTaskCacheFolderUri = ''
+const quickTaskFileCache = new Map<string, CachedQuickTaskFile>()
 
 const router = useRouter()
 const route = useRoute()
@@ -196,6 +214,71 @@ function parseTaskLine(line: string): ParsedTaskLine | null {
   }
 }
 
+function getFileSignature(file: FolderFileEntry): string | null {
+  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
+    return null
+
+  return `${file.lastModified}:${file.size}`
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0)
+    return []
+
+  const results = new Array<R>(items.length)
+  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
+  let cursor = 0
+
+  const workers = Array.from({ length: runnerCount }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+
+      if (index >= items.length)
+        return
+
+      results[index] = await mapper(items[index] as T, index)
+    }
+  })
+
+  await Promise.all(workers)
+  return results
+}
+
+function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
+  const lines = content.split(/\r?\n/)
+  const scanned: ScannedQuickTaskLine[] = []
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex] || ''
+    const parsed = parseTaskLine(line)
+    if (!parsed)
+      continue
+
+    scanned.push({
+      lineIndex,
+      state: parsed.state,
+      body: parsed.body,
+      dueDate: parsed.dueDate,
+    })
+  }
+
+  return scanned
+}
+
+function invalidateQuickTaskCache(fileName?: string) {
+  if (fileName) {
+    quickTaskFileCache.delete(fileName)
+    return
+  }
+
+  quickTaskFileCache.clear()
+}
+
 function serializeTaskLine(state: TaskState, body: string, dueDate?: string): string {
   const marker = state === 'done' ? 'x' : state === 'cancelled' ? '-' : ' '
 
@@ -227,52 +310,97 @@ function getPresetForTask(body: string, fileName: string): QuickTaskPreset | und
 async function loadQuickTasks() {
   if (!settings.baseFolderUri) {
     tasks.value = []
+    invalidateQuickTaskCache()
     isLoading.value = false
     return
+  }
+
+  const folderUri = settings.baseFolderUri
+
+  if (quickTaskCacheFolderUri !== folderUri) {
+    invalidateQuickTaskCache()
+    quickTaskCacheFolderUri = folderUri
   }
 
   isLoading.value = true
   error.value = ''
 
   try {
-    const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
+    const listed = await FolderPicker.listFiles({ folderUri })
     const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+    const activeNames = new Set(mdFiles.map(file => file.name))
+
+    const scannedFiles = await mapWithConcurrency(
+      mdFiles,
+      QUICK_TASK_READ_CONCURRENCY,
+      async (file) => {
+        try {
+          const signature = getFileSignature(file)
+          const cached = quickTaskFileCache.get(file.name)
+
+          if (signature && cached && cached.signature === signature) {
+            return {
+              fileName: file.name,
+              tasks: cached.tasks.map(task => ({ ...task })),
+            }
+          }
+
+          const read = await FolderPicker.readFile({
+            folderUri,
+            fileName: file.name,
+          })
+
+          const scanned = scanQuickTaskLines(read.content)
+
+          if (signature) {
+            quickTaskFileCache.set(file.name, {
+              signature,
+              tasks: scanned,
+            })
+          }
+          else {
+            quickTaskFileCache.delete(file.name)
+          }
+
+          return {
+            fileName: file.name,
+            tasks: scanned.map(task => ({ ...task })),
+          }
+        }
+        catch (fileErr) {
+          console.warn('Failed to scan task file', file.name, fileErr)
+          return null
+        }
+      },
+    )
 
     const loadedTasks: QuickTaskItem[] = []
 
-    for (const file of mdFiles) {
-      try {
-        const read = await FolderPicker.readFile({
-          folderUri: settings.baseFolderUri,
-          fileName: file.name,
+    for (const scannedFile of scannedFiles) {
+      if (!scannedFile)
+        continue
+
+      for (const task of scannedFile.tasks) {
+        const preset = getPresetForTask(task.body, scannedFile.fileName)
+        if (!preset)
+          continue
+
+        loadedTasks.push({
+          id: `${scannedFile.fileName}:${task.lineIndex}`,
+          fileName: scannedFile.fileName,
+          lineIndex: task.lineIndex,
+          state: task.state,
+          body: task.body,
+          dueDate: task.dueDate,
+          presetId: preset.id,
+          presetLabel: preset.label,
         })
-
-        const lines = read.content.split(/\r?\n/)
-        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-          const line = lines[lineIndex] || ''
-          const parsed = parseTaskLine(line)
-          if (!parsed)
-            continue
-
-          const preset = getPresetForTask(parsed.body, file.name)
-          if (!preset)
-            continue
-
-          loadedTasks.push({
-            id: `${file.name}:${lineIndex}`,
-            fileName: file.name,
-            lineIndex,
-            state: parsed.state,
-            body: parsed.body,
-            dueDate: parsed.dueDate,
-            presetId: preset.id,
-            presetLabel: preset.label,
-          })
-        }
       }
-      catch (fileErr) {
-        console.warn('Failed to scan task file', file.name, fileErr)
-      }
+    }
+
+    for (const cachedName of Array.from(quickTaskFileCache.keys())) {
+      if (!activeNames.has(cachedName))
+        quickTaskFileCache.delete(cachedName)
     }
 
     tasks.value = loadedTasks
@@ -319,6 +447,8 @@ async function updateTaskInFile(
     fileName: task.fileName,
     content: lines.join('\n'),
   })
+
+  invalidateQuickTaskCache(task.fileName)
 }
 
 async function toggleTaskState(task: QuickTaskItem) {
@@ -444,6 +574,8 @@ async function deleteTask(task: QuickTaskItem) {
       content: lines.join('\n'),
     })
 
+    invalidateQuickTaskCache(task.fileName)
+
     if (editingTaskId.value === task.id)
       cancelEditTask()
     if (editingDueDateTaskId.value === task.id)
@@ -512,6 +644,8 @@ async function addQuickTask() {
       fileName,
       content: newContent,
     })
+
+    invalidateQuickTaskCache(fileName)
 
     newTaskText.value = ''
     newDueDate.value = ''
