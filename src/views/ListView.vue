@@ -1,30 +1,30 @@
 <template>
-  <div :class="{'compact-mobile': isMobile}">
-    <!-- Content here -->
+  <div>
+    <div class="item-row" :draggable="!isTouchDevice" @dragstart="handleDragStart" @dragover.prevent @drop="handleDrop">
+      <!-- Item content goes here -->
+    </div>
   </div>
 </template>
 
 <script>
 export default {
-  data() {
-    return {
-      isMobile: false,
-    };
-  },
-  // Disable drag & drop on mobile
-  mounted() {
-    if (/\b(Mobile|Android|iP(hone|od|ad)|Opera Mini|IEMobile|WPDesktop)\b/i.test(navigator.userAgent)) {
-      this.isMobile = true;
-      document.addEventListener('dragstart', (e) => e.preventDefault());
+  computed: {
+    isTouchDevice() {
+      return matchMedia('(pointer: coarse)').matches;
     }
   }
 };
 </script>
 
 <style scoped>
-.compact-mobile {
-  /* Compact mobile CSS overrides */
-  padding: 0.5rem;
-  font-size: 0.9rem;
+@media (max-width: 560px) {
+  /* Reduce padding and size for mobile view */
+  .page-padding { padding: 8px; }
+  .list-card { padding: 10px; }
+  .items-gap { margin-bottom: 8px; }
+  .item-row { padding: 4px; margin: 4px 0; border-radius: 4px; }
+  .item-input { padding: 6px; font-size: 14px; line-height: 1.4; }
+  .drag-handle { display: none; }
+  .delete-button { width: 16px; height: 16px; }
 }
 </style>
