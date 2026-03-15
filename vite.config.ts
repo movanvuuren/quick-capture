@@ -3,6 +3,8 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
-  base: '/quick-capture/',
+  // Default to root for Android/Capacitor and local builds.
+  // GitHub Pages can override with VITE_BASE_PATH=/quick-capture/.
+  base: process.env.VITE_BASE_PATH || '/',
   // existing config goes here
 });
