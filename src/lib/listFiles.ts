@@ -193,8 +193,11 @@ async function mapWithConcurrency<T, R>(
   return results
 }
 
-function parseDashboardMarkdown(fileName: string, content: string): ParsedDashboardFile {
+function parseDashboardMarkdown(fileName: string, content: string): ParsedDashboardFile | null {
   const frontmatter = parseFrontmatter(content)
+  if (frontmatter.type === 'habit')
+    return null
+
   const body = stripFrontmatter(content)
   const type = ['list', 'task', 'note'].includes(frontmatter.type as any)
     ? (frontmatter.type as AppFile['type'])
@@ -287,6 +290,9 @@ export async function loadDashboardData(folderUri: string): Promise<DashboardDat
           fileName: file.name,
         })
         const parsed = parseDashboardMarkdown(file.name, fileContent.content)
+
+        if (parsed === null)
+          return null
 
         if (signature) {
           dashboardFileCache.set(file.name, {
