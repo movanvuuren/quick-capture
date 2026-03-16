@@ -5,6 +5,7 @@ interface SwitchOption {
   value: string
   label: string
   icon?: any
+  countLabel?: string
 }
 
 const props = defineProps<{
@@ -37,7 +38,10 @@ function select(value: string) {
     <button v-for="option in options" :key="option.value" type="button" class="switch-option"
       :class="{ 'is-active': modelValue === option.value }" @click="select(option.value)">
       <component :is="option.icon" v-if="option.icon" class="switch-icon" />
-      <span>{{ option.label }}</span>
+      <span class="switch-copy" :class="{ 'switch-copy--stacked': !!option.countLabel && !!option.label }">
+        <span v-if="option.label">{{ option.label }}</span>
+        <span v-if="option.countLabel" class="switch-count">{{ option.countLabel }}</span>
+      </span>
     </button>
   </div>
 </template>
@@ -87,17 +91,17 @@ function select(value: string) {
   position: relative;
   z-index: 1;
   flex: 1;
-  min-height: 44px;
+  min-height: 46px;
   border: none;
   border-radius: 999px;
   background: transparent;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   transition: color 180ms ease, transform 180ms ease;
 }
@@ -111,7 +115,26 @@ function select(value: string) {
 }
 
 .switch-icon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+}
+
+.switch-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.05;
+}
+
+.switch-copy--stacked {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+}
+
+.switch-count {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-soft);
 }
 </style>

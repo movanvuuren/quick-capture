@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowUpDown, CalendarDays, Filter, ListChecks, Trash2 } from 'lucide-vue-next'
+import { AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import type { FolderFileEntry } from '../plugins/folder-picker'
@@ -156,12 +156,43 @@ const taskCounts = computed(() => {
   }
 })
 
-const taskFilterOptions = computed(() => [
-  { value: 'all', label: `All · ${taskCounts.value.total}` },
-  { value: 'pending', label: `Pending · ${taskCounts.value.pending}` },
-  { value: 'closed', label: `Done · ${taskCounts.value.closed}` },
-  { value: 'overdue', label: `Overdue · ${taskCounts.value.overdue}` },
-])
+const taskFilterOptions = computed(() => {
+  const options = [
+    {
+      value: 'all',
+      label: '',
+      count: taskCounts.value.total,
+      icon: LayoutGrid,
+    },
+    {
+      value: 'pending',
+      label: '',
+      count: taskCounts.value.pending,
+      icon: Square,
+    },
+    {
+      value: 'closed',
+      label: '',
+      count: taskCounts.value.closed,
+      icon: Check,
+    },
+    {
+      value: 'overdue',
+      label: '',
+      count: taskCounts.value.overdue,
+      icon: AlertTriangle,
+    },
+  ]
+
+  return options
+    .filter(option => option.count > 0)
+    .map(option => ({
+      value: option.value,
+      label: option.label,
+      countLabel: String(option.count),
+      icon: option.icon,
+    }))
+})
 
 const taskSortOptions = [
   { value: 'status', label: 'By status', icon: ListChecks },
@@ -177,6 +208,12 @@ function onTaskSortChange(value: string) {
   if (value === 'status' || value === 'due')
     selectedSortMode.value = value
 }
+
+watch(taskFilterOptions, (options) => {
+  const selectedStillVisible = options.some(option => option.value === selectedTaskFilter.value)
+  if (!selectedStillVisible)
+    selectedTaskFilter.value = 'all'
+})
 
 function goBack() {
   router.push('/')
@@ -703,7 +740,7 @@ onMounted(async () => {
     </div>
 
     <div class="stats-row card glass-card">
-      <div class="filter-switcher-row">
+      <div v-if="taskFilterOptions.length > 0" class="filter-switcher-row">
         <Filter :size="16" class="switcher-icon" />
         <OptionSwitcher :model-value="selectedTaskFilter" :options="taskFilterOptions" aria-label="Task status filter"
           @update:model-value="onTaskFilterChange" />

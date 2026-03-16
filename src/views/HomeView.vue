@@ -759,7 +759,7 @@ async function toggleNotePin(note: AppFile) {
       :class="{ 'is-visible': showPullIndicator, 'is-ready': isPullReady, 'is-refreshing': isPullRefreshing }"
       :aria-label="isPullRefreshing ? 'Refreshing dashboard' : 'Pull to refresh dashboard'" role="status">
       <div class="pull-refresh-spinner" aria-hidden="true" />
-      <span>{{ isPullRefreshing ? 'Refreshing…' : isPullReady ? 'Release to refresh' : 'Pull to refresh' }}</span>
+      <span>{{ isPullRefreshing ? 'Refreshing…' : isPullReady ? 'Release to refresh' : '' }}</span>
     </div>
 
     <div class="page-content" :style="pageContentStyle">
@@ -884,10 +884,10 @@ async function toggleNotePin(note: AppFile) {
                 <div class="footer-meta">
                   <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
                   <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item)
-                    }}/{{ getActiveItems(card.item).length }} done</span>
-                  <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{
+                  }}/{{ getActiveItems(card.item).length }} done</span>
+                  <!-- <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{
                     getProgressPercent(card.item)
-                    }}%</span>
+                  }}%</span> -->
                   <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
                 </div>
               </div>
