@@ -75,6 +75,12 @@ public class FolderPickerPlugin extends Plugin {
             return;
         }
 
+        // Mirror the URI to SharedPreferences so the home-screen widget can read it
+        getContext().getSharedPreferences("quick_capture_prefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("folder_uri", treeUri.toString())
+            .apply();
+
         String folderName = DocumentsContract.getTreeDocumentId(treeUri);
 
         JSObject ret = new JSObject();

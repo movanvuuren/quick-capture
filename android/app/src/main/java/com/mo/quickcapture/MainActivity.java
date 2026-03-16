@@ -8,6 +8,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(FolderPickerPlugin.class);
+        registerPlugin(WidgetSyncPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

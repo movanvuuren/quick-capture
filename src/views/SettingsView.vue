@@ -107,6 +107,7 @@ const MAX_HABITS = 10
 const habitDrafts = ref([
   {
     name: '',
+    icon: '',
     unit: 'times',
     period: 'day' as HabitPeriod,
     targetCount: 1,
@@ -120,6 +121,7 @@ const habitDrafts = ref([
     currentFileName: '',
   },
 ])
+// icon is an emoji or short string shown on the Android home-screen widget
 
 const systemSectionRef = ref<HTMLElement | null>(null)
 const appearanceSectionRef = ref<HTMLElement | null>(null)
@@ -193,6 +195,8 @@ function buildHabitMarkdown(draft: typeof habitDrafts.value[number]): string {
     `allowSkip: ${draft.allowSkip ? 'true' : 'false'}`,
     `unit: ${JSON.stringify(draft.unit.trim() || 'times')}`,
   ]
+  if (draft.icon.trim())
+    lines.push(`icon: ${JSON.stringify(draft.icon.trim())}`)
   if (draft.period === 'week')
     lines.push(`targetDays: ${getDraftTargetDays(draft)}`)
   if (draft.reminder.trim())
@@ -251,6 +255,7 @@ function addHabitDraft() {
     name: '',
     unit: 'times',
     period: 'day',
+    icon: '',
     targetCount: 1,
     targetDays: 1,
     reminder: '',
@@ -421,6 +426,11 @@ function jumpToSection(value: string) {
         <label class="field">
           <span>Habit name</span>
           <input v-model="draft.name" type="text" placeholder="Exercise" />
+        </label>
+        <label class="field">
+          <span>Widget icon</span>
+          <input v-model="draft.icon" type="text" placeholder="🏃" maxlength="8" style="width:6ch">
+          <small class="hint">Emoji shown on the Android home-screen widget.</small>
         </label>
         <div class="two-col-grid">
           <label class="field">

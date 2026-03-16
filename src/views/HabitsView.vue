@@ -5,10 +5,12 @@ import { Check, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
+import { WidgetSync } from '../plugins/widget-sync'
 
 interface HabitCard {
   id: string
   name: string
+  icon: string
   period: 'day' | 'week'
   targetCount: number
   targetDays: number
@@ -239,9 +241,9 @@ function getSelectedDateLabel(habit: HabitCard): string {
   }).format(isoToDate(selected))
 }
 
-function getSelectedDateTitle(habit: HabitCard): string {
-  return `Editing ${getSelectedDateLabel(habit)}`
-}
+// function getSelectedDateTitle(habit: HabitCard): string {
+//   return `Editing ${getSelectedDateLabel(habit)}`
+// }
 
 function getSelectedValue(habit: HabitCard): HabitLogValue | null {
   const log = habitLogs.value[habit.fileName] || {}
@@ -297,6 +299,89 @@ async function writeHabitLog(habit: HabitCard) {
   catch (err) {
     console.error('Failed to save habit log', err)
     habitSaveErrors.value[habit.fileName] = 'Could not save habit update.'
+  }
+  finally {
+    habitSaving.value[habit.fileName] = false
+  }
+}
+
+function withUpdatedHabitIcon(content: string, icon: string): string {
+  const trimmedIcon = icon.trim()
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!frontmatterMatch)
+    return content
+
+  const frontmatterBody = frontmatterMatch[1] || ''
+  const lines = frontmatterBody.split(/\r?\n/)
+  const iconLine = `icon: ${JSON.stringify(trimmedIcon)}`
+  let hasIcon = false
+
+  const nextLines = lines.flatMap((line) => {
+    if (/^\s*icon\s*:/.test(line)) {
+      hasIcon = true
+      return trimmedIcon ? [iconLine] : []
+    }
+    return [line]
+  })
+
+  if (trimmedIcon && !hasIcon)
+    nextLines.push(iconLine)
+
+  const nextFrontmatter = `---\n${nextLines.join('\n')}\n---`
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---/, nextFrontmatter)
+}
+
+async function syncHabitsToWidget() {
+  if (!settings.baseFolderUri)
+    return
+
+  const habitsForWidget = habits.value.map(h => ({
+    file: h.fileName,
+    name: h.name,
+    icon: h.icon,
+    target: h.targetCount,
+  }))
+
+  await WidgetSync.syncHabits({
+    folderUri: settings.baseFolderUri,
+    habitsJson: JSON.stringify(habitsForWidget),
+  })
+}
+
+async function editHabitIcon(habit: HabitCard) {
+  if (!settings.baseFolderUri)
+    return
+
+  const response = window.prompt('Set habit icon (emoji or short text). Leave empty to clear.', habit.icon || '')
+  if (response === null)
+    return
+
+  const nextIcon = response.trim().slice(0, 8)
+  if (nextIcon === habit.icon)
+    return
+
+  habitSaving.value[habit.fileName] = true
+  habitSaveErrors.value[habit.fileName] = ''
+
+  try {
+    const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName: habit.fileName })
+    const nextContent = withUpdatedHabitIcon(read.content, nextIcon)
+
+    await FolderPicker.writeFile({
+      folderUri: settings.baseFolderUri,
+      fileName: habit.fileName,
+      content: nextContent,
+    })
+
+    habits.value = habits.value.map(current => current.fileName === habit.fileName
+      ? { ...current, icon: nextIcon }
+      : current)
+
+    await syncHabitsToWidget()
+  }
+  catch (err) {
+    console.error('Failed to update habit icon', err)
+    habitSaveErrors.value[habit.fileName] = 'Could not update habit icon.'
   }
   finally {
     habitSaving.value[habit.fileName] = false
@@ -564,6 +649,7 @@ async function loadHabits() {
           return {
             id: String(frontmatter.id || ''),
             name: String(frontmatter.name || file.name.replace(/\.md$/i, '')),
+            icon: String(frontmatter.icon || ''),
             period,
             targetCount,
             targetDays,
@@ -601,6 +687,8 @@ async function loadHabits() {
       acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
       return acc
     }, {})
+
+    void syncHabitsToWidget().catch(() => { })
   }
   catch (err) {
     console.error('Failed to load habits', err)
@@ -718,9 +806,11 @@ onMounted(async () => {
     <div v-else class="habit-list">
       <div v-for="habit in habits" :key="habit.fileName" class="card glass-card habit-card">
         <div class="habit-head">
-          <div class="habit-icon-wrap">
-            <Flame :size="16" />
-          </div>
+          <button class="habit-icon-wrap habit-icon-button" type="button" :title="`Change icon for ${habit.name}`"
+            :aria-label="`Change icon for ${habit.name}`" @click="editHabitIcon(habit)">
+            <span v-if="habit.icon" class="habit-emoji">{{ habit.icon }}</span>
+            <Flame v-else :size="16" />
+          </button>
           <div>
             <h2>{{ habit.name }}</h2>
           </div>
@@ -883,6 +973,17 @@ h1 {
   justify-content: center;
   color: color-mix(in srgb, var(--primary) 78%, var(--text));
   background: color-mix(in srgb, var(--primary) 16%, var(--surface));
+}
+
+.habit-icon-button {
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.habit-emoji {
+  line-height: 1;
+  font-size: 16px;
 }
 
 .habit-meta-row {
