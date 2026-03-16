@@ -31,6 +31,8 @@ export interface ListFilesOptions {
 export interface FolderFileEntry {
   name: string
   isFile: boolean
+  size?: number
+  lastModified?: number
 }
 
 export interface ListFilesResult {

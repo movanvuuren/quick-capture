@@ -1,5 +1,6 @@
 import type { TodoList, StoredTodoList, Note, StoredNote } from './lists'
 import { FolderPicker } from '../plugins/folder-picker'
+import type { FolderFileEntry } from '../plugins/folder-picker'
 import {
   buildFrontmatter,
   coerceBoolean,
@@ -29,6 +30,22 @@ export interface DashboardData {
   lists: StoredTodoList[]
   tasks: StoredTodoList[]
 }
+
+interface ParsedDashboardFile {
+  appFile: AppFile
+  list?: StoredTodoList
+  task?: StoredTodoList
+}
+
+interface CachedDashboardFile {
+  signature: string
+  parsed: ParsedDashboardFile
+}
+
+const DASHBOARD_READ_CONCURRENCY = 6
+
+let dashboardCacheFolderUri = ''
+const dashboardFileCache = new Map<string, CachedDashboardFile>()
 
 function setPinnedInMarkdown(markdown: string, pinned: boolean): string {
   const frontmatterMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
@@ -126,6 +143,96 @@ function sortTodoFiles(items: StoredTodoList[]): StoredTodoList[] {
   })
 }
 
+function cloneStoredTodoList(list: StoredTodoList): StoredTodoList {
+  return {
+    ...list,
+    items: list.items.map(item => ({ ...item })),
+  }
+}
+
+function cloneParsedDashboardFile(parsed: ParsedDashboardFile): ParsedDashboardFile {
+  return {
+    appFile: { ...parsed.appFile },
+    list: parsed.list ? cloneStoredTodoList(parsed.list) : undefined,
+    task: parsed.task ? cloneStoredTodoList(parsed.task) : undefined,
+  }
+}
+
+function getFileSignature(file: FolderFileEntry): string | null {
+  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
+    return null
+
+  return `${file.lastModified}:${file.size}`
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0)
+    return []
+
+  const results = new Array<R>(items.length)
+  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
+  let cursor = 0
+
+  const workers = Array.from({ length: runnerCount }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+
+      if (index >= items.length)
+        return
+
+      results[index] = await mapper(items[index] as T, index)
+    }
+  })
+
+  await Promise.all(workers)
+  return results
+}
+
+function parseDashboardMarkdown(fileName: string, content: string): ParsedDashboardFile {
+  const frontmatter = parseFrontmatter(content)
+  const body = stripFrontmatter(content)
+  const type = ['list', 'task', 'note'].includes(frontmatter.type as any)
+    ? (frontmatter.type as AppFile['type'])
+    : 'note'
+
+  const previewSource = type === 'note' ? stripLeadingHeading(body) : body
+  const plainTextBody = markdownToPreviewText(previewSource)
+  const preview = plainTextBody.substring(0, 80) + (plainTextBody.length > 80 ? '…' : '')
+
+  const parsed: ParsedDashboardFile = {
+    appFile: {
+      id: fileName,
+      name: fileName,
+      title: getFileTitle(fileName, body),
+      type,
+      pinned: coerceBoolean(frontmatter.pinned),
+      created: frontmatter.created as string,
+      updated: frontmatter.updated as string,
+      preview,
+    },
+  }
+
+  if (type === 'list' || type === 'task') {
+    const list = markdownToList(content, fileName)
+    const storedList = {
+      ...list,
+      fileName,
+    }
+
+    if (type === 'task')
+      parsed.task = storedList
+    else
+      parsed.list = storedList
+  }
+
+  return parsed
+}
+
 function getDefaultDisplayName(type: 'list' | 'task' | 'note', date: string): string {
   const label = type === 'task' ? 'Task' : type === 'list' ? 'List' : 'Note'
   return `${label} ${date}`
@@ -155,58 +262,69 @@ async function getUniqueMarkdownFileName(folderUri: string, stem: string): Promi
 }
 
 export async function loadDashboardData(folderUri: string): Promise<DashboardData> {
+  if (dashboardCacheFolderUri !== folderUri) {
+    dashboardFileCache.clear()
+    dashboardCacheFolderUri = folderUri
+  }
+
   const result = await FolderPicker.listFiles({ folderUri })
+  const markdownFiles = result.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+  const activeNames = new Set(markdownFiles.map(file => file.name))
+
+  const parsedItems = await mapWithConcurrency(
+    markdownFiles,
+    DASHBOARD_READ_CONCURRENCY,
+    async (file) => {
+      try {
+        const signature = getFileSignature(file)
+        const cached = dashboardFileCache.get(file.name)
+
+        if (signature && cached && cached.signature === signature)
+          return cloneParsedDashboardFile(cached.parsed)
+
+        const fileContent = await FolderPicker.readFile({
+          folderUri,
+          fileName: file.name,
+        })
+        const parsed = parseDashboardMarkdown(file.name, fileContent.content)
+
+        if (signature) {
+          dashboardFileCache.set(file.name, {
+            signature,
+            parsed,
+          })
+        }
+        else {
+          dashboardFileCache.delete(file.name)
+        }
+
+        return cloneParsedDashboardFile(parsed)
+      }
+      catch (err) {
+        console.warn('Failed to read or parse file', file.name, err)
+        return null
+      }
+    },
+  )
+
   const files: AppFile[] = []
   const lists: StoredTodoList[] = []
   const tasks: StoredTodoList[] = []
 
-  for (const file of result.files) {
-    if (!file.isFile || !file.name.toLowerCase().endsWith('.md'))
+  for (const parsed of parsedItems) {
+    if (!parsed)
       continue
 
-    try {
-      const fileContent = await FolderPicker.readFile({
-        folderUri,
-        fileName: file.name,
-      })
+    files.push(parsed.appFile)
+    if (parsed.list)
+      lists.push(parsed.list)
+    if (parsed.task)
+      tasks.push(parsed.task)
+  }
 
-      const frontmatter = parseFrontmatter(fileContent.content)
-      const body = stripFrontmatter(fileContent.content)
-      const type = ['list', 'task', 'note'].includes(frontmatter.type as any)
-        ? (frontmatter.type as AppFile['type'])
-        : 'note'
-
-      const previewSource = type === 'note' ? stripLeadingHeading(body) : body
-      const plainTextBody = markdownToPreviewText(previewSource)
-      const preview = plainTextBody.substring(0, 80) + (plainTextBody.length > 80 ? '…' : '')
-
-      files.push({
-        id: file.name,
-        name: file.name,
-        title: getFileTitle(file.name, body),
-        type,
-        pinned: coerceBoolean(frontmatter.pinned),
-        created: frontmatter.created as string,
-        updated: frontmatter.updated as string,
-        preview,
-      })
-
-      if (type === 'list' || type === 'task') {
-        const list = markdownToList(fileContent.content, file.name)
-        const storedList = {
-          ...list,
-          fileName: file.name,
-        }
-
-        if (type === 'task')
-          tasks.push(storedList)
-        else
-          lists.push(storedList)
-      }
-    }
-    catch (err) {
-      console.warn('Failed to read or parse file', file.name, err)
-    }
+  for (const cachedName of Array.from(dashboardFileCache.keys())) {
+    if (!activeNames.has(cachedName))
+      dashboardFileCache.delete(cachedName)
   }
 
   return {
@@ -247,36 +365,36 @@ export async function loadTodoFilesFromFolder(
   type: TodoFileType,
 ): Promise<StoredTodoList[]> {
   const result = await FolderPicker.listFiles({ folderUri })
-  const lists: StoredTodoList[] = []
+  const markdownFiles = result.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
 
-  for (const file of result.files) {
-    if (!file.isFile)
-      continue
+  const loaded = await mapWithConcurrency(
+    markdownFiles,
+    DASHBOARD_READ_CONCURRENCY,
+    async (file) => {
+      try {
+        const read = await FolderPicker.readFile({
+          folderUri,
+          fileName: file.name,
+        })
 
-    if (!file.name.toLowerCase().endsWith('.md'))
-      continue
+        const frontmatter = parseFrontmatter(read.content)
+        if (frontmatter.type !== type)
+          return null
 
-    try {
-      const read = await FolderPicker.readFile({
-        folderUri,
-        fileName: file.name,
-      })
+        const list = markdownToList(read.content, file.name)
+        return {
+          ...list,
+          fileName: file.name,
+        }
+      }
+      catch (err) {
+        console.warn('Failed to read list file', file.name, err)
+        return null
+      }
+    },
+  )
 
-      const frontmatter = parseFrontmatter(read.content)
-      if (frontmatter.type !== type)
-        continue
-
-      const list = markdownToList(read.content, file.name)
-
-      lists.push({
-        ...list,
-        fileName: file.name,
-      })
-    }
-    catch (err) {
-      console.warn('Failed to read list file', file.name, err)
-    }
-  }
+  const lists = loaded.filter((list): list is StoredTodoList => !!list)
 
   return lists
 }

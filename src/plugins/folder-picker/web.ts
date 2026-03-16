@@ -69,6 +69,18 @@ pinned: false
   ],
 ])
 
+const virtualMetadata = new Map<string, { size: number, lastModified: number }>()
+
+function upsertMetadata(fileName: string, content: string) {
+  virtualMetadata.set(fileName, {
+    size: content.length,
+    lastModified: Date.now(),
+  })
+}
+
+for (const [name, content] of virtualFileSystem.entries())
+  upsertMetadata(name, content)
+
 export class FolderPickerWeb implements FolderPickerPlugin {
   async pickFolder(): Promise<PickFolderResult> {
     console.log('[Web Mock] Picking folder')
@@ -84,9 +96,12 @@ export class FolderPickerWeb implements FolderPickerPlugin {
     const files: FolderFileEntry[] = []
 
     for (const name of virtualFileSystem.keys()) {
+      const meta = virtualMetadata.get(name)
       files.push({
         name,
         isFile: true,
+        size: meta?.size,
+        lastModified: meta?.lastModified,
       })
     }
 
@@ -118,6 +133,7 @@ export class FolderPickerWeb implements FolderPickerPlugin {
     )
 
     virtualFileSystem.set(options.fileName, options.content)
+    upsertMetadata(options.fileName, options.content)
   }
 
   async appendToFile(options: AppendToFileOptions): Promise<void> {
@@ -129,7 +145,9 @@ export class FolderPickerWeb implements FolderPickerPlugin {
     )
 
     const existing = virtualFileSystem.get(options.fileName) ?? ''
-    virtualFileSystem.set(options.fileName, existing + options.content)
+    const nextContent = existing + options.content
+    virtualFileSystem.set(options.fileName, nextContent)
+    upsertMetadata(options.fileName, nextContent)
   }
 
   async deleteFile(options: DeleteFileOptions): Promise<void> {
@@ -142,6 +160,7 @@ export class FolderPickerWeb implements FolderPickerPlugin {
 
     if (virtualFileSystem.has(options.fileName)) {
       virtualFileSystem.delete(options.fileName)
+      virtualMetadata.delete(options.fileName)
       return
     }
 

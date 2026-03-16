@@ -174,6 +174,8 @@ public class FolderPickerPlugin extends Plugin {
                 JSObject entry = new JSObject();
                 entry.put("name", child.getName());
                 entry.put("isFile", child.isFile());
+                entry.put("size", child.length());
+                entry.put("lastModified", child.lastModified());
                 files.put(entry);
             }
 
