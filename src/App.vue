@@ -25,7 +25,7 @@ onMounted(async () => {
       (event) => {
         const taskId = event.notification.extra?.taskId
         if (typeof taskId === 'string' && taskId) {
-          router.push({ name: 'tasks', query: { highlight: taskId } })
+          router.push({ name: 'tasks', query: { highlight: taskId, pulse: String(Date.now()) } })
         }
         else {
           router.push({ name: 'tasks' })

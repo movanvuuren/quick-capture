@@ -900,6 +900,11 @@ function applyHighlight(taskId: string) {
   selectedTaskFilter.value = 'all'
   highlightedTaskId.value = taskId
 
+  const nextQuery = { ...route.query }
+  delete nextQuery.highlight
+  delete nextQuery.pulse
+  router.replace({ query: nextQuery })
+
   nextTick(() => {
     const el = document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -912,8 +917,8 @@ function applyHighlight(taskId: string) {
 }
 
 watch(
-  () => route.query.highlight,
-  (taskId) => {
+  () => [route.query.highlight, route.query.pulse],
+  ([taskId]) => {
     if (typeof taskId === 'string' && taskId && !isLoading.value)
       applyHighlight(taskId)
   },
