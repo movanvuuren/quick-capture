@@ -110,6 +110,7 @@ const habitDrafts = ref([
     unit: 'times',
     period: 'day' as HabitPeriod,
     targetCount: 1,
+    targetDays: 1,
     reminder: '',
     allowSkip: true,
     scheduledDays: [1, 2, 3, 4, 5, 6, 7],
@@ -169,9 +170,14 @@ function toggleHabitScheduledDay(draft: typeof habitDrafts.value[number], day: n
   if (draft.scheduledDays.includes(day)) {
     if (draft.scheduledDays.length === 1) return
     draft.scheduledDays = draft.scheduledDays.filter(current => current !== day)
+    draft.targetDays = Math.min(Math.max(1, draft.targetDays), draft.scheduledDays.length)
     return
   }
   draft.scheduledDays = [...draft.scheduledDays, day].sort((a, b) => a - b)
+}
+
+function getDraftTargetDays(draft: typeof habitDrafts.value[number]): number {
+  return Math.min(Math.max(1, Math.floor(draft.targetDays || 1)), draft.scheduledDays.length || 1)
 }
 
 function buildHabitMarkdown(draft: typeof habitDrafts.value[number]): string {
@@ -187,6 +193,8 @@ function buildHabitMarkdown(draft: typeof habitDrafts.value[number]): string {
     `allowSkip: ${draft.allowSkip ? 'true' : 'false'}`,
     `unit: ${JSON.stringify(draft.unit.trim() || 'times')}`,
   ]
+  if (draft.period === 'week')
+    lines.push(`targetDays: ${getDraftTargetDays(draft)}`)
   if (draft.reminder.trim())
     lines.push(`reminder: ${JSON.stringify(draft.reminder.trim())}`)
   lines.push(`created: ${todayIso()}`)
@@ -244,6 +252,7 @@ function addHabitDraft() {
     unit: 'times',
     period: 'day',
     targetCount: 1,
+    targetDays: 1,
     reminder: '',
     allowSkip: true,
     scheduledDays: [1, 2, 3, 4, 5, 6, 7],
@@ -422,9 +431,24 @@ function jumpToSection(value: string) {
             </select>
           </label>
           <label class="field">
-            <span>Target count</span>
+            <span>{{ draft.period === 'week' ? 'Target per successful day' : 'Daily target' }}</span>
             <input v-model.number="draft.targetCount" type="number" min="1" step="1">
           </label>
+        </div>
+        <div v-if="draft.period === 'week'" class="two-col-grid">
+          <label class="field">
+            <span>Days per week</span>
+            <input v-model.number="draft.targetDays" type="number" min="1" :max="draft.scheduledDays.length || 1"
+              step="1">
+            <small class="hint">Example: 6 means you need to hit the amount goal on 6 scheduled days.</small>
+          </label>
+          <div class="field field-summary">
+            <span>Weekly goal</span>
+            <p class="habit-goal-summary">
+              {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }}/{{
+                draft.scheduledDays.length || 1 }} days
+            </p>
+          </div>
         </div>
         <div class="two-col-grid">
           <label class="field">
@@ -439,11 +463,12 @@ function jumpToSection(value: string) {
         </div>
         <label class="checkbox-row">
           <input v-model="draft.allowSkip" type="checkbox">
-          <span>Allow skip marker (*)</span>
+          <span>Allow skip</span>
         </label>
-        <div class="field">
+        <div v-if="draft.period === 'week'" class="field">
           <span>Scheduled days</span>
-          <small class="hint">For weekly habits, selected days are eligible days used toward the weekly target.</small>
+          <small class="hint">For weekly habits, these are the eligible days counted toward the days-per-week
+            goal.</small>
           <div class="day-row">
             <button v-for="day in dayOptions" :key="day.value" type="button" class="day-chip"
               :class="{ 'is-active': draft.scheduledDays.includes(day.value) }"
@@ -497,7 +522,7 @@ h1 {
 .card {
   background: var(--surface);
   border-radius: 20px;
-  padding: 2px;
+  padding: 8px;
   box-shadow: var(--shadow);
   margin-bottom: 2px;
 }

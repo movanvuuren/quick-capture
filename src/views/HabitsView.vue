@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { Check, Flame, Minus, RotateCcw, SkipForward, Plus } from 'lucide-vue-next'
+import { Check, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -9,8 +9,9 @@ import { FolderPicker } from '../plugins/folder-picker'
 interface HabitCard {
   id: string
   name: string
-  period: string
+  period: 'day' | 'week'
   targetCount: number
+  targetDays: number
   unit: string
   reminder: string
   allowSkip: boolean
@@ -19,6 +20,7 @@ interface HabitCard {
 }
 
 type HabitLogValue = number | 'skip' | 'fail'
+type HabitCellState = 'complete' | 'partial' | 'skip' | 'fail' | 'none'
 
 interface HeatmapCell {
   date: string
@@ -41,6 +43,7 @@ const isLoading = ref(true)
 const error = ref('')
 const habits = ref<HabitCard[]>([])
 const habitLogs = ref<Record<string, Record<string, HabitLogValue>>>({})
+const selectedDates = ref<Record<string, string>>({})
 const habitSaving = ref<Record<string, boolean>>({})
 const habitSaveErrors = ref<Record<string, string>>({})
 const isCreatingExample = ref(false)
@@ -53,7 +56,7 @@ function goBack() {
 }
 
 function todayIso() {
-  return new Date().toISOString().slice(0, 10)
+  return dateToIso(new Date())
 }
 
 function parseScheduledDays(value: unknown): number[] {
@@ -156,7 +159,7 @@ function isoToDate(iso: string): Date {
   return new Date(year, month - 1, day)
 }
 
-function startOfWeek(date: Date): Date {
+function startOfDisplayWeek(date: Date): Date {
   const d = new Date(date)
   d.setHours(0, 0, 0, 0)
   const day = d.getDay()
@@ -173,7 +176,7 @@ function isScheduledForDate(habit: HabitCard, date: Date): boolean {
 function getHeatmap(habit: HabitCard): HeatmapCell[] {
   const end = new Date()
   end.setHours(0, 0, 0, 0)
-  const endWeekStart = startOfWeek(end)
+  const endWeekStart = startOfDisplayWeek(end)
   const start = dateAddDays(endWeekStart, -((HEATMAP_WEEKS - 1) * 7))
   const logs = habitLogs.value[habit.fileName] || {}
   const today = todayIso()
@@ -220,9 +223,58 @@ function getHeatmap(habit: HabitCard): HeatmapCell[] {
   return cells
 }
 
-function getTodayValue(habit: HabitCard): HabitLogValue | null {
+function getSelectedDate(habit: HabitCard): string {
+  return selectedDates.value[habit.fileName] || todayIso()
+}
+
+function getSelectedDateLabel(habit: HabitCard): string {
+  const selected = getSelectedDate(habit)
+  if (selected === todayIso())
+    return 'Today'
+
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(isoToDate(selected))
+}
+
+function getSelectedDateTitle(habit: HabitCard): string {
+  return `Editing ${getSelectedDateLabel(habit)}`
+}
+
+function getSelectedValue(habit: HabitCard): HabitLogValue | null {
   const log = habitLogs.value[habit.fileName] || {}
-  return log[todayIso()] ?? null
+  return log[getSelectedDate(habit)] ?? null
+}
+
+function selectCell(habit: HabitCard, cell: HeatmapCell) {
+  if (cell.isFuture)
+    return
+
+  selectedDates.value = {
+    ...selectedDates.value,
+    [habit.fileName]: cell.date,
+  }
+}
+
+function isSelectedCell(habit: HabitCard, cell: HeatmapCell): boolean {
+  return getSelectedDate(habit) === cell.date
+}
+
+function getScheduledDaysCount(habit: HabitCard): number {
+  return habit.scheduledDays.length || 7
+}
+
+function getRequiredDays(habit: HabitCard, eligibleDays = getScheduledDaysCount(habit)): number {
+  return Math.min(Math.max(1, habit.targetDays), Math.max(1, eligibleDays))
+}
+
+function getTargetSummary(habit: HabitCard): string {
+  if (habit.period === 'week')
+    return `Goal: ${habit.targetCount} ${habit.unit} on ${getRequiredDays(habit)}/${getScheduledDaysCount(habit)} days`
+
+  return `Goal: ${habit.targetCount} ${habit.unit} per day`
 }
 
 async function writeHabitLog(habit: HabitCard) {
@@ -251,8 +303,8 @@ async function writeHabitLog(habit: HabitCard) {
   }
 }
 
-async function setTodayLogValue(habit: HabitCard, value: HabitLogValue | null) {
-  await setLogValueForDate(habit, todayIso(), value)
+async function setSelectedLogValue(habit: HabitCard, value: HabitLogValue | null) {
+  await setLogValueForDate(habit, getSelectedDate(habit), value)
 }
 
 async function setLogValueForDate(habit: HabitCard, date: string, value: HabitLogValue | null) {
@@ -271,144 +323,123 @@ async function setLogValueForDate(habit: HabitCard, date: string, value: HabitLo
   await writeHabitLog(habit)
 }
 
-async function incrementToday(habit: HabitCard, by: number) {
-  const today = getTodayValue(habit)
-  const current = typeof today === 'number' ? today : 0
-  const next = Math.max(0, current + by)
-  await setTodayLogValue(habit, next === 0 ? null : next)
+function getSelectedNumberInputValue(habit: HabitCard): string {
+  const selected = getSelectedValue(habit)
+  return typeof selected === 'number' ? String(selected) : ''
 }
 
-async function markDoneToday(habit: HabitCard) {
-  await setTodayLogValue(habit, Math.max(1, habit.targetCount))
+async function handleSelectedNumberInput(habit: HabitCard, event: Event) {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement))
+    return
+
+  const rawValue = target.value.trim()
+  if (!rawValue) {
+    await clearSelectedValue(habit)
+    return
+  }
+
+  const nextValue = Math.max(0, Math.floor(Number(rawValue)))
+  if (!Number.isFinite(nextValue))
+    return
+
+  await setSelectedLogValue(habit, nextValue === 0 ? null : nextValue)
 }
 
-async function markSkipToday(habit: HabitCard) {
-  await setTodayLogValue(habit, 'skip')
+async function markSelectedDone(habit: HabitCard) {
+  await setSelectedLogValue(habit, Math.max(1, habit.targetCount))
 }
 
-async function clearToday(habit: HabitCard) {
-  await setTodayLogValue(habit, null)
+async function markSelectedFail(habit: HabitCard) {
+  await setSelectedLogValue(habit, 'fail')
 }
 
-function getCellState(cell: HeatmapCell): 'complete' | 'skip' | 'fail' | 'none' {
+async function markSelectedSkip(habit: HabitCard) {
+  await setSelectedLogValue(habit, 'skip')
+}
+
+async function clearSelectedValue(habit: HabitCard) {
+  await setSelectedLogValue(habit, null)
+}
+
+function getCellState(habit: HabitCard, cell: HeatmapCell): HabitCellState {
   if (cell.value === 'skip')
     return 'skip'
   if (cell.value === 'fail')
     return 'fail'
-  if (typeof cell.value === 'number' && cell.value > 0)
+  if (typeof cell.value === 'number' && cell.value >= habit.targetCount)
     return 'complete'
+  if (typeof cell.value === 'number' && cell.value > 0)
+    return 'partial'
   return 'none'
 }
 
-async function cycleCellState(habit: HabitCard, cell: HeatmapCell) {
-  if (cell.isFuture)
-    return
-
-  const state = getCellState(cell)
-
-  if (state === 'none') {
-    await setLogValueForDate(habit, cell.date, Math.max(1, habit.targetCount))
-    return
-  }
-
-  if (state === 'complete') {
-    await setLogValueForDate(habit, cell.date, 'skip')
-    return
-  }
-
-  if (state === 'skip') {
-    await setLogValueForDate(habit, cell.date, 'fail')
-    return
-  }
-
-  await setLogValueForDate(habit, cell.date, null)
-}
-
 function cellTitle(habit: HabitCard, cell: HeatmapCell): string {
-  const state = getCellState(cell)
+  const state = getCellState(habit, cell)
   const valueText = state === 'complete'
     ? `complete (${typeof cell.value === 'number' ? cell.value : habit.targetCount}/${habit.targetCount})`
-    : state === 'skip'
-      ? 'skip'
-      : state === 'fail'
-        ? 'fail'
-        : 'no entry'
+    : state === 'partial'
+      ? `partial (${typeof cell.value === 'number' ? cell.value : 0}/${habit.targetCount})`
+      : state === 'skip'
+        ? 'skip'
+        : state === 'fail'
+          ? 'fail'
+          : 'no entry'
   return `${cell.date}: ${valueText}`
 }
 
-function getTodaySummary(habit: HabitCard): string {
-  const value = getTodayValue(habit)
-  if (value === 'skip')
-    return 'Today: skipped (*)'
-  if (value === 'fail')
-    return 'Today: failed (!)'
-  if (typeof value === 'number')
-    return `Today: ${value}/${habit.targetCount} ${habit.unit}`
-  return `Today: 0/${habit.targetCount} ${habit.unit}`
-}
-
 function isSuccessValue(habit: HabitCard, value: HabitLogValue | null): boolean {
-  if (value === 'skip')
-    return true
   if (value === 'fail' || value === null)
     return false
-  if (habit.period === 'week')
-    return value > 0
+  if (value === 'skip')
+    return false
   return value >= habit.targetCount
 }
 
-function getRollingWindowProgress(habit: HabitCard, endDate: Date) {
-  const log = habitLogs.value[habit.fileName] || {}
-  const windowSize = 7
-  let successDays = 0
-  let eligibleDays = 0
+function isNeutralValue(value: HabitLogValue | null): boolean {
+  return value === 'skip'
+}
 
-  for (let i = 0; i < windowSize; i += 1) {
-    const date = dateAddDays(endDate, -(windowSize - 1 - i))
+function getWeeklyScoreFromToday(habit: HabitCard): { success: number, total: number } {
+  const log = habitLogs.value[habit.fileName] || {}
+  const keys = Object.keys(log).sort()
+  const firstLoggedDate = keys[0]
+  if (!firstLoggedDate)
+    return { success: 0, total: 0 }
+
+  const today = isoToDate(todayIso())
+  let success = 0
+  let total = 0
+
+  for (let offset = 0; offset <= 365; offset += 1) {
+    const date = dateAddDays(today, -offset)
+    const iso = dateToIso(date)
+    if (iso < firstLoggedDate)
+      break
+
     if (!isScheduledForDate(habit, date))
       continue
 
-    eligibleDays += 1
-
-    const iso = dateToIso(date)
     const value = log[iso] ?? null
 
+    if (isNeutralValue(value))
+      continue
+
+    total += 1
+
     if (isSuccessValue(habit, value))
-      successDays += 1
+      success += 1
   }
 
-  const target = Math.max(1, habit.targetCount)
-  const required = Math.min(target, eligibleDays)
-  const isMet = successDays >= required
-
   return {
-    successDays,
-    eligibleDays,
-    target,
-    required,
-    isMet,
+    success,
+    total,
   }
 }
 
 function getCurrentStreak(habit: HabitCard): number {
-  if (habit.period === 'week') {
-    const today = isoToDate(todayIso())
-    let streakDays = 0
-
-    for (let offset = 0; offset <= 365; offset += 1) {
-      const date = dateAddDays(today, -offset)
-      if (!isScheduledForDate(habit, date))
-        continue
-
-      const progress = getRollingWindowProgress(habit, date)
-      if (!progress.isMet)
-        break
-
-      streakDays += 1
-    }
-
-    return streakDays
-  }
+  if (habit.period === 'week')
+    return getWeeklyScoreFromToday(habit).success
 
   const log = habitLogs.value[habit.fileName] || {}
   const today = isoToDate(todayIso())
@@ -419,8 +450,11 @@ function getCurrentStreak(habit: HabitCard): number {
     if (!isScheduledForDate(habit, date))
       continue
 
-    const iso = dateToIso(date)
-    const value = log[iso] ?? null
+    const value = log[dateToIso(date)] ?? null
+
+    if (isNeutralValue(value))
+      continue
+
     if (isSuccessValue(habit, value)) {
       streak += 1
       continue
@@ -432,39 +466,14 @@ function getCurrentStreak(habit: HabitCard): number {
 }
 
 function getBestStreak(habit: HabitCard): number {
-  if (habit.period === 'week') {
-    const log = habitLogs.value[habit.fileName] || {}
-    const keys = Object.keys(log).sort()
-    const today = isoToDate(todayIso())
-    const fallbackStart = dateAddDays(today, -365)
-    const start = keys.length > 0 ? isoToDate(keys[0] as string) : fallbackStart
+  if (habit.period === 'week')
+    return getWeeklyScoreFromToday(habit).total
 
-    let best = 0
-    let current = 0
-
-    for (let date = new Date(start); date <= today; date = dateAddDays(date, 1)) {
-      if (!isScheduledForDate(habit, date))
-        continue
-
-      const progress = getRollingWindowProgress(habit, date)
-      if (progress.isMet) {
-        current += 1
-        if (current > best)
-          best = current
-      }
-      else {
-        current = 0
-      }
-    }
-
-    return best
-  }
-
-  const log = habitLogs.value[habit.fileName] || {}
-  const keys = Object.keys(log).sort()
+  const keys = Object.keys(habitLogs.value[habit.fileName] || {}).sort()
   const today = isoToDate(todayIso())
+  const log = habitLogs.value[habit.fileName] || {}
 
-  const fallbackStart = dateAddDays(today, -120)
+  const fallbackStart = dateAddDays(today, -365)
   const start = keys.length > 0 ? isoToDate(keys[0] as string) : fallbackStart
 
   let best = 0
@@ -474,8 +483,11 @@ function getBestStreak(habit: HabitCard): number {
     if (!isScheduledForDate(habit, date))
       continue
 
-    const iso = dateToIso(date)
-    const value = log[iso] ?? null
+    const value = log[dateToIso(date)] ?? null
+
+    if (isNeutralValue(value))
+      continue
+
     if (isSuccessValue(habit, value)) {
       current += 1
       if (current > best)
@@ -490,6 +502,11 @@ function getBestStreak(habit: HabitCard): number {
 }
 
 function getStreakSummary(habit: HabitCard): string {
+  if (habit.period === 'week') {
+    const { success, total } = getWeeklyScoreFromToday(habit)
+    return `Streak: ${success}/${total} days`
+  }
+
   const current = getCurrentStreak(habit)
   const best = getBestStreak(habit)
   return `Streak: ${current} days current, ${best} days best`
@@ -536,11 +553,20 @@ async function loadHabits() {
           if (frontmatter.type !== 'habit')
             return null
 
+          const period = frontmatter.period === 'week' ? 'week' : 'day'
+          const targetCount = period === 'week' && frontmatter.targetDays === undefined
+            ? Math.max(1, Number(frontmatter.dailyTargetCount || 1))
+            : Math.max(1, Number(frontmatter.targetCount || 1))
+          const targetDays = period === 'week'
+            ? Math.max(1, Number(frontmatter.targetDays || frontmatter.targetCount || 1))
+            : 1
+
           return {
             id: String(frontmatter.id || ''),
             name: String(frontmatter.name || file.name.replace(/\.md$/i, '')),
-            period: String(frontmatter.period || 'day'),
-            targetCount: Math.max(1, Number(frontmatter.targetCount || 1)),
+            period,
+            targetCount,
+            targetDays,
             unit: String(frontmatter.unit || 'times'),
             reminder: String(frontmatter.reminder || ''),
             allowSkip: String(frontmatter.allowSkip || 'true') !== 'false',
@@ -571,6 +597,10 @@ async function loadHabits() {
       }),
     )
     habitLogs.value = logsByFile
+    selectedDates.value = habits.value.reduce<Record<string, string>>((acc, habit) => {
+      acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
+      return acc
+    }, {})
   }
   catch (err) {
     console.error('Failed to load habits', err)
@@ -693,76 +723,74 @@ onMounted(async () => {
           </div>
           <div>
             <h2>{{ habit.name }}</h2>
-            <p class="habit-id">{{ habit.id || habit.fileName }}</p>
           </div>
         </div>
 
+        <div class="habit-main-row">
+          <div class="heatmap-wrap">
+            <div class="heatmap-days" aria-hidden="true">
+              <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
+              }}</span>
+            </div>
+            <div class="heatmap-grid" role="img" :aria-label="`Heat map for ${habit.name}`">
+              <div v-for="cell in getHeatmap(habit)" :key="`${habit.fileName}-${cell.date}`" class="heatmap-cell"
+                :class="[
+                  `level-${cell.level}`,
+                  {
+                    'is-today': cell.isToday,
+                    'is-unscheduled': !cell.isScheduled,
+                    'is-future': cell.isFuture,
+                    'is-fail': cell.value === 'fail',
+                    'is-skip': cell.value === 'skip',
+                    'is-clickable': !cell.isFuture,
+                    'is-selected': isSelectedCell(habit, cell),
+                  },
+                ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
+            </div>
+          </div>
+
+          <div class="habit-controls">
+            <label v-if="habit.targetCount > 1" class="habit-count-entry">
+              <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
+              <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
+                :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
+                @change="handleSelectedNumberInput(habit, $event)">
+            </label>
+
+            <div class="habit-actions">
+              <button class="glass-button glass-button--secondary" type="button" @click="markSelectedDone(habit)">
+                <Check :size="14" />
+
+              </button>
+              <button class="glass-button glass-button--secondary" type="button" @click="markSelectedFail(habit)">
+                <X :size="14" />
+
+              </button>
+              <button v-if="habit.allowSkip" class="glass-button glass-button--secondary" type="button"
+                @click="markSelectedSkip(habit)">
+                <SkipForward :size="14" />
+
+              </button>
+            </div>
+
+            <p v-if="habitSaving[habit.fileName]" class="hint">Saving update...</p>
+            <p v-if="habitSaveErrors[habit.fileName]" class="hint error-text">{{ habitSaveErrors[habit.fileName] }}</p>
+          </div>
+        </div>
+        <p class="habit-score">{{ getStreakSummary(habit) }}</p>
         <div class="habit-meta-row">
-          <span>{{ habit.period === 'week' ? 'Weekly' : 'Daily' }}</span>
-          <span>Target: {{ habit.targetCount }} {{ habit.unit }}</span>
+          <!-- <span>{{ habit.period === 'week' ? 'Weekly' : 'Daily' }}</span> -->
+          <span>{{ getTargetSummary(habit) }}</span>
+          <!-- <span>{{ getSelectedDateTitle(habit) }}</span> -->
           <span v-if="habit.reminder">Reminder: {{ habit.reminder }}</span>
-          <span>{{ getStreakSummary(habit) }}</span>
-        </div>
-
-        <div class="habit-controls">
-          <p class="today-summary">{{ getTodaySummary(habit) }}</p>
-
-          <div class="habit-actions">
-            <button class="glass-icon-button habit-action" aria-label="Decrease today"
-              @click="incrementToday(habit, -1)">
-              <Minus :size="14" />
-            </button>
-            <button class="glass-icon-button habit-action" aria-label="Increase today"
-              @click="incrementToday(habit, 1)">
-              <Plus :size="14" />
-            </button>
-            <button class="glass-button glass-button--secondary" type="button" @click="markDoneToday(habit)">
-              <Check :size="14" />
-              Done
-            </button>
-            <button v-if="habit.allowSkip" class="glass-button glass-button--secondary" type="button"
-              @click="markSkipToday(habit)">
-              <SkipForward :size="14" />
-              Skip
-            </button>
-            <button class="glass-button glass-button--secondary" type="button" @click="clearToday(habit)">
-              <RotateCcw :size="14" />
-              Clear
-            </button>
-          </div>
-
-          <p v-if="habitSaving[habit.fileName]" class="hint">Saving update...</p>
-          <p v-if="habitSaveErrors[habit.fileName]" class="hint error-text">{{ habitSaveErrors[habit.fileName] }}</p>
-        </div>
-
-        <div class="heatmap-wrap">
-          <div class="heatmap-days" aria-hidden="true">
-            <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day }}</span>
-          </div>
-          <div class="heatmap-grid" role="img" :aria-label="`Heat map for ${habit.name}`">
-            <div v-for="cell in getHeatmap(habit)" :key="`${habit.fileName}-${cell.date}`" class="heatmap-cell" :class="[
-              `level-${cell.level}`,
-              {
-                'is-today': cell.isToday,
-                'is-unscheduled': !cell.isScheduled,
-                'is-future': cell.isFuture,
-                'is-fail': cell.value === 'fail',
-                'is-skip': cell.value === 'skip',
-                'is-clickable': !cell.isFuture,
-              },
-            ]" :title="cellTitle(habit, cell)" @click="cycleCellState(habit, cell)" />
-          </div>
-          <div class="heatmap-legend">
-            <span>Less</span>
-            <span class="legend-dot level-0" />
-            <span class="legend-dot level-1" />
-            <span class="legend-dot level-2" />
-            <span class="legend-dot level-3" />
-            <span class="legend-dot level-4" />
-            <span class="legend-dot fail-dot" />
-            <span>More</span>
-          </div>
-          <p class="hint">Tap a day to cycle: complete, skip, fail, no entry.</p>
+          <!-- <span class="mini-status">
+            <span class="mini-status-dot mini-status-dot--skip" />
+            Skip
+          </span>
+          <span class="mini-status">
+            <span class="mini-status-dot mini-status-dot--fail" />
+            Miss
+          </span> -->
         </div>
       </div>
     </div>
@@ -846,12 +874,6 @@ h1 {
   font-size: 1rem;
 }
 
-.habit-id {
-  margin: 2px 0 0;
-  font-size: 0.78rem;
-  color: var(--text-soft);
-}
-
 .habit-icon-wrap {
   width: 30px;
   height: 30px;
@@ -871,12 +893,56 @@ h1 {
   color: var(--text-soft);
 }
 
+.mini-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mini-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--c-light) 12%, transparent);
+}
+
+.mini-status-dot--skip {
+  position: relative;
+  background: color-mix(in srgb, var(--surface) 86%, var(--primary) 14%);
+  border-color: color-mix(in srgb, var(--primary) 38%, transparent);
+}
+
+.mini-status-dot--skip::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 82%, var(--text) 18%);
+}
+
+.mini-status-dot--fail {
+  background: color-mix(in srgb, var(--danger) 72%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
+}
+
+.habit-main-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
 .habit-controls {
   display: grid;
   gap: 8px;
+  min-width: 150px;
 }
 
-.today-summary {
+.habit-score {
   margin: 0;
   color: var(--text-soft);
   font-size: 0.86rem;
@@ -886,6 +952,29 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.glass-input {
+  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
+  color: var(--text);
+}
+
+.habit-count-entry {
+  display: grid;
+  gap: 6px;
+  max-width: 180px;
+}
+
+.habit-count-label {
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+
+.habit-count-input {
+  width: 100%;
 }
 
 .habit-action {
@@ -991,44 +1080,9 @@ h1 {
   border-color: color-mix(in srgb, var(--text) 65%, transparent);
 }
 
-.heatmap-legend {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.72rem;
-  color: var(--text-soft);
-}
-
-.legend-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
-  border: 1px solid color-mix(in srgb, var(--c-light) 12%, transparent);
-}
-
-.legend-dot.level-0 {
-  background: color-mix(in srgb, var(--c-dark) 8%, var(--surface));
-}
-
-.legend-dot.level-1 {
-  background: color-mix(in srgb, var(--primary) 22%, var(--surface));
-}
-
-.legend-dot.level-2 {
-  background: color-mix(in srgb, var(--primary) 45%, var(--surface));
-}
-
-.legend-dot.level-3 {
-  background: color-mix(in srgb, var(--primary) 68%, var(--surface));
-}
-
-.legend-dot.level-4 {
-  background: color-mix(in srgb, var(--primary) 88%, var(--surface));
-}
-
-.legend-dot.fail-dot {
-  background: color-mix(in srgb, var(--danger) 72%, var(--surface));
-  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
+.heatmap-cell.is-selected {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 46%, transparent);
 }
 
 .error-text {
