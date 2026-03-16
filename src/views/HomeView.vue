@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { CSSProperties } from 'vue'
-import { CheckSquare, FileText, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
+import { CheckSquare, FileText, Flame, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -905,7 +905,6 @@ async function toggleNotePin(note: AppFile) {
         </div>
 
         <div class="quick-add-actions">
-
           <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Quick tasks"
             aria-label="Quick tasks" @click="go('/tasks')">
             <CheckSquare :size="16" />
@@ -919,6 +918,11 @@ async function toggleNotePin(note: AppFile) {
           <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create note"
             aria-label="Create note" @click="go('/note')">
             <FileText :size="16" />
+          </button>
+
+          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Habits" aria-label="Habits"
+            @click="go('/habits')">
+            <Flame :size="16" />
           </button>
         </div>
       </div>

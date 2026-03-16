@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Moon, Sparkles, Sun, Trash2 } from 'lucide-vue-next'
-import { computed, reactive, watch } from 'vue'
+import { Moon, Sparkles, Sun, Trash2, Folder, Paintbrush, CheckSquare, Flame } from 'lucide-vue-next'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { applyTheme, getThemeAccentColor, loadSettings, saveSettings } from '../lib/settings'
@@ -8,6 +8,8 @@ import { FolderPicker } from '../plugins/folder-picker'
 
 const router = useRouter()
 const MAX_QUICK_TASK_PRESETS = 3
+type HabitPeriod = 'day' | 'week'
+type SettingsSection = 'system' | 'appearance' | 'tasks' | 'habits'
 
 // A single reactive object for all settings, loaded from storage.
 const settings = reactive(loadSettings())
@@ -88,6 +90,208 @@ const accentPickerValue = computed({
 })
 
 const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK_TASK_PRESETS)
+
+const selectedSection = ref<SettingsSection>('system')
+
+// Bottom nav bar config for settings sections
+const sectionNav = [
+  { value: 'system', label: 'System', icon: Folder },
+  { value: 'appearance', label: 'Appearance', icon: Paintbrush },
+  { value: 'tasks', label: 'Tasks', icon: CheckSquare },
+  { value: 'habits', label: 'Habits', icon: Flame },
+]
+
+const MAX_HABITS = 10
+
+// Multiple habit configs
+const habitDrafts = ref([
+  {
+    name: '',
+    unit: 'times',
+    period: 'day' as HabitPeriod,
+    targetCount: 1,
+    reminder: '',
+    allowSkip: true,
+    scheduledDays: [1, 2, 3, 4, 5, 6, 7],
+    saveError: '',
+    savedFileName: '',
+    isSaving: false,
+    currentFileName: '',
+  },
+])
+
+const systemSectionRef = ref<HTMLElement | null>(null)
+const appearanceSectionRef = ref<HTMLElement | null>(null)
+const tasksSectionRef = ref<HTMLElement | null>(null)
+const habitsSectionRef = ref<HTMLElement | null>(null)
+
+
+// Remove single habit draft state, use habitDrafts instead
+let habitAutoSaveTimers: Array<ReturnType<typeof setTimeout> | null> = []
+
+const dayOptions = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 7, label: 'Sun' },
+]
+
+
+function derivedHabitId(draft: typeof habitDrafts.value[number]) {
+  return toSlug(draft.name)
+}
+function canSaveHabit(draft: typeof habitDrafts.value[number]) {
+  return Boolean(settings.baseFolderUri) && derivedHabitId(draft).length > 0
+}
+
+function toSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+function todayIso(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function toggleHabitScheduledDay(draft: typeof habitDrafts.value[number], day: number) {
+  if (draft.scheduledDays.includes(day)) {
+    if (draft.scheduledDays.length === 1) return
+    draft.scheduledDays = draft.scheduledDays.filter(current => current !== day)
+    return
+  }
+  draft.scheduledDays = [...draft.scheduledDays, day].sort((a, b) => a - b)
+}
+
+function buildHabitMarkdown(draft: typeof habitDrafts.value[number]): string {
+  const lines = [
+    '---',
+    'type: habit',
+    `id: ${derivedHabitId(draft)}`,
+    `name: ${JSON.stringify(draft.name.trim())}`,
+    'active: true',
+    `period: ${draft.period}`,
+    `targetCount: ${Math.max(1, Math.floor(draft.targetCount || 1))}`,
+    `scheduledDays: [${draft.scheduledDays.join(', ')}]`,
+    `allowSkip: ${draft.allowSkip ? 'true' : 'false'}`,
+    `unit: ${JSON.stringify(draft.unit.trim() || 'times')}`,
+  ]
+  if (draft.reminder.trim())
+    lines.push(`reminder: ${JSON.stringify(draft.reminder.trim())}`)
+  lines.push(`created: ${todayIso()}`)
+  lines.push('---')
+  lines.push('')
+  lines.push('Habit definition for Quick Capture.')
+  return `${lines.join('\n')}\n`
+}
+
+async function uniqueHabitFileName(baseName: string): Promise<string> {
+  if (!settings.baseFolderUri)
+    return baseName
+  const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
+  const existing = new Set(listed.files.map(file => file.name.toLowerCase()))
+  if (!existing.has(baseName.toLowerCase()))
+    return baseName
+  const dot = baseName.lastIndexOf('.')
+  const stem = dot > 0 ? baseName.slice(0, dot) : baseName
+  const ext = dot > 0 ? baseName.slice(dot) : ''
+  let suffix = 2
+  while (existing.has(`${stem}-${suffix}${ext}`.toLowerCase()))
+    suffix += 1
+  return `${stem}-${suffix}${ext}`
+}
+
+async function saveHabitConfig(draft: typeof habitDrafts.value[number]) {
+  if (!settings.baseFolderUri || !canSaveHabit(draft) || draft.isSaving)
+    return
+  draft.isSaving = true
+  draft.saveError = ''
+  draft.savedFileName = ''
+  try {
+    if (!draft.currentFileName) {
+      const fileStem = derivedHabitId(draft) || 'habit'
+      draft.currentFileName = await uniqueHabitFileName(`habit-${fileStem}.md`)
+    }
+    await FolderPicker.writeFile({
+      folderUri: settings.baseFolderUri,
+      fileName: draft.currentFileName,
+      content: buildHabitMarkdown(draft),
+    })
+    draft.savedFileName = draft.currentFileName
+  } catch (error) {
+    console.error('Failed to save habit config', error)
+    draft.saveError = 'Could not save habit note.'
+  } finally {
+    draft.isSaving = false
+  }
+}
+
+function addHabitDraft() {
+  if (habitDrafts.value.length >= MAX_HABITS) return
+  habitDrafts.value.push({
+    name: '',
+    unit: 'times',
+    period: 'day',
+    targetCount: 1,
+    reminder: '',
+    allowSkip: true,
+    scheduledDays: [1, 2, 3, 4, 5, 6, 7],
+    saveError: '',
+    savedFileName: '',
+    isSaving: false,
+    currentFileName: '',
+  })
+}
+function removeHabitDraft(idx: number) {
+  if (habitDrafts.value.length === 1) return
+  habitDrafts.value.splice(idx, 1)
+}
+
+
+// Watch each habit draft for changes and auto-save
+watch(
+  habitDrafts,
+  (newDrafts) => {
+    newDrafts.forEach((draft, idx) => {
+      if (habitAutoSaveTimers[idx]) clearTimeout(habitAutoSaveTimers[idx])
+      if (!canSaveHabit(draft)) return
+      habitAutoSaveTimers[idx] = setTimeout(() => {
+        void saveHabitConfig(draft)
+      }, 500)
+    })
+  },
+  { deep: true },
+)
+
+function jumpToSection(value: string) {
+  if (value !== 'system' && value !== 'appearance' && value !== 'tasks' && value !== 'habits')
+    return
+
+  selectedSection.value = value
+
+  nextTick(() => {
+    const target = value === 'system'
+      ? systemSectionRef.value
+      : value === 'appearance'
+        ? appearanceSectionRef.value
+        : value === 'tasks'
+          ? tasksSectionRef.value
+          : habitsSectionRef.value
+
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+}
 </script>
 
 <template>
@@ -100,10 +304,20 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
       <h1>Settings</h1>
     </div>
 
+
+    <!-- Bottom nav bar for settings -->
+    <nav class="settings-bottom-bar">
+      <button v-for="section in sectionNav" :key="section.value" class="settings-bottom-bar-btn"
+        :class="{ active: selectedSection === section.value }" @click="jumpToSection(section.value)">
+        <component :is="section.icon" :size="22" />
+        <span>{{ section.label }}</span>
+      </button>
+    </nav>
+
     <!-- system folder card -->
-    <div class="card">
+    <div ref="systemSectionRef" class="card">
       <div class="field">
-        <span>System folder</span>
+        <h2 class="card-title">System folder</h2>
         <button class="glass-button folder-button" type="button" @click="pickBaseFolder">
           Select folder
         </button>
@@ -117,7 +331,7 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
     </div>
 
     <!-- appearance card -->
-    <div class="card">
+    <div ref="appearanceSectionRef" class="card">
       <h2 class="card-title">
         Appearance
       </h2>
@@ -133,6 +347,8 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
         </div>
       </div>
     </div>
+
+    <div ref="tasksSectionRef" class="section-anchor" aria-hidden="true" />
 
     <div v-for="(preset, index) in settings.quickTaskPresets" :key="preset.id" class="card">
       <div class="card-header">
@@ -183,6 +399,72 @@ const canAddPreset = computed(() => settings.quickTaskPresets.length < MAX_QUICK
     <p class="hint add-limit-hint">
       {{ settings.quickTaskPresets.length }}/{{ MAX_QUICK_TASK_PRESETS }} presets used
     </p>
+
+    <div ref="habitsSectionRef">
+      <div v-for="(draft, idx) in habitDrafts" :key="idx" class="card">
+        <div class="card-header">
+          <h2>Habit {{ idx + 1 }}</h2>
+          <button class="glass-icon-button remove-button" :disabled="habitDrafts.length === 1"
+            @click="removeHabitDraft(idx)">
+            <Trash2 :size="14" />
+          </button>
+        </div>
+        <label class="field">
+          <span>Habit name</span>
+          <input v-model="draft.name" type="text" placeholder="Exercise" />
+        </label>
+        <div class="two-col-grid">
+          <label class="field">
+            <span>Period</span>
+            <select v-model="draft.period" class="glass-select">
+              <option value="day">Daily</option>
+              <option value="week">Weekly</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Target count</span>
+            <input v-model.number="draft.targetCount" type="number" min="1" step="1">
+          </label>
+        </div>
+        <div class="two-col-grid">
+          <label class="field">
+            <span>Unit</span>
+            <input v-model="draft.unit" type="text" placeholder="times">
+            <small class="hint">Display label, for example times, km, pages.</small>
+          </label>
+          <label class="field">
+            <span>Reminder</span>
+            <input v-model="draft.reminder" type="time">
+          </label>
+        </div>
+        <label class="checkbox-row">
+          <input v-model="draft.allowSkip" type="checkbox">
+          <span>Allow skip marker (*)</span>
+        </label>
+        <div class="field">
+          <span>Scheduled days</span>
+          <small class="hint">For weekly habits, selected days are eligible days used toward the weekly target.</small>
+          <div class="day-row">
+            <button v-for="day in dayOptions" :key="day.value" type="button" class="day-chip"
+              :class="{ 'is-active': draft.scheduledDays.includes(day.value) }"
+              @click="toggleHabitScheduledDay(draft, day.value)">
+              {{ day.label }}
+            </button>
+          </div>
+        </div>
+        <p v-if="draft.savedFileName" class="hint success-text">
+          {{ draft.isSaving ? 'Auto-saving...' : `Auto-saved: ${draft.savedFileName}` }}
+        </p>
+        <p v-if="draft.saveError" class="hint error-text">
+          {{ draft.saveError }}
+        </p>
+      </div>
+      <button v-if="habitDrafts.length < MAX_HABITS"
+        class="glass-button glass-button--block glass-button--secondary add-button" @click="addHabitDraft">
+        + Add Habit
+      </button>
+      <p class="hint add-limit-hint">{{ habitDrafts.length }}/{{ MAX_HABITS }} habits used</p>
+    </div>
   </div>
 </template>
 
@@ -215,16 +497,54 @@ h1 {
 .card {
   background: var(--surface);
   border-radius: 20px;
-  padding: 20px;
+  padding: 2px;
   box-shadow: var(--shadow);
-  margin-bottom: 16px;
+  margin-bottom: 2px;
+}
+
+
+.settings-bottom-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  background: color-mix(in srgb, var(--bg) 80%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 8px 0;
+}
+
+.settings-bottom-bar-btn {
+  background: none;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0 8px;
+  border-radius: 10px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.settings-bottom-bar-btn.active,
+.settings-bottom-bar-btn:focus-visible {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .card-header h2 {
@@ -270,6 +590,61 @@ h1 {
 
 .field input:disabled {
   opacity: 0.55;
+}
+
+.glass-select {
+  border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
+  border-radius: 16px;
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--c-glass) 10%, transparent);
+  color: var(--text);
+}
+
+.two-col-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.checkbox-row span {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.day-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.day-chip {
+  border: 1px solid color-mix(in srgb, var(--c-light) 20%, transparent);
+  border-radius: 10px;
+  min-height: 34px;
+  background: color-mix(in srgb, var(--c-glass) 8%, transparent);
+  color: var(--text-soft);
+  font-weight: 700;
+}
+
+.day-chip.is-active {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--c-light));
+  background: color-mix(in srgb, var(--primary) 20%, var(--surface));
+}
+
+.success-text {
+  color: color-mix(in srgb, #34d399 78%, var(--text));
+}
+
+.error-text {
+  color: var(--danger);
 }
 
 .accent-field {
@@ -394,5 +769,15 @@ h1 {
   display: flex;
   gap: 12px;
   margin-top: 20px;
+}
+
+@media (max-width: 860px) {
+  .two-col-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .day-row {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 }
 </style>
