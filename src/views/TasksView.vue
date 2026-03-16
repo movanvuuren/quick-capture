@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
+import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
+import { Capacitor } from '@capacitor/core'
+import { LocalNotifications } from '@capacitor/local-notifications'
 import { FolderPicker } from '../plugins/folder-picker'
 import type { FolderFileEntry } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
@@ -43,6 +45,7 @@ interface CachedQuickTaskFile {
 }
 
 const QUICK_TASK_READ_CONCURRENCY = 6
+const TASK_REMINDER_STORAGE_KEY = 'quick-capture-task-reminders'
 
 let quickTaskCacheFolderUri = ''
 const quickTaskFileCache = new Map<string, CachedQuickTaskFile>()
@@ -51,6 +54,23 @@ const router = useRouter()
 const route = useRoute()
 const settings = loadSettings()
 
+function isPinataPreset(preset: QuickTaskPreset): boolean {
+  return preset.tag.includes('🪅') || preset.label.includes('🪅')
+}
+
+function getDefaultPresetId(): string {
+  const pinataPreset = settings.quickTaskPresets.find(preset => isPinataPreset(preset))
+  return pinataPreset?.id || settings.quickTaskPresets[0]?.id || ''
+}
+
+function orderedPresets(): QuickTaskPreset[] {
+  return [...settings.quickTaskPresets].sort((a, b) => {
+    const aPriority = isPinataPreset(a) ? 0 : 1
+    const bPriority = isPinataPreset(b) ? 0 : 1
+    return aPriority - bPriority
+  })
+}
+
 const isLoading = ref(true)
 const isSaving = ref(false)
 const error = ref('')
@@ -58,12 +78,16 @@ const error = ref('')
 const tasks = ref<QuickTaskItem[]>([])
 const newTaskText = ref('')
 const newDueDate = ref('')
-const selectedPresetId = ref(settings.quickTaskPresets[0]?.id || '')
-const selectedTaskFilter = ref<TaskFilter>('all')
+const selectedPresetId = ref(getDefaultPresetId())
+const selectedTaskFilter = ref<TaskFilter>('pending')
 const selectedSortMode = ref<TaskSortMode>('status')
 const editingTaskId = ref<string | null>(null)
 const editingTaskText = ref('')
 const editingDueDateTaskId = ref<string | null>(null)
+const editingAlarmTaskId = ref<string | null>(null)
+const reminderTimes = ref<Record<string, string>>({})
+const highlightedTaskId = ref<string | null>(null)
+let highlightClearTimer: ReturnType<typeof setTimeout> | null = null
 
 const taskStateOrder: Record<TaskState, number> = {
   pending: 0,
@@ -76,7 +100,7 @@ const selectedPreset = computed(() =>
 )
 
 const presetOptions = computed(() =>
-  settings.quickTaskPresets.map(preset => ({
+  orderedPresets().map(preset => ({
     value: preset.id,
     label: preset.label?.trim() || 'Preset',
   })),
@@ -225,6 +249,161 @@ function todayIso(): string {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
   return `${year}-${month}-${day}`
+}
+
+function loadReminderTimes() {
+  try {
+    const raw = window.localStorage.getItem(TASK_REMINDER_STORAGE_KEY)
+    if (!raw) {
+      reminderTimes.value = {}
+      return
+    }
+
+    const parsed = JSON.parse(raw) as Record<string, string>
+    reminderTimes.value = typeof parsed === 'object' && parsed !== null ? parsed : {}
+  }
+  catch {
+    reminderTimes.value = {}
+  }
+}
+
+function persistReminderTimes() {
+  window.localStorage.setItem(TASK_REMINDER_STORAGE_KEY, JSON.stringify(reminderTimes.value))
+}
+
+function notificationIdForTask(task: QuickTaskItem): number {
+  const source = `task-reminder:${task.fileName}:${task.lineIndex}`
+  let hash = 0
+  for (let i = 0; i < source.length; i += 1)
+    hash = ((hash << 5) - hash + source.charCodeAt(i)) | 0
+
+  return Math.abs(hash) || 1
+}
+
+function getReminderTime(task: QuickTaskItem): string {
+  return reminderTimes.value[task.id] || ''
+}
+
+function hasReminder(task: QuickTaskItem): boolean {
+  return !!getReminderTime(task)
+}
+
+function reminderDateFromTask(task: QuickTaskItem, time: string): Date | null {
+  if (!task.dueDate || !time)
+    return null
+
+  const [hourRaw, minuteRaw] = time.split(':')
+  const hour = Number.parseInt(hourRaw || '', 10)
+  const minute = Number.parseInt(minuteRaw || '', 10)
+  if (!Number.isInteger(hour) || !Number.isInteger(minute))
+    return null
+
+  const date = new Date(`${task.dueDate}T00:00:00`)
+  if (Number.isNaN(date.getTime()))
+    return null
+
+  date.setHours(hour, minute, 0, 0)
+  if (date.getTime() <= Date.now())
+    return null
+
+  return date
+}
+
+async function ensureNotificationPermission(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform())
+    return true
+
+  const status = await LocalNotifications.checkPermissions()
+  if (status.display === 'granted')
+    return true
+
+  const requested = await LocalNotifications.requestPermissions()
+  return requested.display === 'granted'
+}
+
+async function cancelReminderNotification(task: QuickTaskItem) {
+  if (!Capacitor.isNativePlatform())
+    return
+
+  try {
+    await LocalNotifications.cancel({
+      notifications: [{ id: notificationIdForTask(task) }],
+    })
+  }
+  catch {
+    // Ignore cleanup errors to avoid blocking task operations.
+  }
+}
+
+async function scheduleReminderNotification(task: QuickTaskItem, time: string) {
+  if (!Capacitor.isNativePlatform())
+    return
+
+  const at = reminderDateFromTask(task, time)
+  if (!at)
+    throw new Error('Reminder date/time must be in the future')
+
+  const hasPermission = await ensureNotificationPermission()
+  if (!hasPermission)
+    throw new Error('Notification permission not granted')
+
+  const id = notificationIdForTask(task)
+  await LocalNotifications.cancel({ notifications: [{ id }] })
+  await LocalNotifications.schedule({
+    notifications: [
+      {
+        id,
+        title: 'Task reminder',
+        body: displayTaskBody(task),
+        schedule: { at },
+        extra: { taskId: task.id },
+      },
+    ],
+  })
+}
+
+async function clearTaskReminder(task: QuickTaskItem) {
+  delete reminderTimes.value[task.id]
+  persistReminderTimes()
+  editingAlarmTaskId.value = editingAlarmTaskId.value === task.id ? null : editingAlarmTaskId.value
+  await cancelReminderNotification(task)
+}
+
+async function setTaskReminderTime(task: QuickTaskItem, time: string) {
+  const normalized = time.trim()
+  if (!normalized) {
+    await clearTaskReminder(task)
+    return
+  }
+
+  await scheduleReminderNotification(task, normalized)
+  reminderTimes.value = {
+    ...reminderTimes.value,
+    [task.id]: normalized,
+  }
+  persistReminderTimes()
+}
+
+function showAlarmEditor(task: QuickTaskItem) {
+  if (!task.dueDate)
+    return
+
+  editingAlarmTaskId.value = task.id
+}
+
+function hideAlarmEditor(task: QuickTaskItem) {
+  if (!hasReminder(task))
+    editingAlarmTaskId.value = null
+}
+
+async function changeReminderTime(task: QuickTaskItem, value: string) {
+  try {
+    await setTaskReminderTime(task, value)
+  }
+  catch (err) {
+    console.error('Failed to set reminder', err)
+    error.value = 'Could not set reminder notification.'
+  }
 }
 
 function parseTaskLine(line: string): ParsedTaskLine | null {
@@ -517,10 +696,22 @@ async function changeDueDate(task: QuickTaskItem, dueDate: string) {
   isSaving.value = true
   const previousDue = task.dueDate
   const normalized = dueDate || undefined
+  const previousReminder = getReminderTime(task)
   task.dueDate = normalized
 
   try {
     await updateTaskInFile(task, task.state, normalized)
+
+    if (!normalized)
+      await clearTaskReminder(task)
+    else if (previousReminder) {
+      try {
+        await setTaskReminderTime(task, previousReminder)
+      }
+      catch {
+        await clearTaskReminder(task)
+      }
+    }
   }
   catch (err) {
     task.dueDate = previousDue
@@ -617,6 +808,10 @@ async function deleteTask(task: QuickTaskItem) {
       cancelEditTask()
     if (editingDueDateTaskId.value === task.id)
       editingDueDateTaskId.value = null
+    if (editingAlarmTaskId.value === task.id)
+      editingAlarmTaskId.value = null
+
+    await clearTaskReminder(task)
 
     await loadQuickTasks()
   }
@@ -697,7 +892,36 @@ async function addQuickTask() {
   }
 }
 
+function applyHighlight(taskId: string) {
+  if (highlightClearTimer !== null)
+    clearTimeout(highlightClearTimer)
+
+  // Ensure the task is visible by switching to "all" filter
+  selectedTaskFilter.value = 'all'
+  highlightedTaskId.value = taskId
+
+  nextTick(() => {
+    const el = document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  })
+
+  highlightClearTimer = setTimeout(() => {
+    highlightedTaskId.value = null
+    highlightClearTimer = null
+  }, 3000)
+}
+
+watch(
+  () => route.query.highlight,
+  (taskId) => {
+    if (typeof taskId === 'string' && taskId && !isLoading.value)
+      applyHighlight(taskId)
+  },
+)
+
 onMounted(async () => {
+  loadReminderTimes()
+
   const presetFromQuery = route.query.preset
   if (typeof presetFromQuery === 'string') {
     const exists = settings.quickTaskPresets.some(preset => preset.id === presetFromQuery)
@@ -706,6 +930,10 @@ onMounted(async () => {
   }
 
   await loadQuickTasks()
+
+  const highlightQuery = route.query.highlight
+  if (typeof highlightQuery === 'string' && highlightQuery)
+    applyHighlight(highlightQuery)
 })
 </script>
 
@@ -765,8 +993,8 @@ onMounted(async () => {
     </div>
 
     <div v-else class="task-list">
-      <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row"
-        :class="[task.state, { overdue: isOverdue(task) }]">
+      <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row" :data-task-id="task.id"
+        :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id }]">
         <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
           @click="toggleTaskState(task)">
           {{ task.state === 'done' ? '✓' : task.state === 'cancelled' ? '–' : '○' }}
@@ -781,9 +1009,20 @@ onMounted(async () => {
               {{ displayTaskBody(task) }}
             </button>
 
-            <input v-if="task.dueDate || editingDueDateTaskId === task.id" class="glass-input inline-date" type="date"
-              :value="task.dueDate || ''" @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
-              @blur="hideDueDateEditor(task)">
+            <div v-if="task.dueDate || editingDueDateTaskId === task.id" class="task-datetime-stack">
+              <input class="glass-input inline-date" type="date" :value="task.dueDate || ''"
+                @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
+                @blur="hideDueDateEditor(task)">
+
+              <input v-if="task.dueDate && (hasReminder(task) || editingAlarmTaskId === task.id)"
+                class="glass-input inline-time" type="time" :value="getReminderTime(task)"
+                @change="changeReminderTime(task, ($event.target as HTMLInputElement).value)"
+                @blur="hideAlarmEditor(task)">
+              <button v-else-if="task.dueDate" class="glass-icon-button alarm-task-button" type="button"
+                aria-label="Set reminder" @click="showAlarmEditor(task)">
+                <AlarmClock :size="14" />
+              </button>
+            </div>
             <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
               @click="showDueDateEditor(task)">
               Add date
@@ -971,8 +1210,14 @@ h1 {
 .task-main-line {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
+  align-items: start;
   gap: 8px;
+}
+
+.task-datetime-stack {
+  display: grid;
+  gap: 6px;
+  align-content: start;
 }
 
 .task-main {
@@ -1014,6 +1259,26 @@ h1 {
       color-mix(in srgb, #ef4444 9%, var(--surface) 91%));
 }
 
+.task-row.highlighted {
+  animation: task-highlight-pulse 3s ease-out forwards;
+}
+
+@keyframes task-highlight-pulse {
+
+  0%,
+  20% {
+    border-color: color-mix(in srgb, #6ee7b7 70%, var(--border));
+    background: color-mix(in srgb, #6ee7b7 18%, var(--surface));
+    box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, #6ee7b7 40%, transparent);
+  }
+
+  100% {
+    border-color: var(--border);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+}
+
 .task-row.overdue .inline-date,
 .task-row.overdue .add-date-button {
   border-color: color-mix(in srgb, #f87171 40%, var(--c-light));
@@ -1032,6 +1297,7 @@ h1 {
   width: 130px;
   min-height: 34px;
   padding: 7px 9px;
+  font-size: 0.82rem;
 }
 
 .add-date-button {
@@ -1040,6 +1306,24 @@ h1 {
   border-radius: 12px;
   font-size: 0.78rem;
   white-space: nowrap;
+}
+
+.inline-time {
+  width: 130px;
+  min-height: 34px;
+  padding: 7px 8px;
+  font-size: 0.82rem;
+}
+
+.alarm-task-button {
+  width: 130px;
+  height: 34px;
+  border-radius: 12px;
+  color: var(--text-soft);
+}
+
+.alarm-task-button:hover {
+  color: color-mix(in srgb, var(--primary) 78%, var(--text));
 }
 
 .delete-task-button {
@@ -1071,6 +1355,11 @@ h1 {
   }
 
   .inline-date {
+    width: 124px;
+  }
+
+  .inline-time,
+  .alarm-task-button {
     width: 124px;
   }
 }

@@ -47,15 +47,15 @@ export const defaultSettings: AppSettings = {
   quickTaskPresets: [
     {
       id: crypto.randomUUID(),
-      label: '💼 Work',
-      tag: '#💼',
+      label: '🪅 Home',
+      tag: '#🪅',
       saveMode: 'single_file',
       fileName: 'tasks.md',
     },
     {
       id: crypto.randomUUID(),
-      label: '🪅 Home',
-      tag: '#🪅',
+      label: '💼 Work',
+      tag: '#💼',
       saveMode: 'single_file',
       fileName: 'tasks.md',
     },

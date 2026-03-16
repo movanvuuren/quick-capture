@@ -18,6 +18,7 @@
     "@capacitor/core": "^8.2.0",
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/haptics": "^8.0.1",
+    "@capacitor/local-notifications": "^8.0.2",
     "@toast-ui/editor": "^3.2.2",
     "@types/simplemde": "^1.11.11",
     "codemirror": "^5.65.21",
