@@ -37,6 +37,8 @@ type DashboardCardEntry = DashboardCard & {
 const SWIPE_DELETE_WIDTH = 92
 const SWIPE_OPEN_THRESHOLD = 46
 const SWIPE_MOVE_THRESHOLD = 10
+const PULL_REFRESH_THRESHOLD = 72
+const PULL_REFRESH_MAX_DISTANCE = 120
 
 let cachedFolderUri = ''
 let cachedAt = 0
@@ -65,8 +67,21 @@ const swipeStartX = ref(0)
 const swipeStartOffset = ref(0)
 const swipeMoved = ref(false)
 
+const pullStartY = ref<number | null>(null)
+const pullStartX = ref<number | null>(null)
+const pullDistance = ref(0)
+const pullAxisLock = ref<'none' | 'vertical' | 'horizontal'>('none')
+const isPullRefreshing = ref(false)
+const pullReadyHapticPlayed = ref(false)
+
 const isEmpty = computed(() => lists.value.length === 0 && tasks.value.length === 0 && notes.value.length === 0)
 const dashboardCards = ref<DashboardCardEntry[]>([])
+const isPullReady = computed(() => pullDistance.value >= PULL_REFRESH_THRESHOLD)
+const showPullIndicator = computed(() => pullDistance.value > 0 || isPullRefreshing.value)
+const pageContentStyle = computed<CSSProperties>(() => ({
+  transform: `translateY(${pullDistance.value}px)`,
+  transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
+}))
 
 function toSortDate(item: { updated?: string, created?: string }) {
   const date = item.updated || item.created || ''
@@ -574,6 +589,115 @@ function toggleKind(kind: DashboardCard['kind']) {
   selectedKinds.value = [...selectedKinds.value, kind]
 }
 
+function isPageScrolledToTop() {
+  return window.scrollY <= 0
+}
+
+async function triggerHaptic(kind: 'light' | 'medium' = 'light') {
+  try {
+    const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
+    const style = kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light
+    await Haptics.impact({ style })
+    return
+  }
+  catch {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
+      navigator.vibrate(kind === 'medium' ? 20 : 10)
+  }
+}
+
+function resetPullState() {
+  pullStartY.value = null
+  pullStartX.value = null
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+  pullReadyHapticPlayed.value = false
+}
+
+function onPullTouchStart(event: TouchEvent) {
+  if (!baseFolderUri.value || isPullRefreshing.value)
+    return
+  if (!isPageScrolledToTop())
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  pullStartY.value = touch.clientY
+  pullStartX.value = touch.clientX
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+}
+
+function onPullTouchMove(event: TouchEvent) {
+  if (pullStartY.value === null || pullStartX.value === null)
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const deltaY = touch.clientY - pullStartY.value
+  const deltaX = touch.clientX - pullStartX.value
+
+  if (pullAxisLock.value === 'none' && (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6))
+    pullAxisLock.value = Math.abs(deltaY) >= Math.abs(deltaX) ? 'vertical' : 'horizontal'
+
+  if (pullAxisLock.value === 'horizontal')
+    return
+
+  if (deltaY <= 0) {
+    pullDistance.value = 0
+    pullReadyHapticPlayed.value = false
+    return
+  }
+
+  if (!isPageScrolledToTop()) {
+    resetPullState()
+    return
+  }
+
+  event.preventDefault()
+  pullDistance.value = Math.min(PULL_REFRESH_MAX_DISTANCE, deltaY * 0.45)
+
+  const reachedReadyState = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  if (reachedReadyState && !pullReadyHapticPlayed.value) {
+    pullReadyHapticPlayed.value = true
+    void triggerHaptic('light')
+  }
+  else if (!reachedReadyState) {
+    pullReadyHapticPlayed.value = false
+  }
+}
+
+async function onPullTouchEnd() {
+  if (pullStartY.value === null)
+    return
+
+  const shouldRefresh = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  pullStartY.value = null
+  pullStartX.value = null
+  pullAxisLock.value = 'none'
+
+  if (!shouldRefresh) {
+    pullDistance.value = 0
+    return
+  }
+
+  isPullRefreshing.value = true
+  pullDistance.value = 44
+  void triggerHaptic('medium')
+
+  try {
+    await syncSettingsAndRefresh({ force: true })
+  }
+  finally {
+    isPullRefreshing.value = false
+    pullDistance.value = 0
+  }
+}
+
 async function toggleTodoPin(item: StoredTodoList, collection: 'list' | 'task') {
   if (!baseFolderUri.value)
     return
@@ -629,139 +753,149 @@ async function toggleNotePin(note: AppFile) {
 </script>
 
 <template>
-  <div class="page">
-    <div class="top-row">
-      <h1>Quick Capture</h1>
-
-      <button class="glass-icon-button" aria-label="Go to settings" @click="go('/settings')">
-        <Settings :size="22" />
-      </button>
+  <div class="page" @touchstart="onPullTouchStart" @touchmove="onPullTouchMove" @touchend="onPullTouchEnd"
+    @touchcancel="onPullTouchEnd">
+    <div class="pull-refresh"
+      :class="{ 'is-visible': showPullIndicator, 'is-ready': isPullReady, 'is-refreshing': isPullRefreshing }"
+      :aria-label="isPullRefreshing ? 'Refreshing dashboard' : 'Pull to refresh dashboard'" role="status">
+      <div class="pull-refresh-spinner" aria-hidden="true" />
+      <span>{{ isPullRefreshing ? 'Refreshing…' : isPullReady ? 'Release to refresh' : 'Pull to refresh' }}</span>
     </div>
 
-    <div v-if="isLoading" class="empty-state card">
-      <p>Loading dashboard...</p>
-    </div>
+    <div class="page-content" :style="pageContentStyle">
+      <div class="top-row">
+        <h1>Quick Capture</h1>
 
-    <div v-else-if="error" class="empty-state card">
-      <p class="error-text">{{ error }}</p>
-    </div>
-
-    <div v-else-if="!baseFolderUri" class="empty-state card">
-      <div class="empty-icon">#</div>
-      <p class="empty-title">No Folder Selected</p>
-      <p class="empty-text">Please select a folder in settings to begin.</p>
-      <button class="glass-button glass-button--primary" @click="go('/settings')">Go to Settings</button>
-    </div>
-
-    <div v-else-if="isEmpty" class="empty-state card">
-      <div class="empty-icon">*</div>
-      <p class="empty-title">Folder is Empty</p>
-      <p class="empty-text">Create a new list, task file, or note to get started.</p>
-      <div class="button-group">
-        <button class="glass-button glass-button--primary" @click="createTodoFile('list')">New List</button>
-        <button class="glass-button glass-button--primary" @click="go('/tasks')">Quick Tasks</button>
-        <button class="glass-button glass-button--primary" @click="go('/note')">New Note</button>
-      </div>
-    </div>
-
-    <template v-else>
-      <div class="filter-bar">
-        <button class="glass-button filter-chip" :class="{ 'filter-chip--active': allFiltersActive }" type="button"
-          @click="resetFilters">
-          All
-        </button>
-        <button class="glass-button filter-chip"
-          :class="{ 'filter-chip--active': isKindEnabled('list') && !allFiltersActive }" type="button"
-          @click="toggleKind('list')">
-          Lists
-        </button>
-        <button class="glass-button filter-chip"
-          :class="{ 'filter-chip--active': isKindEnabled('note') && !allFiltersActive }" type="button"
-          @click="toggleKind('note')">
-          Notes
-        </button>
-        <button class="glass-button filter-chip"
-          :class="{ 'filter-chip--active': isKindEnabled('task') && !allFiltersActive }" type="button"
-          @click="toggleKind('task')">
-          Tasks
+        <button class="glass-icon-button" aria-label="Go to settings" @click="go('/settings')">
+          <Settings :size="22" />
         </button>
       </div>
 
-      <div class="card-grid">
-        <div v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
-          class="swipe-item" @touchstart="onSwipeStart(card, $event)" @touchmove="onSwipeMove(card, $event)"
-          @touchend="onSwipeEnd(card)" @touchcancel="onSwipeEnd(card)">
-          <button class="swipe-delete-button" type="button" :style="getDeleteButtonStyle(card)"
-            :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
-            <Trash2 :size="18" />
-            <span>Delete</span>
+      <div v-if="isLoading" class="empty-state card">
+        <p>Loading dashboard...</p>
+      </div>
+
+      <div v-else-if="error" class="empty-state card">
+        <p class="error-text">{{ error }}</p>
+      </div>
+
+      <div v-else-if="!baseFolderUri" class="empty-state card">
+        <div class="empty-icon">#</div>
+        <p class="empty-title">No Folder Selected</p>
+        <p class="empty-text">Please select a folder in settings to begin.</p>
+        <button class="glass-button glass-button--primary" @click="go('/settings')">Go to Settings</button>
+      </div>
+
+      <div v-else-if="isEmpty" class="empty-state card">
+        <div class="empty-icon">*</div>
+        <p class="empty-title">Folder is Empty</p>
+        <p class="empty-text">Create a new list, task file, or note to get started.</p>
+        <div class="button-group">
+          <button class="glass-button glass-button--primary" @click="createTodoFile('list')">New List</button>
+          <button class="glass-button glass-button--primary" @click="go('/tasks')">Quick Tasks</button>
+          <button class="glass-button glass-button--primary" @click="go('/note')">New Note</button>
+        </div>
+      </div>
+
+      <template v-else>
+        <div class="filter-bar">
+          <button class="glass-button filter-chip" :class="{ 'filter-chip--active': allFiltersActive }" type="button"
+            @click="resetFilters">
+            All
           </button>
+          <button class="glass-button filter-chip"
+            :class="{ 'filter-chip--active': isKindEnabled('list') && !allFiltersActive }" type="button"
+            @click="toggleKind('list')">
+            Lists
+          </button>
+          <button class="glass-button filter-chip"
+            :class="{ 'filter-chip--active': isKindEnabled('note') && !allFiltersActive }" type="button"
+            @click="toggleKind('note')">
+            Notes
+          </button>
+          <button class="glass-button filter-chip"
+            :class="{ 'filter-chip--active': isKindEnabled('task') && !allFiltersActive }" type="button"
+            @click="toggleKind('task')">
+            Tasks
+          </button>
+        </div>
 
-          <div class="glass-button collection-card"
-            :class="{ 'collection-card--swiping': activeSwipeKey === getCardKey(card) }" :style="getCardStyle(card)"
-            @click="openCard(card)">
-            <div class="collection-top">
-              <div class="collection-main">
-                <div class="type-icon-wrap" :class="{
-                  'type-icon-wrap--dark': activeTheme === 'dark',
-                  'type-icon-wrap--dim': activeTheme === 'dim',
-                }">
-                  <component :is="getCardIcon(card.kind)" :size="18" class="type-icon" />
+        <div class="card-grid">
+          <div v-for="card in filteredDashboardCards" :key="card.kind === 'note' ? card.item.id : card.item.fileName"
+            class="swipe-item" @touchstart="onSwipeStart(card, $event)" @touchmove="onSwipeMove(card, $event)"
+            @touchend="onSwipeEnd(card)" @touchcancel="onSwipeEnd(card)">
+            <button class="swipe-delete-button" type="button" :style="getDeleteButtonStyle(card)"
+              :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
+              <Trash2 :size="18" />
+              <span>Delete</span>
+            </button>
+
+            <div class="glass-button collection-card"
+              :class="{ 'collection-card--swiping': activeSwipeKey === getCardKey(card) }" :style="getCardStyle(card)"
+              @click="openCard(card)">
+              <div class="collection-top">
+                <div class="collection-main">
+                  <div class="type-icon-wrap" :class="{
+                    'type-icon-wrap--dark': activeTheme === 'dark',
+                    'type-icon-wrap--dim': activeTheme === 'dim',
+                  }">
+                    <component :is="getCardIcon(card.kind)" :size="18" class="type-icon" />
+                  </div>
+                  <div class="collection-body">
+                    <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
+
+                    <template v-if="card.kind === 'note'">
+                      <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
+                    </template>
+
+                    <template v-else>
+                      <ul class="todo-preview-list">
+                        <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index"
+                          class="todo-preview-item">
+                          <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
+                          <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
+                            previewItem.text }}</span>
+                        </li>
+                        <li v-if="getPreviewOverflowCount(card.item) > 0" class="todo-preview-more">
+                          ... and {{ getPreviewOverflowCount(card.item) }} more
+                        </li>
+                      </ul>
+                    </template>
+                  </div>
                 </div>
-                <div class="collection-body">
-                  <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
 
-                  <template v-if="card.kind === 'note'">
-                    <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
-                  </template>
-
-                  <template v-else>
-                    <ul class="todo-preview-list">
-                      <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index"
-                        class="todo-preview-item">
-                        <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
-                        <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
-                          previewItem.text }}</span>
-                      </li>
-                      <li v-if="getPreviewOverflowCount(card.item) > 0" class="todo-preview-more">
-                        ... and {{ getPreviewOverflowCount(card.item) }} more
-                      </li>
-                    </ul>
-                  </template>
+                <div class="card-actions" @click.stop>
+                  <PinToggleButton class="home-card-action-button" :pinned="card.item.pinned" :size="16"
+                    :item-label="getCardTypeLabel(card.kind).toLowerCase()"
+                    @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
+                  <button class="glass-icon-button home-card-action-button delete-icon-button" type="button"
+                    :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
+                    <Trash2 :size="16" />
+                  </button>
                 </div>
               </div>
 
-              <div class="card-actions" @click.stop>
-                <PinToggleButton class="home-card-action-button" :pinned="card.item.pinned" :size="16"
-                  :item-label="getCardTypeLabel(card.kind).toLowerCase()"
-                  @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
-                <button class="glass-icon-button home-card-action-button delete-icon-button" type="button"
-                  :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
-                  <Trash2 :size="16" />
-                </button>
+              <div v-if="card.kind !== 'note'" class="summary-progress-track">
+                <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
               </div>
-            </div>
 
-            <div v-if="card.kind !== 'note'" class="summary-progress-track">
-              <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
-            </div>
-
-            <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
-              <div class="footer-spacer" />
-              <div class="footer-meta">
-                <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
-                <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item)
-                }}/{{ getActiveItems(card.item).length }} done</span>
-                <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{
-                  getProgressPercent(card.item)
-                }}%</span>
-                <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
+              <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
+                <div class="footer-spacer" />
+                <div class="footer-meta">
+                  <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
+                  <span v-if="card.kind !== 'note'" class="meta-line meta-line--stat">{{ getCompletedCount(card.item)
+                    }}/{{ getActiveItems(card.item).length }} done</span>
+                  <span v-if="card.kind !== 'note'" class="meta-line meta-line--percent">{{
+                    getProgressPercent(card.item)
+                    }}%</span>
+                  <span class="meta-line">{{ card.item.updated || card.item.created || '' }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-    </template>
+      </template>
+    </div>
 
     <div class="quick-add-bar">
       <div class="quick-add-shell">
@@ -797,6 +931,55 @@ async function toggleNotePin(note: AppFile) {
   min-height: 100vh;
   padding: var(--page-top-padding) 20px calc(176px + env(safe-area-inset-bottom, 0px));
   color: var(--text);
+  overscroll-behavior-y: contain;
+}
+
+.page-content {
+  will-change: transform;
+}
+
+.pull-refresh {
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition: height 0.16s ease, opacity 0.16s ease;
+}
+
+.pull-refresh.is-visible {
+  height: 30px;
+  opacity: 1;
+}
+
+.pull-refresh-spinner {
+  width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--primary) 20%, transparent);
+  border-top-color: var(--primary);
+  border-right-color: color-mix(in srgb, var(--primary) 74%, white 8%);
+  animation: pull-refresh-spin 0.75s linear infinite;
+}
+
+.pull-refresh:not(.is-ready):not(.is-refreshing) .pull-refresh-spinner {
+  animation-play-state: paused;
+  opacity: 0.8;
+}
+
+.pull-refresh.is-ready {
+  color: color-mix(in srgb, var(--primary) 74%, var(--text));
+}
+
+@keyframes pull-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .top-row {
