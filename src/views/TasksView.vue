@@ -95,8 +95,7 @@ const editingDueDateTaskId = ref<string | null>(null)
 const editingAlarmTaskId = ref<string | null>(null)
 const reminderTimes = ref<Record<string, string>>({})
 const highlightedTaskId = ref<string | null>(null)
-const swipingTaskId = ref<string | null>(null)
-const taskSwipeDistance = ref<Record<string, number>>({})
+const showTaskMeta = computed(() => settings.debugMode === true)
 let highlightClearTimer: ReturnType<typeof setTimeout> | null = null
 let sortDelayTimer: ReturnType<typeof setTimeout> | null = null
 const pullStartY = ref<number | null>(null)
@@ -122,10 +121,6 @@ const taskStateOrder: Record<TaskState, number> = {
 const selectedPreset = computed(() =>
   settings.quickTaskPresets.find(preset => preset.id === selectedPresetId.value),
 )
-
-const getTaskSwipeDistance = (taskId: string) => {
-  return (taskSwipeDistance.value as Record<string, number | undefined>)[taskId] ?? 0
-}
 
 const presetOptions = computed(() =>
   orderedPresets().map(preset => ({
@@ -383,82 +378,6 @@ async function onPullTouchEnd() {
     isPullRefreshing.value = false
     pullDistance.value = 0
   }
-}
-
-function onTaskTouchStart(event: TouchEvent, taskId: string) {
-  if (editingTaskId.value || editingDueDateTaskId.value || editingAlarmTaskId.value)
-    return
-
-  const touch = event.touches[0]
-  if (!touch)
-    return
-
-  const el = event.currentTarget as HTMLElement
-  const data = el.dataset as Record<string, string | number>
-  data.swipeStartX = touch.clientX
-  data.swipeStartY = touch.clientY
-  data.swipeTaskId = taskId
-}
-
-function onTaskTouchMove(event: TouchEvent, taskId: string) {
-  const el = event.currentTarget as HTMLElement
-  const data = el.dataset as Record<string, string | number>
-  const startX = data.swipeStartX as unknown as number
-  const startY = data.swipeStartY as unknown as number
-
-  if (typeof startX !== 'number' || typeof startY !== 'number')
-    return
-
-  const touch = event.touches[0]
-  if (!touch)
-    return
-
-  const deltaX = touch.clientX - startX
-  const deltaY = touch.clientY - startY
-
-  // Ignore if mostly vertical movement
-  if (Math.abs(deltaY) > Math.abs(deltaX) * 0.5)
-    return
-
-  // Only handle right-to-left swipe (negative deltaX)
-  if (deltaX > -10)
-    return
-
-  if (event.cancelable)
-    event.preventDefault()
-
-  const distance = Math.max(0, Math.min(100, -deltaX * 0.5))
-  taskSwipeDistance.value[taskId] = distance
-
-  if (distance > 10)
-    swipingTaskId.value = taskId
-}
-
-function onTaskTouchEnd(taskId: string) {
-  const distance = taskSwipeDistance.value[taskId] || 0
-
-  // Snap threshold at 25px
-  if (distance < 25) {
-    taskSwipeDistance.value[taskId] = 0
-  }
-  else {
-    taskSwipeDistance.value[taskId] = 50
-  }
-
-  if (swipingTaskId.value === taskId)
-    swipingTaskId.value = null
-
-  const el = document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`) as HTMLElement | null
-  if (el) {
-    const data = el.dataset as Record<string, unknown>
-    delete data.swipeStartX
-    delete data.swipeStartY
-    delete data.swipeTaskId
-  }
-}
-
-function dismissTaskSwipe(taskId: string) {
-  taskSwipeDistance.value[taskId] = 0
 }
 
 function todayIso(): string {
@@ -1300,11 +1219,7 @@ onMounted(async () => {
 
       <div v-else class="task-list">
         <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row" :data-task-id="task.id"
-          :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id, 'is-high-priority': task.isHighPriority }]"
-          :style="{ transform: `translateX(-${getTaskSwipeDistance(task.id)}px)` }"
-          @touchstart="onTaskTouchStart($event, task.id)" @touchmove="onTaskTouchMove($event, task.id)"
-          @touchend="onTaskTouchEnd(task.id)" @touchcancel="onTaskTouchEnd(task.id)"
-          @click="getTaskSwipeDistance(task.id) > 0 && dismissTaskSwipe(task.id)">
+          :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id, 'is-high-priority': task.isHighPriority }]">
           <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
             @click="toggleTaskState(task)">
             <Flame v-if="task.isHighPriority && task.state === 'pending'" :size="14" class="state-icon-flame"
@@ -1359,7 +1274,7 @@ onMounted(async () => {
               </button>
             </div>
 
-            <div class="task-meta" v-if="getTaskSwipeDistance(task.id) > 20">
+            <div class="task-meta" v-if="showTaskMeta">
               <span v-if="getTaskTag(task)">{{ getTaskTag(task) }}</span>
               <span>{{ task.presetLabel || 'Preset' }}</span>
               <span>{{ task.fileName }}</span>

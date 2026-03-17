@@ -669,6 +669,15 @@ function jumpToSection(value: string) {
       </div>
 
       <div ref="tasksSectionRef" class="section-anchor" aria-hidden="true" />
+      <!-- 
+      <div class="card">
+        <h2 class="card-title">Task debug</h2>
+        <label class="checkbox-row">
+          <input v-model="settings.debugMode" type="checkbox">
+          <span>Debug mode (show task metadata)</span>
+        </label>
+        <p class="hint">When enabled, task preset and source file info are visible in Quick Tasks and Home cards.</p>
+      </div> -->
 
       <div v-for="(preset, index) in settings.quickTaskPresets" :key="preset.id" class="card">
         <div class="card-header">

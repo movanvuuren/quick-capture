@@ -37,7 +37,6 @@ type DashboardCardEntry = DashboardCard & {
 const SWIPE_DELETE_WIDTH = 92
 const SWIPE_OPEN_THRESHOLD = 46
 const SWIPE_MOVE_THRESHOLD = 10
-const SWIPE_META_REVEAL_THRESHOLD = 20
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 
@@ -419,8 +418,8 @@ function getCardOffset(card: DashboardCard) {
   return swipeOffsets.value[getCardKey(card)] ?? 0
 }
 
-function isCardMetaVisible(card: DashboardCard) {
-  return getCardOffset(card) > SWIPE_META_REVEAL_THRESHOLD
+function isCardMetaVisible() {
+  return settings.value.debugMode === true
 }
 
 function getCardStyle(card: DashboardCard) {
@@ -846,7 +845,7 @@ async function toggleNotePin(note: AppFile) {
 
             <div class="glass-button collection-card" :class="{
               'collection-card--swiping': activeSwipeKey === getCardKey(card),
-              'collection-card--meta-hidden': !isCardMetaVisible(card),
+              'collection-card--meta-hidden': !isCardMetaVisible(),
             }" :style="getCardStyle(card)" @click="openCard(card)">
               <div class="collection-top">
                 <div class="collection-main">
@@ -894,7 +893,7 @@ async function toggleNotePin(note: AppFile) {
                 <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
               </div>
 
-              <div v-if="isCardMetaVisible(card)" class="card-footer"
+              <div v-if="isCardMetaVisible()" class="card-footer"
                 :class="{ 'card-footer--note': card.kind === 'note' }">
                 <div class="footer-spacer" />
                 <div class="footer-meta">
