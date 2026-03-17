@@ -37,6 +37,7 @@ type DashboardCardEntry = DashboardCard & {
 const SWIPE_DELETE_WIDTH = 92
 const SWIPE_OPEN_THRESHOLD = 46
 const SWIPE_MOVE_THRESHOLD = 10
+const SWIPE_META_REVEAL_THRESHOLD = 20
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 
@@ -415,6 +416,10 @@ function getCardKey(card: DashboardCard) {
 
 function getCardOffset(card: DashboardCard) {
   return swipeOffsets.value[getCardKey(card)] ?? 0
+}
+
+function isCardMetaVisible(card: DashboardCard) {
+  return getCardOffset(card) > SWIPE_META_REVEAL_THRESHOLD
 }
 
 function getCardStyle(card: DashboardCard) {
@@ -830,9 +835,10 @@ async function toggleNotePin(note: AppFile) {
               <span>Delete</span>
             </button>
 
-            <div class="glass-button collection-card"
-              :class="{ 'collection-card--swiping': activeSwipeKey === getCardKey(card) }" :style="getCardStyle(card)"
-              @click="openCard(card)">
+            <div class="glass-button collection-card" :class="{
+              'collection-card--swiping': activeSwipeKey === getCardKey(card),
+              'collection-card--meta-hidden': !isCardMetaVisible(card),
+            }" :style="getCardStyle(card)" @click="openCard(card)">
               <div class="collection-top">
                 <div class="collection-main">
                   <div class="type-icon-wrap" :class="{
@@ -879,7 +885,8 @@ async function toggleNotePin(note: AppFile) {
                 <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
               </div>
 
-              <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
+              <div v-if="isCardMetaVisible(card)" class="card-footer"
+                :class="{ 'card-footer--note': card.kind === 'note' }">
                 <div class="footer-spacer" />
                 <div class="footer-meta">
                   <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
@@ -1072,7 +1079,7 @@ h1 {
   align-items: stretch;
   justify-content: flex-start;
   gap: 12px;
-  min-height: 190px;
+  min-height: 172px;
   width: 100%;
   border-color: color-mix(in srgb, var(--c-light) 18%, transparent);
   background:
@@ -1089,6 +1096,12 @@ h1 {
 
 .collection-card--swiping {
   transition: none;
+}
+
+.collection-card--meta-hidden {
+  min-height: 148px;
+  gap: 10px;
+  padding-bottom: 12px;
 }
 
 .collection-top {
