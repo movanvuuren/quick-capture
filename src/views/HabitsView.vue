@@ -35,6 +35,14 @@ interface HeatmapCell {
   isPlaceholder?: boolean
 }
 
+interface HabitSnapshot {
+  habits: HabitCard[]
+  habitLogs: Record<string, Record<string, HabitLogValue>>
+  selectedDates: Record<string, string>
+  visibleMonthOffsets: Record<string, number>
+  loadedHabitLogMonths: Record<string, number>
+}
+
 const LOG_START = '<!-- QUICK_CAPTURE_HABIT_LOG_START -->'
 const LOG_END = '<!-- QUICK_CAPTURE_HABIT_LOG_END -->'
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -42,8 +50,14 @@ const HABIT_LOGS_DIR = 'habit-logs'
 const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 1
 const HABIT_LOG_READ_CONCURRENCY = 6
 const HABIT_LAZY_LOAD_CONCURRENCY = 3
+const HABITS_REFRESH_DEBOUNCE_MS = 4000
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
+
+let cachedFolderUri = ''
+let cachedAt = 0
+let cachedSnapshot: HabitSnapshot | null = null
+let activeHabitsLoadPromise: Promise<void> | null = null
 
 const router = useRouter()
 const settings = loadSettings()
@@ -81,6 +95,42 @@ const pageContentStyle = computed<CSSProperties>(() => ({
 
 function goBack() {
   router.push('/')
+}
+
+function cloneSnapshot(snapshot: HabitSnapshot): HabitSnapshot {
+  return {
+    habits: snapshot.habits.map(habit => ({ ...habit, scheduledDays: [...habit.scheduledDays] })),
+    habitLogs: Object.fromEntries(
+      Object.entries(snapshot.habitLogs).map(([fileName, logs]) => [fileName, { ...logs }]),
+    ),
+    selectedDates: { ...snapshot.selectedDates },
+    visibleMonthOffsets: { ...snapshot.visibleMonthOffsets },
+    loadedHabitLogMonths: { ...snapshot.loadedHabitLogMonths },
+  }
+}
+
+function applyHabitSnapshot(snapshot: HabitSnapshot) {
+  const cloned = cloneSnapshot(snapshot)
+  habits.value = cloned.habits
+  habitLogs.value = cloned.habitLogs
+  selectedDates.value = cloned.selectedDates
+  visibleMonthOffsets.value = cloned.visibleMonthOffsets
+  loadedHabitLogMonths.value = cloned.loadedHabitLogMonths
+}
+
+function syncHabitCache() {
+  if (!settings.baseFolderUri)
+    return
+
+  cachedFolderUri = settings.baseFolderUri
+  cachedAt = Date.now()
+  cachedSnapshot = cloneSnapshot({
+    habits: habits.value,
+    habitLogs: habitLogs.value,
+    selectedDates: selectedDates.value,
+    visibleMonthOffsets: visibleMonthOffsets.value,
+    loadedHabitLogMonths: loadedHabitLogMonths.value,
+  })
 }
 
 function todayIso() {
@@ -423,6 +473,8 @@ async function ensureHabitLogsLoadedForOffset(habit: HabitCard, monthOffset: num
       ...loadedHabitLogMonths.value,
       [habit.fileName]: requiredMonths,
     }
+
+    syncHabitCache()
   }
   catch (err) {
     console.warn('Failed to lazy-load older habit logs', habit.fileName, err)
@@ -953,105 +1005,136 @@ function getStreakSummary(habit: HabitCard): string {
   return `Streak: ${current} days current, ${best} days best`
 }
 
-async function loadHabits() {
+async function loadHabits(options: { preferCache?: boolean, force?: boolean } = {}) {
   const loadToken = ++habitsLoadToken
+  const folderUri = settings.baseFolderUri
 
-  if (!settings.baseFolderUri) {
+  if (!folderUri) {
     habits.value = []
+    habitLogs.value = {}
+    selectedDates.value = {}
+    visibleMonthOffsets.value = {}
+    loadedHabitLogMonths.value = {}
+    cachedSnapshot = null
+    cachedFolderUri = ''
+    cachedAt = 0
     isLoading.value = false
     return
   }
 
+  const shouldDebounceRefresh = !options.force
+    && cachedSnapshot
+    && cachedFolderUri === folderUri
+    && Date.now() - cachedAt < HABITS_REFRESH_DEBOUNCE_MS
+
+  if (!options.force && options.preferCache && cachedSnapshot && cachedFolderUri === folderUri) {
+    applyHabitSnapshot(cachedSnapshot)
+    isLoading.value = false
+  }
+
+  if (shouldDebounceRefresh)
+    return
+
+  if (activeHabitsLoadPromise)
+    return activeHabitsLoadPromise
+
   isLoading.value = true
   error.value = ''
 
-  try {
-    const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
-    const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+  activeHabitsLoadPromise = (async () => {
+    try {
+      const listed = await FolderPicker.listFiles({ folderUri })
+      const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
 
-    const loaded = await Promise.all(
-      mdFiles.map(async (file) => {
-        try {
-          const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri as string, fileName: file.name })
-          const frontmatter = parseFrontmatter(read.content)
-          if (frontmatter.type !== 'habit')
+      const loaded = await Promise.all(
+        mdFiles.map(async (file) => {
+          try {
+            const read = await FolderPicker.readFile({ folderUri, fileName: file.name })
+            const frontmatter = parseFrontmatter(read.content)
+            if (frontmatter.type !== 'habit')
+              return null
+
+            const period = frontmatter.period === 'week'
+              ? 'week'
+              : frontmatter.period === 'month'
+                ? 'month'
+                : 'day'
+            const targetCount = period === 'week' && frontmatter.targetDays === undefined
+              ? Math.max(1, Number(frontmatter.dailyTargetCount || 1))
+              : Math.max(1, Number(frontmatter.targetCount || 1))
+            const targetDays = period === 'week' || period === 'month'
+              ? Math.max(1, Number(frontmatter.targetDays || frontmatter.targetCount || 1))
+              : 1
+
+            return {
+              id: String(frontmatter.id || ''),
+              name: String(frontmatter.name || file.name.replace(/\.md$/i, '')),
+              icon: String(frontmatter.icon || ''),
+              period,
+              targetCount,
+              targetDays,
+              unit: String(frontmatter.unit || 'times'),
+              reminder: String(frontmatter.reminder || ''),
+              allowSkip: String(frontmatter.allowSkip || 'true') !== 'false',
+              scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
+              fileName: file.name,
+            } satisfies HabitCard
+          }
+          catch {
             return null
+          }
+        }),
+      )
 
-          const period = frontmatter.period === 'week'
-            ? 'week'
-            : frontmatter.period === 'month'
-              ? 'month'
-              : 'day'
-          const targetCount = period === 'week' && frontmatter.targetDays === undefined
-            ? Math.max(1, Number(frontmatter.dailyTargetCount || 1))
-            : Math.max(1, Number(frontmatter.targetCount || 1))
-          const targetDays = period === 'week' || period === 'month'
-            ? Math.max(1, Number(frontmatter.targetDays || frontmatter.targetCount || 1))
-            : 1
+      habits.value = loaded
+        .filter((habit): habit is HabitCard => Boolean(habit))
+        .sort((a, b) => a.name.localeCompare(b.name))
 
-          return {
-            id: String(frontmatter.id || ''),
-            name: String(frontmatter.name || file.name.replace(/\.md$/i, '')),
-            icon: String(frontmatter.icon || ''),
-            period,
-            targetCount,
-            targetDays,
-            unit: String(frontmatter.unit || 'times'),
-            reminder: String(frontmatter.reminder || ''),
-            allowSkip: String(frontmatter.allowSkip || 'true') !== 'false',
-            scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
-            fileName: file.name,
-          } satisfies HabitCard
-        }
-        catch {
-          return null
-        }
-      }),
-    )
+      const logsByFile: Record<string, Record<string, HabitLogValue>> = {}
+      const initialLogs = await mapWithConcurrency(
+        habits.value,
+        HABIT_LAZY_LOAD_CONCURRENCY,
+        async habit => ({
+          fileName: habit.fileName,
+          logs: await loadHabitLogsForHabit(habit, HABIT_LOG_INITIAL_MONTHS_TO_LOAD),
+        }),
+      )
 
-    habits.value = loaded
-      .filter((habit): habit is HabitCard => Boolean(habit))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      if (loadToken !== habitsLoadToken)
+        return
 
-    const logsByFile: Record<string, Record<string, HabitLogValue>> = {}
-    const initialLogs = await mapWithConcurrency(
-      habits.value,
-      HABIT_LAZY_LOAD_CONCURRENCY,
-      async habit => ({
-        fileName: habit.fileName,
-        logs: await loadHabitLogsForHabit(habit, HABIT_LOG_INITIAL_MONTHS_TO_LOAD),
-      }),
-    )
+      for (const loadedLog of initialLogs)
+        logsByFile[loadedLog.fileName] = loadedLog.logs
 
-    if (loadToken !== habitsLoadToken)
-      return
+      habitLogs.value = logsByFile
+      loadedHabitLogMonths.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
+        acc[habit.fileName] = HABIT_LOG_INITIAL_MONTHS_TO_LOAD
+        return acc
+      }, {})
+      selectedDates.value = habits.value.reduce<Record<string, string>>((acc, habit) => {
+        acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
+        return acc
+      }, {})
+      visibleMonthOffsets.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
+        acc[habit.fileName] = getVisibleMonthOffset(habit)
+        return acc
+      }, {})
 
-    for (const loadedLog of initialLogs)
-      logsByFile[loadedLog.fileName] = loadedLog.logs
+      syncHabitCache()
 
-    habitLogs.value = logsByFile
-    loadedHabitLogMonths.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
-      acc[habit.fileName] = HABIT_LOG_INITIAL_MONTHS_TO_LOAD
-      return acc
-    }, {})
-    selectedDates.value = habits.value.reduce<Record<string, string>>((acc, habit) => {
-      acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
-      return acc
-    }, {})
-    visibleMonthOffsets.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
-      acc[habit.fileName] = getVisibleMonthOffset(habit)
-      return acc
-    }, {})
+      void syncHabitsToWidget().catch(() => { })
+    }
+    catch (err) {
+      console.error('Failed to load habits', err)
+      error.value = 'Could not load habits from your folder.'
+    }
+    finally {
+      isLoading.value = false
+      activeHabitsLoadPromise = null
+    }
+  })()
 
-    void syncHabitsToWidget().catch(() => { })
-  }
-  catch (err) {
-    console.error('Failed to load habits', err)
-    error.value = 'Could not load habits from your folder.'
-  }
-  finally {
-    isLoading.value = false
-  }
+  return activeHabitsLoadPromise
 }
 
 async function refreshHabitsFromExternal(force = false) {
@@ -1068,7 +1151,7 @@ async function refreshHabitsFromExternal(force = false) {
     lastExternalRefreshAt = now
   }
 
-  await loadHabits()
+  await loadHabits({ force })
 }
 
 function handleVisibilityChange() {
@@ -1247,7 +1330,7 @@ async function createExampleHabit() {
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
-  await loadHabits()
+  await loadHabits({ preferCache: true })
 })
 
 onBeforeUnmount(() => {
