@@ -8,6 +8,7 @@ import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const HABIT_CONFIGS_DIR = 'habits'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 
@@ -197,11 +198,16 @@ async function loadAgendaData() {
     isLoading.value = true
     try {
       const listed = await FolderPicker.listFiles({ folderUri })
-      const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+      const taskMdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+      const listedHabits = await FolderPicker.listFiles({
+        folderUri,
+        relativePath: HABIT_CONFIGS_DIR,
+      })
+      const habitMdFiles = listedHabits.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
       const tasks: AgendaTask[] = []
       const schedules: HabitSchedule[] = []
 
-      for (const file of mdFiles) {
+      for (const file of taskMdFiles) {
         try {
           const read = await FolderPicker.readFile({
             folderUri,
@@ -211,24 +217,6 @@ async function loadAgendaData() {
           const frontmatter = parseFrontmatter(read.content)
           const isTaskFileByType = frontmatter.type === 'task'
           const isTaskFileByName = isDatedTaskFileName(file.name)
-          if (frontmatter.type === 'habit') {
-            schedules.push({
-              fileName: file.name,
-              id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
-                ? frontmatter.id.trim()
-                : file.name.replace(/\.md$/i, ''),
-              name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
-                ? frontmatter.name.trim()
-                : file.name.replace(/\.md$/i, ''),
-              icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
-                ? frontmatter.icon.trim()
-                : '✓',
-              targetCount: Number.isFinite(Number(frontmatter.targetCount))
-                ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
-                : 1,
-              scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
-            })
-          }
 
           const lines = read.content.split(/\r?\n/)
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -251,6 +239,40 @@ async function loadAgendaData() {
         }
         catch (fileErr) {
           console.warn('Agenda: failed to read file', file.name, fileErr)
+        }
+      }
+
+      for (const file of habitMdFiles) {
+        const habitFilePath = `${HABIT_CONFIGS_DIR}/${file.name}`
+        try {
+          const read = await FolderPicker.readFile({
+            folderUri,
+            fileName: habitFilePath,
+          })
+
+          const frontmatter = parseFrontmatter(read.content)
+          if (frontmatter.type !== 'habit')
+            continue
+
+          schedules.push({
+            fileName: habitFilePath,
+            id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
+              ? frontmatter.id.trim()
+              : file.name.replace(/\.md$/i, ''),
+            name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
+              ? frontmatter.name.trim()
+              : file.name.replace(/\.md$/i, ''),
+            icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
+              ? frontmatter.icon.trim()
+              : '✓',
+            targetCount: Number.isFinite(Number(frontmatter.targetCount))
+              ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
+              : 1,
+            scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
+          })
+        }
+        catch (fileErr) {
+          console.warn('Agenda: failed to read habit file', habitFilePath, fileErr)
         }
       }
 

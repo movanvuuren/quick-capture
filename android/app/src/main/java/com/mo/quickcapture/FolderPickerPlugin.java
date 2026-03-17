@@ -253,6 +253,7 @@ public class FolderPickerPlugin extends Plugin {
     @PluginMethod
     public void listFiles(PluginCall call) {
         String folderUriStr = call.getString("folderUri");
+        String relativePath = call.getString("relativePath");
         if (folderUriStr == null) {
             call.reject("Missing required parameters");
             return;
@@ -264,9 +265,17 @@ public class FolderPickerPlugin extends Plugin {
             return;
         }
 
+        DocumentFile targetDir = resolveDirectoryPath(tree, relativePath, false);
+        if (targetDir == null || !targetDir.isDirectory()) {
+            JSObject ret = new JSObject();
+            ret.put("files", new JSArray());
+            call.resolve(ret);
+            return;
+        }
+
         try {
             JSArray files = new JSArray();
-            for (DocumentFile child : tree.listFiles()) {
+            for (DocumentFile child : targetDir.listFiles()) {
                 if (child == null || child.getName() == null) {
                     continue;
                 }
