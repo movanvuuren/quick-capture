@@ -8,10 +8,12 @@ import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { FolderPicker } from '../plugins/folder-picker'
 import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
+import type { ScannedQuickTaskLine } from '../lib/quickTaskFileOps'
+import { resolveTaskLineIndex, scanQuickTaskLines } from '../lib/quickTaskFileOps'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
-import type { ParsedTaskLine } from '../lib/taskLine'
+import type { TaskRepeat } from '../lib/taskLine'
 import { parseTaskLine, serializeTaskLine } from '../lib/taskLine'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
@@ -26,18 +28,9 @@ interface QuickTaskItem {
   body: string
   dueDate?: string
   isHighPriority?: boolean
-  repeat?: string
+  repeat?: TaskRepeat
   presetId?: string
   presetLabel?: string
-}
-
-interface ScannedQuickTaskLine {
-  lineIndex: number
-  state: TaskState
-  body: string
-  dueDate?: string
-  isHighPriority?: boolean
-  repeat?: string
 }
 
 interface CachedQuickTaskFile {
@@ -539,53 +532,6 @@ async function changeReminderTime(task: QuickTaskItem, value: string) {
     console.error('Failed to set reminder', err)
     error.value = 'Could not set reminder notification.'
   }
-}
-
-function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
-  const lines = content.split(/\r?\n/)
-  const scanned: ScannedQuickTaskLine[] = []
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const line = lines[lineIndex] || ''
-    const parsed = parseTaskLine(line)
-    if (!parsed)
-      continue
-
-    scanned.push({
-      lineIndex,
-      state: parsed.state,
-      body: parsed.body,
-      dueDate: parsed.dueDate,
-      isHighPriority: parsed.isHighPriority,
-      repeat: parsed.repeat,
-    })
-  }
-
-  return scanned
-}
-
-function matchesScannedTask(task: QuickTaskItem, scanned: ParsedTaskLine): boolean {
-  return scanned.body === task.body
-    && scanned.state === task.state
-    && scanned.dueDate === task.dueDate
-    && Boolean(scanned.isHighPriority) === Boolean(task.isHighPriority)
-    && scanned.repeat === task.repeat
-}
-
-function resolveTaskLineIndex(lines: string[], task: QuickTaskItem): number {
-  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
-    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
-    if (parsedAtStoredIndex && matchesScannedTask(task, parsedAtStoredIndex))
-      return task.lineIndex
-  }
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const parsed = parseTaskLine(lines[lineIndex] || '')
-    if (parsed && matchesScannedTask(task, parsed))
-      return lineIndex
-  }
-
-  return -1
 }
 
 function invalidateQuickTaskCache(fileName?: string) {
