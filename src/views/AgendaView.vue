@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { parseFrontmatter } from '../lib/lists'
+import { parseTaskLine as parseSharedTaskLine } from '../lib/taskLine'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 
@@ -160,28 +161,16 @@ function isDatedTaskFileName(fileName: string): boolean {
 }
 
 function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'lineIndex'> | null {
-  const match = line.match(/^\s*-\s\[([fFxX-\s]*?)\]\s+(.*)$/)
-  if (!match)
+  const parsed = parseSharedTaskLine(line)
+  if (!parsed)
     return null
 
-  const [, markerRaw = '', rawBody = ''] = match
-  const body = rawBody.trim()
-  const dueDate = body.match(/📅\s*(\d{4}-\d{2}-\d{2})/)?.[1]
+  const dueDate = parsed.dueDate
   if (!dueDate)
     return null
 
-  const markerStr = markerRaw.toLowerCase()
-  const isHighPriority = markerStr.includes('f')
-  const stateChar = markerStr.replace(/f/g, '').trim() || ' '
-
-  let state: TaskState = 'pending'
-  if (stateChar === 'x')
-    state = 'done'
-  else if (stateChar === '-')
-    state = 'cancelled'
-
   const displayBody = stripKnownTaskTags(
-    body
+    parsed.body
       .replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, '')
       .replace(/\s*🔁\s*(daily|weekly|weekdays|monthly)\s*/gi, '')
       .trim(),
@@ -189,9 +178,9 @@ function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'line
 
   return {
     body: displayBody,
-    state,
+    state: parsed.state as TaskState,
     dueDate,
-    isHighPriority,
+    isHighPriority: Boolean(parsed.isHighPriority),
   }
 }
 

@@ -1,6 +1,6 @@
 import type { TodoList, StoredTodoList, Note, StoredNote } from './lists'
+import { getFileSignature, mapWithConcurrency } from './asyncUtils'
 import { FolderPicker } from '../plugins/folder-picker'
-import type { FolderFileEntry } from '../plugins/folder-picker'
 import {
   buildFrontmatter,
   coerceBoolean,
@@ -157,41 +157,6 @@ function cloneParsedDashboardFile(parsed: ParsedDashboardFile): ParsedDashboardF
     list: parsed.list ? cloneStoredTodoList(parsed.list) : undefined,
     task: parsed.task ? cloneStoredTodoList(parsed.task) : undefined,
   }
-}
-
-function getFileSignature(file: FolderFileEntry): string | null {
-  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
-    return null
-
-  return `${file.lastModified}:${file.size}`
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0)
-    return []
-
-  const results = new Array<R>(items.length)
-  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
-  let cursor = 0
-
-  const workers = Array.from({ length: runnerCount }, async () => {
-    while (true) {
-      const index = cursor
-      cursor += 1
-
-      if (index >= items.length)
-        return
-
-      results[index] = await mapper(items[index] as T, index)
-    }
-  })
-
-  await Promise.all(workers)
-  return results
 }
 
 function parseDashboardMarkdown(fileName: string, content: string): ParsedDashboardFile | null {

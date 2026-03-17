@@ -4,6 +4,7 @@ import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
+import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { WidgetSync } from '../plugins/widget-sync'
@@ -183,13 +184,6 @@ async function waitForNextFrame() {
   })
 }
 
-function getFileSignature(file: { lastModified?: number, size?: number }): string | null {
-  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
-    return null
-
-  return `${file.lastModified}:${file.size}`
-}
-
 function parseScheduledDays(value: unknown): number[] {
   if (Array.isArray(value))
     return value.map(v => Number(v)).filter(v => Number.isInteger(v) && v >= 1 && v <= 7)
@@ -334,34 +328,6 @@ function parseHabitMonthLog(content: string): Record<string, HabitLogValue> {
   }
 
   return result
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0)
-    return []
-
-  const results = new Array<R>(items.length)
-  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
-  let cursor = 0
-
-  const workers = Array.from({ length: runnerCount }, async () => {
-    while (true) {
-      const index = cursor
-      cursor += 1
-
-      if (index >= items.length)
-        return
-
-      results[index] = await mapper(items[index] as T, index)
-    }
-  })
-
-  await Promise.all(workers)
-  return results
 }
 
 async function loadHabitLogsForHabit(

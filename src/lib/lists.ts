@@ -1,3 +1,5 @@
+import { parseTaskLine, serializeTaskLine } from './taskLine'
+
 export interface TodoItem {
   text: string
   state: TodoState
@@ -34,25 +36,6 @@ export function slugify(str: string): string {
 
 export function formatDate(date = new Date()): string {
   return date.toISOString().slice(0, 10)
-}
-
-export function stateToCheckbox(state: TodoState): string {
-  switch (state) {
-    case 'done':
-      return 'x'
-    case 'cancelled':
-      return '-'
-    default:
-      return ' '
-  }
-}
-
-export function checkboxToState(value: string): TodoState {
-  if (value === 'x' || value === 'X')
-    return 'done'
-  if (value === '-')
-    return 'cancelled'
-  return 'pending'
 }
 
 export function escapeYamlValue(value: string): string {
@@ -172,11 +155,7 @@ export function listToMarkdown(list: TodoList): string {
   const items = list.items
     .filter(item => item.text.trim().length > 0)
     .map((item) => {
-      const stateMarker = stateToCheckbox(item.state)
-      const marker = item.isHighPriority && item.state === 'pending'
-        ? `f${stateMarker === ' ' ? '' : stateMarker}`
-        : stateMarker
-      return `- [${marker}] ${item.text.trim()}`
+      return serializeTaskLine(item.state, item.text.trim(), undefined, item.isHighPriority)
     })
     .join('\n')
 
@@ -205,17 +184,12 @@ export function markdownToList(markdown: string, fileName = ''): TodoList {
       continue
     }
 
-    const match = line.match(/^- \[([fFxX\-\s]*?)\](?:\s+(.*))?$/)
-    if (match) {
-      const [, rawMarker = ' ', rawText = ''] = match
-      const markerStr = rawMarker.toLowerCase()
-      const isHighPriority = markerStr.includes('f')
-      const rawState = markerStr.replace(/f/g, '').trim() || ' '
-
+    const parsed = parseTaskLine(line)
+    if (parsed) {
       items.push({
-        text: rawText.trim(),
-        state: checkboxToState(rawState),
-        isHighPriority,
+        text: parsed.body,
+        state: parsed.state,
+        isHighPriority: parsed.isHighPriority,
       })
     }
   }

@@ -7,22 +7,16 @@ import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { FolderPicker } from '../plugins/folder-picker'
-import type { FolderFileEntry } from '../plugins/folder-picker'
+import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
+import type { ParsedTaskLine } from '../lib/taskLine'
+import { parseTaskLine, serializeTaskLine } from '../lib/taskLine'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 type TaskFilter = 'all' | TaskState | 'overdue' | 'closed'
 type TaskSortMode = 'status' | 'due'
-
-interface ParsedTaskLine {
-  state: TaskState
-  body: string
-  dueDate?: string
-  isHighPriority?: boolean
-  repeat?: string
-}
 
 interface QuickTaskItem {
   id: string
@@ -212,12 +206,6 @@ const taskCounts = computed(() => {
 const taskFilterOptions = computed(() => {
   const options = [
     {
-      value: 'all',
-      label: '',
-      count: taskCounts.value.total,
-      icon: LayoutGrid,
-    },
-    {
       value: 'pending',
       label: '',
       count: taskCounts.value.pending,
@@ -235,6 +223,12 @@ const taskFilterOptions = computed(() => {
       count: taskCounts.value.overdue,
       icon: AlertTriangle,
     },
+    {
+      value: 'all',
+      label: '',
+      count: taskCounts.value.total,
+      icon: LayoutGrid,
+    }
   ]
 
   return options
@@ -265,7 +259,7 @@ function onTaskSortChange(value: string) {
 watch(taskFilterOptions, (options) => {
   const selectedStillVisible = options.some(option => option.value === selectedTaskFilter.value)
   if (!selectedStillVisible)
-    selectedTaskFilter.value = 'all'
+    selectedTaskFilter.value = 'pending'
 })
 
 function goBack() {
@@ -547,75 +541,6 @@ async function changeReminderTime(task: QuickTaskItem, value: string) {
   }
 }
 
-function parseTaskLine(line: string): ParsedTaskLine | null {
-  const match = line.match(/^\s*-\s\[([fFxX-\s]*?)\]\s+(.*)$/)
-  if (!match)
-    return null
-
-  const [, markerRaw = '', rawBody = ''] = match
-  const body = rawBody.trim()
-
-  const markerStr = markerRaw.toLowerCase()
-  const isHighPriority = markerStr.includes('f')
-
-  const stateChar = markerStr.replace(/f/g, '').trim() || ' '
-
-  const dueMatch = body.match(/📅\s*(\d{4}-\d{2}-\d{2})/)
-  const dueDate = dueMatch?.[1]
-
-  const repeatMatch = body.match(/🔁\s*(daily|weekly|weekdays|monthly)/i)
-  const repeat = repeatMatch?.[1]?.toLowerCase()
-
-  let state: TaskState = 'pending'
-  if (stateChar === 'x')
-    state = 'done'
-  else if (stateChar === '-')
-    state = 'cancelled'
-
-  return {
-    state,
-    body,
-    dueDate,
-    isHighPriority: isHighPriority || undefined,
-    repeat,
-  }
-}
-
-function getFileSignature(file: FolderFileEntry): string | null {
-  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
-    return null
-
-  return `${file.lastModified}:${file.size}`
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0)
-    return []
-
-  const results = new Array<R>(items.length)
-  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
-  let cursor = 0
-
-  const workers = Array.from({ length: runnerCount }, async () => {
-    while (true) {
-      const index = cursor
-      cursor += 1
-
-      if (index >= items.length)
-        return
-
-      results[index] = await mapper(items[index] as T, index)
-    }
-  })
-
-  await Promise.all(workers)
-  return results
-}
-
 function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
   const lines = content.split(/\r?\n/)
   const scanned: ScannedQuickTaskLine[] = []
@@ -670,18 +595,6 @@ function invalidateQuickTaskCache(fileName?: string) {
   }
 
   quickTaskFileCache.clear()
-}
-
-function serializeTaskLine(state: TaskState, body: string, dueDate?: string, isHighPriority?: boolean): string {
-  let marker = state === 'done' ? 'x' : state === 'cancelled' ? '-' : ' '
-  if (isHighPriority && state === 'pending')
-    marker = `${marker}f`.trim() || 'f'
-
-  let normalizedBody = body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, ' ').trim()
-  if (dueDate)
-    normalizedBody = `${normalizedBody} 📅 ${dueDate}`.trim()
-
-  return `- [${marker}] ${normalizedBody}`
 }
 
 function getPresetForTask(body: string, fileName: string): QuickTaskPreset | undefined {
