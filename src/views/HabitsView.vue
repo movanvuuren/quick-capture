@@ -818,6 +818,7 @@ async function setLogValueForDate(habit: HabitCard, date: string, value: HabitLo
   }
 
   await writeHabitLogMonth(habit, date)
+  void syncHabitsToWidget().catch(() => { })
 }
 
 function getSelectedNumberInputValue(habit: HabitCard): string {
@@ -1269,11 +1270,11 @@ async function refreshHabitsFromExternal(force = false) {
 
 function handleVisibilityChange() {
   if (document.visibilityState === 'visible')
-    void refreshHabitsFromExternal()
+    void refreshHabitsFromExternal(true)
 }
 
 function handleWindowFocus() {
-  void refreshHabitsFromExternal()
+  void refreshHabitsFromExternal(true)
 }
 
 function isPageScrolledToTop() {
