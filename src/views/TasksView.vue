@@ -1377,7 +1377,8 @@ onMounted(async () => {
   padding: var(--page-top-padding) 20px 40px;
   color: var(--text);
   overflow-x: hidden;
-  touch-action: pan-x pan-y;
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
 }
 
 .page-content {
