@@ -52,6 +52,7 @@ const baseFolderUri = computed(() => settings.value.baseFolderUri || '')
 const lists = ref<StoredTodoList[]>([])
 const tasks = ref<StoredTodoList[]>([])
 const notes = ref<AppFile[]>([])
+const notePreviewHtmlCache = new Map<string, string>()
 
 const isLoading = ref(true)
 const error = ref('')
@@ -288,6 +289,73 @@ function getPreviewOverflowCount(list: StoredTodoList) {
     .filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
     .length
   return Math.max(visibleCount - 3, 0)
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function renderInlineMarkdown(value: string) {
+  return escapeHtml(value)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/~~(.+?)~~/g, '<s>$1</s>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+}
+
+function renderNotePreviewMarkdown(markdown: string) {
+  const lines = markdown
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .slice(0, 4)
+
+  if (lines.length === 0)
+    return '<span class="empty">No preview available.</span>'
+
+  return lines.map((line) => {
+    const heading = line.match(/^#{1,3}\s+(.+)$/)
+    if (heading)
+      return `<strong>${renderInlineMarkdown(heading[1] || '')}</strong>`
+
+    const checkbox = line.match(/^-\s\[([ xX])\]\s+(.+)$/)
+    if (checkbox)
+      return `${(checkbox[1] || '').toLowerCase() === 'x' ? '☑' : '☐'} ${renderInlineMarkdown(checkbox[2] || '')}`
+
+    const bullet = line.match(/^[-*+]\s+(.+)$/)
+    if (bullet)
+      return `• ${renderInlineMarkdown(bullet[1] || '')}`
+
+    const ordered = line.match(/^(\d+)\.\s+(.+)$/)
+    if (ordered)
+      return `${ordered[1]}. ${renderInlineMarkdown(ordered[2] || '')}`
+
+    return renderInlineMarkdown(line)
+  }).join('<br>')
+}
+
+function getNotePreviewHtml(note: AppFile) {
+  const source = (note.previewMarkdown || '').trim()
+  const cacheKey = `${note.name}|${note.updated || note.created || ''}|${source}`
+  const cached = notePreviewHtmlCache.get(cacheKey)
+  if (cached)
+    return cached
+
+  const html = source
+    ? renderNotePreviewMarkdown(source)
+    : `<span class="empty">${escapeHtml(note.preview || 'No preview available.')}</span>`
+
+  notePreviewHtmlCache.set(cacheKey, html)
+  if (notePreviewHtmlCache.size > 300)
+    notePreviewHtmlCache.clear()
+
+  return html
 }
 
 function go(path: string) {
@@ -867,7 +935,8 @@ async function toggleNotePin(note: AppFile) {
                     <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
 
                     <template v-if="card.kind === 'note'">
-                      <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
+                      <!-- eslint-disable-next-line vue/no-v-html -->
+                      <p class="note-preview" v-html="getNotePreviewHtml(card.item)" />
                     </template>
 
                     <template v-else>
@@ -1244,13 +1313,38 @@ h1 {
   margin: 0;
   width: 100%;
   color: var(--text-soft);
-  font-size: 1rem;
+  font-size: 0.95rem;
   line-height: 1.45;
   display: -webkit-box;
   line-clamp: 3;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.note-preview :deep(strong) {
+  color: color-mix(in srgb, var(--text) 88%, var(--primary) 12%);
+  font-weight: 650;
+}
+
+.note-preview :deep(em) {
+  font-style: italic;
+}
+
+.note-preview :deep(s) {
+  opacity: 0.8;
+}
+
+.note-preview :deep(code) {
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Monaco, monospace;
+  font-size: 0.84em;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.note-preview :deep(.empty) {
+  opacity: 0.86;
 }
 
 .meta-line {

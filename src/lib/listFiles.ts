@@ -21,6 +21,7 @@ export interface AppFile {
   created?: string
   updated?: string
   preview: string
+  previewMarkdown?: string
 }
 
 export type TodoFileType = 'list' | 'task'
@@ -206,6 +207,9 @@ function parseDashboardMarkdown(fileName: string, content: string): ParsedDashbo
   const previewSource = type === 'note' ? stripLeadingHeading(body) : body
   const plainTextBody = markdownToPreviewText(previewSource)
   const preview = plainTextBody.substring(0, 80) + (plainTextBody.length > 80 ? '…' : '')
+  const previewMarkdown = type === 'note'
+    ? previewSource.trim().slice(0, 260)
+    : undefined
 
   const parsed: ParsedDashboardFile = {
     appFile: {
@@ -217,6 +221,7 @@ function parseDashboardMarkdown(fileName: string, content: string): ParsedDashbo
       created: frontmatter.created as string,
       updated: frontmatter.updated as string,
       preview,
+      previewMarkdown,
     },
   }
 
