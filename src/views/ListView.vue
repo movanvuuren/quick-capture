@@ -254,8 +254,11 @@ function togglePin(list: StoredTodoList) {
 }
 
 function addItem(list: StoredTodoList) {
+  const nextIndex = list.items.length
+  pendingFocusIndex.value = nextIndex
   list.items.push({ text: '', state: 'pending' })
   queueSave(list)
+  focusInputAt(nextIndex, 2)
 }
 
 function removeItem(list: StoredTodoList, idx: number) {

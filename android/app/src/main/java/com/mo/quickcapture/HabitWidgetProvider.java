@@ -78,12 +78,18 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             String today = getToday();
             String currentValue = getTodayValueForHabit(context, folderUri, fileName, today);
 
-            // Cycle: blank → done → skip → fail → blank
+            // Cycle: blank -> done -> skip -> fail -> blank.
+            // Partial numeric values (< target) advance to done first to match app semantics.
             String newValue;
             if (currentValue == null) {
                 newValue = String.valueOf(targetCount);
             } else if (isNumeric(currentValue)) {
-                newValue = "*"; // skip
+                int numeric = parseIntOrDefault(currentValue, targetCount);
+                if (numeric < targetCount) {
+                    newValue = String.valueOf(targetCount); // complete from partial
+                } else {
+                    newValue = "*"; // skip
+                }
             } else if ("*".equals(currentValue)) {
                 newValue = "!"; // fail
             } else {
@@ -123,8 +129,14 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         int stateColor;
         String stateLabel;
         if (todayValue != null && isNumeric(todayValue)) {
-            stateColor = Color.parseColor("#388E3C"); // green  – done
-            stateLabel = "✓ Done";
+            int numeric = parseIntOrDefault(todayValue, 0);
+            if (numeric >= targetCount) {
+                stateColor = Color.parseColor("#388E3C"); // green  – done
+                stateLabel = "✓ Done";
+            } else {
+                stateColor = Color.parseColor("#1976D2"); // blue   – partial
+                stateLabel = numeric + "/" + targetCount;
+            }
         } else if ("*".equals(todayValue)) {
             stateColor = Color.parseColor("#F57C00"); // amber  – skip
             stateLabel = "→ Skip";
@@ -170,6 +182,15 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         if (s == null) return false;
         try { Integer.parseInt(s); return true; }
         catch (NumberFormatException e) { return false; }
+    }
+
+    static int parseIntOrDefault(String value, int fallback) {
+        if (value == null) return fallback;
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
     }
 
     static String sanitizeRelativePath(String path) {

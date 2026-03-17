@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { parseFrontmatter } from '../lib/lists'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 
@@ -25,7 +26,13 @@ interface CalendarCell {
   isToday: boolean
   isFuture: boolean
   pendingCount: number
+  scheduledHabitCount: number
   isPlaceholder: boolean
+}
+
+interface HabitSchedule {
+  fileName: string
+  scheduledDays: number[]
 }
 
 const router = useRouter()
@@ -35,8 +42,12 @@ const viewYear = ref(new Date().getFullYear())
 const viewMonth = ref(new Date().getMonth()) // 0-indexed
 const selectedDate = ref(todayIso())
 const allTasks = ref<AgendaTask[]>([])
+const habitSchedules = ref<HabitSchedule[]>([])
 const isLoading = ref(false)
 const error = ref('')
+let activeAgendaLoadPromise: Promise<void> | null = null
+const AGENDA_REFRESH_COOLDOWN_MS = 1000
+let lastAgendaRefreshAt = 0
 
 function todayIso(): string {
   const now = new Date()
@@ -45,6 +56,32 @@ function todayIso(): string {
 
 function dateToIso(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function toWeekdayIndex(date: Date): number {
+  const day = date.getDay()
+  return day === 0 ? 7 : day
+}
+
+function parseScheduledDays(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    const parsed = value
+      .map(v => Number(v))
+      .filter(v => Number.isInteger(v) && v >= 1 && v <= 7)
+    return parsed.length > 0 ? parsed : [1, 2, 3, 4, 5, 6, 7]
+  }
+
+  if (typeof value === 'string') {
+    const parsed = value
+      .replace(/^\[/, '')
+      .replace(/\]$/, '')
+      .split(',')
+      .map(v => Number(v.trim()))
+      .filter(v => Number.isInteger(v) && v >= 1 && v <= 7)
+    return parsed.length > 0 ? parsed : [1, 2, 3, 4, 5, 6, 7]
+  }
+
+  return [1, 2, 3, 4, 5, 6, 7]
 }
 
 function escapeForRegex(value: string): string {
@@ -64,6 +101,24 @@ function stripKnownTaskTags(body: string): string {
   }
 
   return result.replace(/\s{2,}/g, ' ').trim()
+}
+
+function getPresetForTask(body: string, fileName: string) {
+  const taggedPreset = settings.quickTaskPresets.find((preset) => {
+    const tag = preset.tag?.trim()
+    return tag ? body.includes(tag) : false
+  })
+
+  if (taggedPreset)
+    return taggedPreset
+
+  return settings.quickTaskPresets.find((preset) => {
+    if (preset.saveMode === 'single_file') {
+      const name = preset.fileName || settings.listFileName || 'tasks.md'
+      return name === fileName
+    }
+    return false
+  })
 }
 
 function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'lineIndex'> | null {
@@ -102,51 +157,107 @@ function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'line
   }
 }
 
-onMounted(async () => {
+async function loadAgendaData() {
   if (!settings.baseFolderUri)
     return
 
-  isLoading.value = true
-  try {
-    const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
-    const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
-    const tasks: AgendaTask[] = []
+  const folderUri = settings.baseFolderUri
 
-    for (const file of mdFiles) {
-      try {
-        const read = await FolderPicker.readFile({
-          folderUri: settings.baseFolderUri,
-          fileName: file.name,
-        })
+  if (activeAgendaLoadPromise)
+    return activeAgendaLoadPromise
 
-        const lines = read.content.split(/\r?\n/)
-        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-          const parsed = parseTaskLine(lines[lineIndex] || '')
-          if (!parsed)
-            continue
+  activeAgendaLoadPromise = (async () => {
+    isLoading.value = true
+    try {
+      const listed = await FolderPicker.listFiles({ folderUri })
+      const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+      const tasks: AgendaTask[] = []
+      const schedules: HabitSchedule[] = []
 
-          tasks.push({
-            id: `${file.name}:${lineIndex}`,
+      for (const file of mdFiles) {
+        try {
+          const read = await FolderPicker.readFile({
+            folderUri,
             fileName: file.name,
-            lineIndex,
-            ...parsed,
           })
+
+          const frontmatter = parseFrontmatter(read.content)
+          if (frontmatter.type === 'habit') {
+            schedules.push({
+              fileName: file.name,
+              scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
+            })
+          }
+
+          const lines = read.content.split(/\r?\n/)
+          for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+            const parsed = parseTaskLine(lines[lineIndex] || '')
+            if (!parsed)
+              continue
+
+            if (!getPresetForTask(parsed.body, file.name))
+              continue
+
+            tasks.push({
+              id: `${file.name}:${lineIndex}`,
+              fileName: file.name,
+              lineIndex,
+              ...parsed,
+            })
+          }
+        }
+        catch (fileErr) {
+          console.warn('Agenda: failed to read file', file.name, fileErr)
         }
       }
-      catch (fileErr) {
-        console.warn('Agenda: failed to read file', file.name, fileErr)
-      }
-    }
 
-    allTasks.value = tasks
-  }
-  catch (err) {
-    console.error('Agenda: failed to load tasks', err)
-    error.value = 'Could not load tasks.'
-  }
-  finally {
-    isLoading.value = false
-  }
+      allTasks.value = tasks
+      habitSchedules.value = schedules
+    }
+    catch (err) {
+      console.error('Agenda: failed to load tasks', err)
+      error.value = 'Could not load tasks.'
+    }
+    finally {
+      isLoading.value = false
+      activeAgendaLoadPromise = null
+    }
+  })()
+
+  return activeAgendaLoadPromise
+}
+
+async function refreshAgendaFromExternal(force = false) {
+  const now = Date.now()
+  if (!force && now - lastAgendaRefreshAt < AGENDA_REFRESH_COOLDOWN_MS)
+    return
+
+  lastAgendaRefreshAt = now
+  await loadAgendaData()
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible')
+    void refreshAgendaFromExternal()
+}
+
+function handleWindowFocus() {
+  void refreshAgendaFromExternal()
+}
+
+onMounted(async () => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('focus', handleWindowFocus)
+  await loadAgendaData()
+})
+
+onActivated(() => {
+  void refreshAgendaFromExternal(true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('focus', handleWindowFocus)
 })
 
 const monthLabel = computed(() =>
@@ -178,18 +289,28 @@ const calendarCells = computed<CalendarCell[]>(() => {
       isToday: false,
       isFuture: false,
       pendingCount: 0,
+      scheduledHabitCount: 0,
       isPlaceholder: true,
     })
   }
 
   for (let day = 1; day <= daysInMonth; day++) {
     const iso = dateToIso(year, month, day)
+    const date = new Date(year, month, day)
+    const weekday = toWeekdayIndex(date)
+    const scheduledHabitCount = habitSchedules.value.filter((habit) => {
+      if (habit.scheduledDays.length === 0)
+        return true
+      return habit.scheduledDays.includes(weekday)
+    }).length
+
     cells.push({
       date: iso,
       day,
       isToday: iso === today,
       isFuture: iso > today,
       pendingCount: taskCountByDate.get(iso) ?? 0,
+      scheduledHabitCount,
       isPlaceholder: false,
     })
   }
@@ -203,6 +324,7 @@ const calendarCells = computed<CalendarCell[]>(() => {
         isToday: false,
         isFuture: false,
         pendingCount: 0,
+        scheduledHabitCount: 0,
         isPlaceholder: true,
       })
     }
@@ -267,7 +389,13 @@ function selectedDateLabel() {
 }
 
 function openTaskFile(task: AgendaTask) {
-  router.push(`/task-list/${encodeURIComponent(task.fileName)}`)
+  router.push({
+    name: 'tasks',
+    query: {
+      highlight: task.id,
+      pulse: String(Date.now()),
+    },
+  })
 }
 
 function goBack() {
@@ -321,11 +449,15 @@ function goBack() {
             'is-selected': isSelected(cell),
             'is-future': cell.isFuture,
             'has-tasks': cell.pendingCount > 0,
+            'has-habits': cell.scheduledHabitCount > 0,
           }" :disabled="cell.isPlaceholder"
-            :aria-label="cell.isPlaceholder ? undefined : `${cell.date}${cell.pendingCount > 0 ? `, ${cell.pendingCount} pending` : ''}`"
+            :aria-label="cell.isPlaceholder ? undefined : `${cell.date}${cell.pendingCount > 0 ? `, ${cell.pendingCount} pending tasks` : ''}${cell.scheduledHabitCount > 0 ? `, ${cell.scheduledHabitCount} habits scheduled` : ''}`"
             @click="selectDay(cell)">
             <span v-if="!cell.isPlaceholder" class="day-number">{{ cell.day }}</span>
-            <span v-if="cell.pendingCount > 0" class="task-dot" :aria-hidden="true" />
+            <span v-if="cell.pendingCount > 0 || cell.scheduledHabitCount > 0" class="day-dots" :aria-hidden="true">
+              <span v-if="cell.pendingCount > 0" class="task-dot" />
+              <span v-if="cell.scheduledHabitCount > 0" class="habit-dot" />
+            </span>
           </button>
         </div>
       </div>
@@ -539,11 +671,25 @@ h1 {
   font-size: 0.82rem;
 }
 
+.day-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
 .task-dot {
   width: 5px;
   height: 5px;
   border-radius: 999px;
   background: var(--primary);
+  opacity: 0.85;
+}
+
+.habit-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 78%, var(--text));
   opacity: 0.85;
 }
 
