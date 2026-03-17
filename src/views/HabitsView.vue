@@ -43,6 +43,11 @@ interface HabitSnapshot {
   loadedHabitLogMonths: Record<string, number>
 }
 
+interface CachedHabitDefinition {
+  signature: string
+  habit: HabitCard | null
+}
+
 const LOG_START = '<!-- QUICK_CAPTURE_HABIT_LOG_START -->'
 const LOG_END = '<!-- QUICK_CAPTURE_HABIT_LOG_END -->'
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
@@ -50,6 +55,7 @@ const HABIT_LOGS_DIR = 'habit-logs'
 const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 1
 const HABIT_LOG_READ_CONCURRENCY = 6
 const HABIT_LAZY_LOAD_CONCURRENCY = 3
+const HABIT_DEFINITION_READ_CONCURRENCY = 6
 const HABITS_REFRESH_DEBOUNCE_MS = 4000
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
@@ -58,6 +64,7 @@ let cachedFolderUri = ''
 let cachedAt = 0
 let cachedSnapshot: HabitSnapshot | null = null
 let activeHabitsLoadPromise: Promise<void> | null = null
+const habitDefinitionCache = new Map<string, CachedHabitDefinition>()
 
 const router = useRouter()
 const settings = loadSettings()
@@ -135,6 +142,13 @@ function syncHabitCache() {
 
 function todayIso() {
   return dateToIso(new Date())
+}
+
+function getFileSignature(file: { lastModified?: number, size?: number }): string | null {
+  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
+    return null
+
+  return `${file.lastModified}:${file.size}`
 }
 
 function parseScheduledDays(value: unknown): number[] {
@@ -1018,6 +1032,7 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
     cachedSnapshot = null
     cachedFolderUri = ''
     cachedAt = 0
+    habitDefinitionCache.clear()
     isLoading.value = false
     return
   }
@@ -1046,13 +1061,27 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
       const listed = await FolderPicker.listFiles({ folderUri })
       const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
 
-      const loaded = await Promise.all(
-        mdFiles.map(async (file) => {
+      const loaded = await mapWithConcurrency(
+        mdFiles,
+        HABIT_DEFINITION_READ_CONCURRENCY,
+        async (file) => {
           try {
+            const signature = getFileSignature(file)
+            const cachedDefinition = habitDefinitionCache.get(file.name)
+
+            if (signature && cachedDefinition && cachedDefinition.signature === signature)
+              return cachedDefinition.habit ? { ...cachedDefinition.habit, scheduledDays: [...cachedDefinition.habit.scheduledDays] } : null
+
             const read = await FolderPicker.readFile({ folderUri, fileName: file.name })
             const frontmatter = parseFrontmatter(read.content)
-            if (frontmatter.type !== 'habit')
+            if (frontmatter.type !== 'habit') {
+              if (signature)
+                habitDefinitionCache.set(file.name, { signature, habit: null })
+              else
+                habitDefinitionCache.delete(file.name)
+
               return null
+            }
 
             const period = frontmatter.period === 'week'
               ? 'week'
@@ -1066,7 +1095,7 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
               ? Math.max(1, Number(frontmatter.targetDays || frontmatter.targetCount || 1))
               : 1
 
-            return {
+            const parsedHabit = {
               id: String(frontmatter.id || ''),
               name: String(frontmatter.name || file.name.replace(/\.md$/i, '')),
               icon: String(frontmatter.icon || ''),
@@ -1079,12 +1108,25 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
               scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
               fileName: file.name,
             } satisfies HabitCard
+
+            if (signature)
+              habitDefinitionCache.set(file.name, { signature, habit: parsedHabit })
+            else
+              habitDefinitionCache.delete(file.name)
+
+            return parsedHabit
           }
           catch {
             return null
           }
-        }),
+        },
       )
+
+      const activeNames = new Set(mdFiles.map(file => file.name))
+      for (const cachedName of Array.from(habitDefinitionCache.keys())) {
+        if (!activeNames.has(cachedName))
+          habitDefinitionCache.delete(cachedName)
+      }
 
       habits.value = loaded
         .filter((habit): habit is HabitCard => Boolean(habit))
