@@ -1125,7 +1125,7 @@ async function deleteTask(task: QuickTaskItem) {
 
 function getTargetFileName(preset: QuickTaskPreset): string {
   if (preset.saveMode === 'daily_note')
-    return `${todayIso()}.md`
+    return `task-${todayIso()}.md`
 
   return preset.fileName || settings.listFileName || 'tasks.md'
 }

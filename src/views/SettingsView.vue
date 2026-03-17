@@ -709,7 +709,7 @@ function jumpToSection(value: string) {
 
             <button type="button" class="segmented-option" :class="{ 'is-active': preset.saveMode === 'daily_note' }"
               @click="preset.saveMode = 'daily_note'">
-              Today’s date
+              task-yyyy-mm-dd
             </button>
           </div>
         </div>
