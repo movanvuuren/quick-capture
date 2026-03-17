@@ -619,16 +619,6 @@ function jumpToSection(value: string) {
         <h1>Settings</h1>
       </div>
 
-
-      <!-- Bottom nav bar for settings -->
-      <nav class="settings-bottom-bar">
-        <button v-for="section in sectionNav" :key="section.value" class="settings-bottom-bar-btn"
-          :class="{ active: selectedSection === section.value }" @click="jumpToSection(section.value)">
-          <component :is="section.icon" :size="22" />
-          <span>{{ section.label }}</span>
-        </button>
-      </nav>
-
       <!-- system folder card -->
       <div ref="systemSectionRef" class="card">
         <div class="field">
@@ -806,13 +796,22 @@ function jumpToSection(value: string) {
         <p class="hint add-limit-hint">{{ habitDrafts.length }}/{{ MAX_HABITS }} habits used</p>
       </div>
     </div>
+
+    <!-- Bottom nav bar for settings -->
+    <nav class="settings-bottom-bar">
+      <button v-for="section in sectionNav" :key="section.value" class="settings-bottom-bar-btn"
+        :class="{ active: selectedSection === section.value }" @click="jumpToSection(section.value)">
+        <component :is="section.icon" :size="22" />
+        <span>{{ section.label }}</span>
+      </button>
+    </nav>
   </div>
 </template>
 
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: var(--page-top-padding) 20px 40px;
+  padding: var(--page-top-padding) 20px calc(92px + env(safe-area-inset-bottom, 0px));
   background: var(--bg);
   color: var(--text);
   overflow-x: hidden;
