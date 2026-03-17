@@ -155,6 +155,10 @@ function getPresetForTask(body: string, fileName: string) {
   })
 }
 
+function isDatedTaskFileName(fileName: string): boolean {
+  return /^tasks?-\d{4}-\d{2}-\d{2}\.md$/i.test(fileName.trim())
+}
+
 function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'lineIndex'> | null {
   const match = line.match(/^\s*-\s\[([fFxX-\s]*?)\]\s+(.*)$/)
   if (!match)
@@ -216,6 +220,8 @@ async function loadAgendaData() {
           })
 
           const frontmatter = parseFrontmatter(read.content)
+          const isTaskFileByType = frontmatter.type === 'task'
+          const isTaskFileByName = isDatedTaskFileName(file.name)
           if (frontmatter.type === 'habit') {
             schedules.push({
               fileName: file.name,
@@ -237,11 +243,13 @@ async function loadAgendaData() {
 
           const lines = read.content.split(/\r?\n/)
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-            const parsed = parseTaskLine(lines[lineIndex] || '')
+            const rawLine = lines[lineIndex] || ''
+            const parsed = parseTaskLine(rawLine)
             if (!parsed)
               continue
 
-            if (!getPresetForTask(parsed.body, file.name))
+            const isPresetTask = Boolean(getPresetForTask(rawLine, file.name))
+            if (!isTaskFileByType && !isTaskFileByName && !isPresetTask)
               continue
 
             tasks.push({
