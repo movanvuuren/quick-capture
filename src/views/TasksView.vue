@@ -424,6 +424,9 @@ function onTaskTouchMove(event: TouchEvent, taskId: string) {
   if (deltaX > -10)
     return
 
+  if (event.cancelable)
+    event.preventDefault()
+
   const distance = Math.max(0, Math.min(100, -deltaX * 0.5))
   taskSwipeDistance.value[taskId] = distance
 
@@ -1566,6 +1569,7 @@ h1 {
   align-items: center;
   gap: 8px;
   transition: transform 0.2s ease;
+  touch-action: pan-y;
 }
 
 .state-button {

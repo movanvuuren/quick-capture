@@ -752,8 +752,8 @@ function jumpToSection(value: string) {
                   {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }} days
                 </template>
                 <template v-else>
-                  {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }}/{
-                  draft.scheduledDays.length || 1 }} days
+                  {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft)
+                  }}/{{ draft.scheduledDays.length || 1 }} days
                 </template>
               </p>
             </div>

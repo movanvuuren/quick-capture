@@ -65,6 +65,7 @@ const activeTheme = computed(() => settings.value.theme || 'light')
 const swipeOffsets = ref<Record<string, number>>({})
 const activeSwipeKey = ref<string | null>(null)
 const swipeStartX = ref(0)
+const swipeStartY = ref(0)
 const swipeStartOffset = ref(0)
 const swipeMoved = ref(false)
 
@@ -470,6 +471,7 @@ function onSwipeStart(card: DashboardCard, event: TouchEvent) {
 
   activeSwipeKey.value = key
   swipeStartX.value = touch.clientX
+  swipeStartY.value = touch.clientY
   swipeStartOffset.value = swipeOffsets.value[key] ?? 0
   swipeMoved.value = false
 }
@@ -482,6 +484,13 @@ function onSwipeMove(card: DashboardCard, event: TouchEvent) {
   const key = getCardKey(card)
   if (activeSwipeKey.value !== key)
     return
+
+  const deltaY = touch.clientY - swipeStartY.value
+  if (Math.abs(deltaY) > Math.abs(swipeStartX.value - touch.clientX) * 0.6)
+    return
+
+  if (event.cancelable)
+    event.preventDefault()
 
   const deltaX = swipeStartX.value - touch.clientX
   const nextOffset = Math.min(
@@ -1038,6 +1047,7 @@ h1 {
   position: relative;
   border-radius: 30px;
   overflow: hidden;
+  touch-action: pan-y;
 }
 
 .swipe-delete-button {
