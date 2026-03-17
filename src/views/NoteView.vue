@@ -2,15 +2,18 @@
 import {
   Bold,
   CheckSquare,
+  Eraser,
   Heading1,
   Heading2,
   Heading3,
   Italic,
   List,
   ListOrdered,
+  Strikethrough,
   Trash2,
+  Undo2,
 } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MetaWell from '../components/MetaWell.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -24,14 +27,42 @@ const router = useRouter()
 const route = useRoute()
 const settings = loadSettings()
 
-const noteId = computed(() => route.params.id as string | undefined)
+const routeNoteId = computed(() => route.params.id as string | undefined)
+const noteFileName = ref<string | undefined>(routeNoteId.value)
 const noteTitle = ref('')
 const notePinned = ref(false)
 const noteCreated = ref('')
 const noteUpdated = ref('')
 const noteMetaDate = computed(() =>
-  noteUpdated.value || noteCreated.value || (noteId.value ? noteId.value.replace(/\.md$/i, '') : todayIso()),
+  noteUpdated.value || noteCreated.value || (noteFileName.value ? noteFileName.value.replace(/\.md$/i, '') : todayIso()),
 )
+
+type AutosaveState = 'idle' | 'saving' | 'saved' | 'error'
+interface NoteSnapshot {
+  title: string
+  html: string
+}
+
+const AUTOSAVE_DELAY_MS = 900
+const MAX_UNDO_SNAPSHOTS = 5
+const autosaveState = ref<AutosaveState>('idle')
+const undoSnapshots = ref<NoteSnapshot[]>([])
+const isApplyingSnapshot = ref(false)
+const lastSavedSignature = ref('')
+
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null
+let isPersisting = false
+let pendingAutosave = false
+
+const autosaveLabel = computed(() => {
+  if (autosaveState.value === 'saving')
+    return 'Autosaving...'
+  if (autosaveState.value === 'saved')
+    return 'Saved'
+  if (autosaveState.value === 'error')
+    return 'Autosave failed'
+  return 'Draft'
+})
 
 const editorEl = ref<HTMLDivElement | null>(null)
 
@@ -80,6 +111,7 @@ function renderMarkdown(md: string): string {
   function inlineRender(text: string): string {
     return escapeHtml(text)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/~~(.+?)~~/g, '<s>$1</s>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
       .replace(/_(.+?)_/g, '<em>$1</em>')
       .replace(/`(.+?)`/g, '<code>$1</code>')
@@ -179,6 +211,55 @@ function setEditorContentFromMarkdown(markdown: string) {
   editorEl.value.innerHTML = html || '<p><br></p>'
 }
 
+function getCurrentEditorHtml(): string {
+  const html = editorEl.value?.innerHTML || ''
+  return html.trim() ? html : '<p><br></p>'
+}
+
+function pushUndoSnapshot() {
+  if (isApplyingSnapshot.value)
+    return
+
+  const snapshot: NoteSnapshot = {
+    title: noteTitle.value,
+    html: getCurrentEditorHtml(),
+  }
+
+  const last = undoSnapshots.value[undoSnapshots.value.length - 1]
+  if (last && last.title === snapshot.title && last.html === snapshot.html)
+    return
+
+  undoSnapshots.value = [...undoSnapshots.value, snapshot].slice(-MAX_UNDO_SNAPSHOTS)
+}
+
+function applySnapshot(snapshot: NoteSnapshot) {
+  isApplyingSnapshot.value = true
+  noteTitle.value = snapshot.title
+  if (editorEl.value)
+    editorEl.value.innerHTML = snapshot.html
+
+  nextTick(() => {
+    if (editorEl.value)
+      placeCaretAtEnd(editorEl.value)
+    isApplyingSnapshot.value = false
+  })
+}
+
+function undoLastChange() {
+  if (undoSnapshots.value.length < 2)
+    return
+
+  const next = [...undoSnapshots.value]
+  next.pop()
+  const previous = next[next.length - 1]
+  if (!previous)
+    return
+
+  undoSnapshots.value = next
+  applySnapshot(previous)
+  scheduleAutosave()
+}
+
 function focusEditor() {
   editorEl.value?.focus()
 }
@@ -190,6 +271,11 @@ function execRichText(command: string, value?: string) {
 
 function setHeading(level: 1 | 2 | 3) {
   execRichText('formatBlock', `h${level}`)
+}
+
+function clearFormatting() {
+  focusEditor()
+  document.execCommand('removeFormat')
 }
 
 function insertCheckbox() {
@@ -325,6 +411,8 @@ function extractInline(node: Node): string {
 
   if (tag === 'STRONG' || tag === 'B')
     return `**${content}**`
+  if (tag === 'S' || tag === 'STRIKE' || tag === 'DEL')
+    return `~~${content}~~`
   if (tag === 'EM' || tag === 'I')
     return `*${content}*`
   if (tag === 'CODE')
@@ -410,25 +498,128 @@ function htmlToMarkdown(html: string): string {
   return parts.join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
 }
 
+function getCurrentNotePayload() {
+  const body = htmlToMarkdown(getCurrentEditorHtml())
+  const content = buildNoteMarkdown(noteTitle.value, body)
+  return {
+    body,
+    content,
+    signature: content.trim(),
+  }
+}
+
+async function persistNote(isAuto = false): Promise<boolean> {
+  if (!settings.baseFolderUri)
+    return false
+
+  const { content, signature } = getCurrentNotePayload()
+  if (!content.trim())
+    return false
+
+  if (signature === lastSavedSignature.value) {
+    if (isAuto)
+      autosaveState.value = 'saved'
+    return true
+  }
+
+  if (isPersisting) {
+    pendingAutosave = true
+    return false
+  }
+
+  isPersisting = true
+  if (isAuto)
+    autosaveState.value = 'saving'
+
+  try {
+    if (noteFileName.value) {
+      const saved = await saveNoteToFile(settings.baseFolderUri, {
+        id: noteFileName.value,
+        fileName: noteFileName.value,
+        content,
+      })
+      noteUpdated.value = saved.updated || noteUpdated.value
+      noteCreated.value = saved.created || noteCreated.value
+    }
+    else {
+      const created = await createNoteFile(settings.baseFolderUri, {
+        id: crypto.randomUUID(),
+        content,
+      })
+      noteFileName.value = created.fileName
+      noteCreated.value = created.created || noteCreated.value
+      noteUpdated.value = created.updated || noteUpdated.value
+    }
+
+    lastSavedSignature.value = signature
+    autosaveState.value = 'saved'
+    return true
+  }
+  catch (err) {
+    console.error('Failed to save note', err)
+    if (isAuto)
+      autosaveState.value = 'error'
+    return false
+  }
+  finally {
+    isPersisting = false
+    if (pendingAutosave) {
+      pendingAutosave = false
+      scheduleAutosave(true)
+    }
+  }
+}
+
+function scheduleAutosave(immediate = false) {
+  if (!settings.baseFolderUri)
+    return
+
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer)
+    autosaveTimer = null
+  }
+
+  if (immediate) {
+    void persistNote(true)
+    return
+  }
+
+  autosaveState.value = 'idle'
+  autosaveTimer = setTimeout(() => {
+    autosaveTimer = null
+    void persistNote(true)
+  }, AUTOSAVE_DELAY_MS)
+}
+
+function handleEditorInput() {
+  pushUndoSnapshot()
+  scheduleAutosave()
+}
+
 const toolbarActions = [
+  { label: 'Undo', icon: Undo2, action: undoLastChange },
   { label: 'Heading 1', icon: Heading1, action: () => setHeading(1) },
   { label: 'Heading 2', icon: Heading2, action: () => setHeading(2) },
   { label: 'Heading 3', icon: Heading3, action: () => setHeading(3) },
   { label: 'Bold', icon: Bold, action: () => execRichText('bold') },
   { label: 'Italic', icon: Italic, action: () => execRichText('italic') },
+  { label: 'Strikethrough', icon: Strikethrough, action: () => execRichText('strikeThrough') },
   { label: 'Bullet list', icon: List, action: () => execRichText('insertUnorderedList') },
   { label: 'Numbered list', icon: ListOrdered, action: () => execRichText('insertOrderedList') },
   { label: 'Checkbox', icon: CheckSquare, action: insertCheckbox },
+  { label: 'Clear formatting', icon: Eraser, action: clearFormatting },
 ]
 
 // ── Data load / save ──────────────────────────────────────────────────────────
 onMounted(async () => {
+  noteFileName.value = routeNoteId.value
+
   let initialContent = ''
-  if (noteId.value && settings.baseFolderUri) {
+  if (noteFileName.value && settings.baseFolderUri) {
     try {
       const result = await FolderPicker.readFile({
         folderUri: settings.baseFolderUri,
-        fileName: noteId.value,
+        fileName: noteFileName.value,
       })
       const fm = parseFrontmatter(result.content)
       notePinned.value = fm.pinned === true || fm.pinned === 'true'
@@ -437,7 +628,7 @@ onMounted(async () => {
       initialContent = stripFrontmatter(result.content)
     }
     catch (err) {
-      console.error(`Failed to load note ${noteId.value}`, err)
+      console.error(`Failed to load note ${noteFileName.value}`, err)
     }
   }
   else {
@@ -445,8 +636,24 @@ onMounted(async () => {
   }
 
   const parsed = splitNoteContent(initialContent)
-  noteTitle.value = parsed.title || (!noteId.value ? `Note ${todayIso()}` : '')
+  noteTitle.value = parsed.title || (!noteFileName.value ? `Note ${todayIso()}` : '')
   setEditorContentFromMarkdown(parsed.body)
+
+  lastSavedSignature.value = getCurrentNotePayload().signature
+  autosaveState.value = 'saved'
+  pushUndoSnapshot()
+})
+
+onBeforeUnmount(() => {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer)
+    autosaveTimer = null
+  }
+})
+
+watch(() => noteTitle.value, () => {
+  pushUndoSnapshot()
+  scheduleAutosave()
 })
 
 function goBack() {
@@ -454,11 +661,11 @@ function goBack() {
 }
 
 async function toggleNotePin() {
-  if (!noteId.value || !settings.baseFolderUri)
+  if (!noteFileName.value || !settings.baseFolderUri)
     return
   notePinned.value = !notePinned.value
   try {
-    await setFilePinned(settings.baseFolderUri, noteId.value, notePinned.value)
+    await setFilePinned(settings.baseFolderUri, noteFileName.value, notePinned.value)
   }
   catch (err) {
     console.error('Failed to toggle pin', err)
@@ -467,12 +674,12 @@ async function toggleNotePin() {
 }
 
 async function deleteNote() {
-  if (!noteId.value || !settings.baseFolderUri)
+  if (!noteFileName.value || !settings.baseFolderUri)
     return
   try {
     await FolderPicker.deleteFile({
       folderUri: settings.baseFolderUri,
-      fileName: noteId.value,
+      fileName: noteFileName.value,
     })
     router.back()
   }
@@ -482,36 +689,9 @@ async function deleteNote() {
 }
 
 async function saveNote() {
-  const body = htmlToMarkdown(editorEl.value?.innerHTML || '')
-  const content = buildNoteMarkdown(noteTitle.value, body)
-  if (!content.trim())
-    return
-
-  if (!settings.baseFolderUri) {
-    console.warn('No system folder configured – note not saved to disk')
-    return
-  }
-
-  try {
-    if (noteId.value) {
-      await saveNoteToFile(settings.baseFolderUri, {
-        id: noteId.value,
-        fileName: noteId.value,
-        content,
-      })
-    }
-    else {
-      await createNoteFile(settings.baseFolderUri, {
-        id: crypto.randomUUID(),
-        content,
-      })
-    }
-  }
-  catch (err) {
-    console.error('Failed to save note', err)
-  }
-
-  router.back()
+  const saved = await persistNote(false)
+  if (saved)
+    router.back()
 }
 </script>
 
@@ -523,7 +703,7 @@ async function saveNote() {
           <MetaWell :date="noteMetaDate">
             <PinToggleButton :pinned="notePinned" :size="20" item-label="note" variant="glass"
               @toggle="toggleNotePin" />
-            <button v-if="noteId" class="glass-icon-button" aria-label="Delete note" @click="deleteNote">
+            <button v-if="noteFileName" class="glass-icon-button" aria-label="Delete note" @click="deleteNote">
               <Trash2 :size="20" />
             </button>
           </MetaWell>
@@ -544,11 +724,14 @@ async function saveNote() {
       </div>
 
       <div ref="editorEl" class="editor-surface prose" contenteditable="true" spellcheck="true"
-        @keydown="handleEditorKeydown" @click="handleEditorClick" />
+        @keydown="handleEditorKeydown" @click="handleEditorClick" @input="handleEditorInput" />
 
-      <button class="glass-button glass-button--primary save-button" @click="saveNote">
-        Save
-      </button>
+      <div class="editor-actions">
+        <span class="autosave-status" :class="`is-${autosaveState}`">{{ autosaveLabel }}</span>
+        <button class="glass-button glass-button--primary save-button" @click="saveNote">
+          Save
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -766,8 +949,28 @@ async function saveNote() {
 }
 
 .save-button {
+  margin: 0;
+}
+
+.editor-actions {
   margin: 14px 16px 14px;
-  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.autosave-status {
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+
+.autosave-status.is-saving {
+  color: var(--primary);
+}
+
+.autosave-status.is-error {
+  color: var(--danger);
 }
 
 @media (max-width: 560px) {
