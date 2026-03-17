@@ -4,7 +4,7 @@ export interface WidgetSyncPlugin {
    * widget can read it without launching the WebView.
    *
    * @param options.folderUri  - The SAF tree URI for the habits folder.
-   * @param options.habitsJson - JSON string: Array<{ file, name, icon, target }>
+   * @param options.habitsJson - JSON string: Array<{ id, file, name, icon, target }>
    */
   syncHabits(options: { folderUri: string; habitsJson: string }): Promise<void>
 }

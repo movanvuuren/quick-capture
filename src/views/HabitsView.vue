@@ -780,6 +780,7 @@ async function syncHabitsToWidget() {
     return
 
   const habitsForWidget = habits.value.map(h => ({
+    id: h.id,
     file: h.fileName,
     name: h.name,
     icon: h.icon,
