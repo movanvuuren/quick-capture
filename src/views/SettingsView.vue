@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { Moon, Sparkles, Sun, Trash2, Folder, Paintbrush, CheckSquare, Flame } from 'lucide-vue-next'
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import type { CSSProperties } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
+import { parseFrontmatter } from '../lib/lists'
 import { applyTheme, getThemeAccentColor, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 
 const router = useRouter()
 const MAX_QUICK_TASK_PRESETS = 3
+const PULL_REFRESH_THRESHOLD = 72
+const PULL_REFRESH_MAX_DISTANCE = 120
 type HabitPeriod = 'day' | 'week'
 type SettingsSection = 'system' | 'appearance' | 'tasks' | 'habits'
 
@@ -103,13 +107,30 @@ const sectionNav = [
 
 const MAX_HABITS = 10
 
-// Multiple habit configs
-const habitDrafts = ref([
-  {
+interface HabitDraft {
+  name: string
+  icon: string
+  unit: string
+  period: HabitPeriod
+  targetCount: number
+  targetDays: number
+  reminder: string
+  allowSkip: boolean
+  scheduledDays: number[]
+  saveError: string
+  savedFileName: string
+  isSaving: boolean
+  currentFileName: string
+  lastSavedSignature: string
+  lastSavedFileName: string
+}
+
+function createDefaultHabitDraft(): HabitDraft {
+  const draft: HabitDraft = {
     name: '',
     icon: '',
     unit: 'times',
-    period: 'day' as HabitPeriod,
+    period: 'day',
     targetCount: 1,
     targetDays: 1,
     reminder: '',
@@ -119,8 +140,16 @@ const habitDrafts = ref([
     savedFileName: '',
     isSaving: false,
     currentFileName: '',
-  },
-])
+    lastSavedSignature: '',
+    lastSavedFileName: '',
+  }
+
+  draft.lastSavedSignature = habitDraftSignature(draft)
+  return draft
+}
+
+// Multiple habit configs
+const habitDrafts = ref<HabitDraft[]>([createDefaultHabitDraft()])
 // icon is an emoji or short string shown on the Android home-screen widget
 
 const systemSectionRef = ref<HTMLElement | null>(null)
@@ -131,6 +160,20 @@ const habitsSectionRef = ref<HTMLElement | null>(null)
 
 // Remove single habit draft state, use habitDrafts instead
 let habitAutoSaveTimers: Array<ReturnType<typeof setTimeout> | null> = []
+const isHydratingHabitDrafts = ref(false)
+const pullStartY = ref<number | null>(null)
+const pullStartX = ref<number | null>(null)
+const pullDistance = ref(0)
+const pullAxisLock = ref<'none' | 'vertical' | 'horizontal'>('none')
+const isPullRefreshing = ref(false)
+const pullReadyHapticPlayed = ref(false)
+
+const isPullReady = computed(() => pullDistance.value >= PULL_REFRESH_THRESHOLD)
+const showPullIndicator = computed(() => pullDistance.value > 0 || isPullRefreshing.value)
+const pageContentStyle = computed<CSSProperties>(() => ({
+  transform: `translateY(${pullDistance.value}px)`,
+  transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
+}))
 
 const dayOptions = [
   { value: 1, label: 'Mon' },
@@ -143,11 +186,42 @@ const dayOptions = [
 ]
 
 
-function derivedHabitId(draft: typeof habitDrafts.value[number]) {
-  return toSlug(draft.name)
+function parseScheduledDays(value: unknown): number[] {
+  if (Array.isArray(value))
+    return value.map(v => Number(v)).filter(v => Number.isInteger(v) && v >= 1 && v <= 7)
+
+  if (typeof value === 'string') {
+    const inner = value.trim().replace(/^\[/, '').replace(/\]$/, '')
+    const parsed = inner
+      .split(',')
+      .map(v => Number(v.trim()))
+      .filter(v => Number.isInteger(v) && v >= 1 && v <= 7)
+    return parsed.length > 0 ? parsed : [1, 2, 3, 4, 5, 6, 7]
+  }
+
+  return [1, 2, 3, 4, 5, 6, 7]
 }
-function canSaveHabit(draft: typeof habitDrafts.value[number]) {
-  return Boolean(settings.baseFolderUri) && derivedHabitId(draft).length > 0
+
+function fallbackHabitId(name: string): string {
+  let hash = 5381
+  for (const char of name) {
+    const code = char.codePointAt(0) || 0
+    hash = ((hash << 5) + hash) + code
+    hash |= 0
+  }
+  return `habit-${Math.abs(hash)}`
+}
+
+function derivedHabitId(draft: HabitDraft) {
+  const trimmedName = draft.name.trim()
+  if (!trimmedName)
+    return ''
+
+  const slug = toSlug(trimmedName)
+  return slug || fallbackHabitId(trimmedName)
+}
+function canSaveHabit(draft: HabitDraft) {
+  return Boolean(settings.baseFolderUri) && draft.name.trim().length > 0
 }
 
 function toSlug(value: string): string {
@@ -168,7 +242,7 @@ function todayIso(): string {
   return `${year}-${month}-${day}`
 }
 
-function toggleHabitScheduledDay(draft: typeof habitDrafts.value[number], day: number) {
+function toggleHabitScheduledDay(draft: HabitDraft, day: number) {
   if (draft.scheduledDays.includes(day)) {
     if (draft.scheduledDays.length === 1) return
     draft.scheduledDays = draft.scheduledDays.filter(current => current !== day)
@@ -178,11 +252,25 @@ function toggleHabitScheduledDay(draft: typeof habitDrafts.value[number], day: n
   draft.scheduledDays = [...draft.scheduledDays, day].sort((a, b) => a - b)
 }
 
-function getDraftTargetDays(draft: typeof habitDrafts.value[number]): number {
+function getDraftTargetDays(draft: HabitDraft): number {
   return Math.min(Math.max(1, Math.floor(draft.targetDays || 1)), draft.scheduledDays.length || 1)
 }
 
-function buildHabitMarkdown(draft: typeof habitDrafts.value[number]): string {
+function habitDraftSignature(draft: HabitDraft): string {
+  return JSON.stringify({
+    name: draft.name.trim(),
+    icon: draft.icon.trim(),
+    unit: draft.unit.trim() || 'times',
+    period: draft.period,
+    targetCount: Math.max(1, Math.floor(draft.targetCount || 1)),
+    targetDays: getDraftTargetDays(draft),
+    reminder: draft.reminder.trim(),
+    allowSkip: draft.allowSkip,
+    scheduledDays: [...draft.scheduledDays].sort((a, b) => a - b),
+  })
+}
+
+function buildHabitMarkdown(draft: HabitDraft): string {
   const lines = [
     '---',
     'type: habit',
@@ -224,7 +312,81 @@ async function uniqueHabitFileName(baseName: string): Promise<string> {
   return `${stem}-${suffix}${ext}`
 }
 
-async function saveHabitConfig(draft: typeof habitDrafts.value[number]) {
+async function loadHabitDrafts() {
+  if (!settings.baseFolderUri) {
+    habitDrafts.value = [createDefaultHabitDraft()]
+    return
+  }
+
+  isHydratingHabitDrafts.value = true
+
+  try {
+    const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
+    const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+
+    const loaded = await Promise.all(
+      mdFiles.map(async (file): Promise<HabitDraft | null> => {
+        try {
+          const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri as string, fileName: file.name })
+          const frontmatter = parseFrontmatter(read.content)
+          if (frontmatter.type !== 'habit')
+            return null
+
+          const period: HabitPeriod = frontmatter.period === 'week' ? 'week' : 'day'
+          const targetCount = period === 'week' && frontmatter.targetDays === undefined
+            ? Math.max(1, Number(frontmatter.dailyTargetCount || 1))
+            : Math.max(1, Number(frontmatter.targetCount || 1))
+          const targetDays = period === 'week'
+            ? Math.max(1, Number(frontmatter.targetDays || frontmatter.targetCount || 1))
+            : 1
+
+          const draft: HabitDraft = {
+            name: String(frontmatter.name || file.name.replace(/\.md$/i, '')),
+            icon: String(frontmatter.icon || ''),
+            unit: String(frontmatter.unit || 'times'),
+            period,
+            targetCount,
+            targetDays,
+            reminder: String(frontmatter.reminder || ''),
+            allowSkip: String(frontmatter.allowSkip || 'true') !== 'false',
+            scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
+            saveError: '',
+            savedFileName: '',
+            isSaving: false,
+            currentFileName: file.name,
+            lastSavedSignature: '',
+            lastSavedFileName: file.name,
+          }
+
+          draft.lastSavedSignature = habitDraftSignature(draft)
+
+          return draft
+        }
+        catch {
+          return null
+        }
+      }),
+    )
+
+    const drafts = loaded
+      .filter((draft): draft is HabitDraft => Boolean(draft))
+      .sort((a, b) => a.name.localeCompare(b.name))
+
+    habitDrafts.value = drafts.slice(0, MAX_HABITS)
+    if (!habitDrafts.value.length)
+      habitDrafts.value = [createDefaultHabitDraft()]
+  }
+  catch (error) {
+    console.error('Failed to load habit drafts', error)
+    if (!habitDrafts.value.length)
+      habitDrafts.value = [createDefaultHabitDraft()]
+  }
+  finally {
+    isHydratingHabitDrafts.value = false
+  }
+}
+
+async function saveHabitConfig(draft: HabitDraft) {
   if (!settings.baseFolderUri || !canSaveHabit(draft) || draft.isSaving)
     return
   draft.isSaving = true
@@ -241,6 +403,8 @@ async function saveHabitConfig(draft: typeof habitDrafts.value[number]) {
       content: buildHabitMarkdown(draft),
     })
     draft.savedFileName = draft.currentFileName
+    draft.lastSavedSignature = habitDraftSignature(draft)
+    draft.lastSavedFileName = draft.currentFileName
   } catch (error) {
     console.error('Failed to save habit config', error)
     draft.saveError = 'Could not save habit note.'
@@ -251,21 +415,7 @@ async function saveHabitConfig(draft: typeof habitDrafts.value[number]) {
 
 function addHabitDraft() {
   if (habitDrafts.value.length >= MAX_HABITS) return
-  habitDrafts.value.push({
-    name: '',
-    unit: 'times',
-    period: 'day',
-    icon: '',
-    targetCount: 1,
-    targetDays: 1,
-    reminder: '',
-    allowSkip: true,
-    scheduledDays: [1, 2, 3, 4, 5, 6, 7],
-    saveError: '',
-    savedFileName: '',
-    isSaving: false,
-    currentFileName: '',
-  })
+  habitDrafts.value.push(createDefaultHabitDraft())
 }
 function removeHabitDraft(idx: number) {
   if (habitDrafts.value.length === 1) return
@@ -277,16 +427,148 @@ function removeHabitDraft(idx: number) {
 watch(
   habitDrafts,
   (newDrafts) => {
+    if (isHydratingHabitDrafts.value)
+      return
+
     newDrafts.forEach((draft, idx) => {
       if (habitAutoSaveTimers[idx]) clearTimeout(habitAutoSaveTimers[idx])
       if (!canSaveHabit(draft)) return
+      const nextSignature = habitDraftSignature(draft)
+      if (nextSignature === draft.lastSavedSignature && draft.currentFileName === draft.lastSavedFileName)
+        return
       habitAutoSaveTimers[idx] = setTimeout(() => {
         void saveHabitConfig(draft)
-      }, 500)
+      }, 1200)
     })
   },
   { deep: true },
 )
+
+watch(
+  () => settings.baseFolderUri,
+  () => {
+    void loadHabitDrafts()
+  },
+)
+
+onMounted(() => {
+  void loadHabitDrafts()
+})
+
+function isPageScrolledToTop() {
+  return window.scrollY <= 0
+}
+
+async function triggerHaptic(kind: 'light' | 'medium' = 'light') {
+  try {
+    const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
+    const style = kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light
+    await Haptics.impact({ style })
+    return
+  }
+  catch {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
+      navigator.vibrate(kind === 'medium' ? 20 : 10)
+  }
+}
+
+function resetPullState() {
+  pullStartY.value = null
+  pullStartX.value = null
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+  pullReadyHapticPlayed.value = false
+}
+
+function onPullTouchStart(event: TouchEvent) {
+  if (isPullRefreshing.value)
+    return
+  if (!isPageScrolledToTop())
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  pullStartY.value = touch.clientY
+  pullStartX.value = touch.clientX
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+}
+
+function onPullTouchMove(event: TouchEvent) {
+  if (pullStartY.value === null || pullStartX.value === null)
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const deltaY = touch.clientY - pullStartY.value
+  const deltaX = touch.clientX - pullStartX.value
+
+  if (pullAxisLock.value === 'none' && (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6))
+    pullAxisLock.value = Math.abs(deltaY) >= Math.abs(deltaX) ? 'vertical' : 'horizontal'
+
+  if (pullAxisLock.value === 'horizontal')
+    return
+
+  if (deltaY <= 0) {
+    pullDistance.value = 0
+    pullReadyHapticPlayed.value = false
+    return
+  }
+
+  if (!isPageScrolledToTop()) {
+    resetPullState()
+    return
+  }
+
+  event.preventDefault()
+  pullDistance.value = Math.min(PULL_REFRESH_MAX_DISTANCE, deltaY * 0.45)
+
+  const reachedReadyState = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  if (reachedReadyState && !pullReadyHapticPlayed.value) {
+    pullReadyHapticPlayed.value = true
+    void triggerHaptic('light')
+  }
+  else if (!reachedReadyState) {
+    pullReadyHapticPlayed.value = false
+  }
+}
+
+async function refreshSettingsPage() {
+  const latest = loadSettings()
+  Object.assign(settings, latest)
+  await loadHabitDrafts()
+}
+
+async function onPullTouchEnd() {
+  if (pullStartY.value === null)
+    return
+
+  const shouldRefresh = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  pullStartY.value = null
+  pullStartX.value = null
+  pullAxisLock.value = 'none'
+
+  if (!shouldRefresh) {
+    pullDistance.value = 0
+    return
+  }
+
+  isPullRefreshing.value = true
+  pullDistance.value = 44
+  void triggerHaptic('medium')
+
+  try {
+    await refreshSettingsPage()
+  }
+  finally {
+    isPullRefreshing.value = false
+    pullDistance.value = 0
+  }
+}
 
 function jumpToSection(value: string) {
   if (value !== 'system' && value !== 'appearance' && value !== 'tasks' && value !== 'habits')
@@ -309,196 +591,203 @@ function jumpToSection(value: string) {
 </script>
 
 <template>
-  <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-        ←
-      </button>
-
-      <h1>Settings</h1>
+  <div class="page" @touchstart="onPullTouchStart" @touchmove="onPullTouchMove" @touchend="onPullTouchEnd"
+    @touchcancel="onPullTouchEnd">
+    <div class="pull-refresh"
+      :class="{ 'is-visible': showPullIndicator, 'is-ready': isPullReady, 'is-refreshing': isPullRefreshing }"
+      :aria-label="isPullRefreshing ? 'Refreshing settings' : 'Pull to refresh settings'" role="status">
+      <div class="pull-refresh-spinner" aria-hidden="true" />
+      <span>{{ isPullRefreshing ? 'Refreshing…' : isPullReady ? 'Release to refresh' : '' }}</span>
     </div>
 
-
-    <!-- Bottom nav bar for settings -->
-    <nav class="settings-bottom-bar">
-      <button v-for="section in sectionNav" :key="section.value" class="settings-bottom-bar-btn"
-        :class="{ active: selectedSection === section.value }" @click="jumpToSection(section.value)">
-        <component :is="section.icon" :size="22" />
-        <span>{{ section.label }}</span>
-      </button>
-    </nav>
-
-    <!-- system folder card -->
-    <div ref="systemSectionRef" class="card">
-      <div class="field">
-        <h2 class="card-title">System folder</h2>
-        <button class="glass-button folder-button" type="button" @click="pickBaseFolder">
-          Select folder
+    <div class="page-content" :style="pageContentStyle">
+      <div class="header">
+        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+          ←
         </button>
-        <p v-if="settings.baseFolderName" class="hint">
-          {{ settings.baseFolderName }}
-        </p>
-        <p v-else class="hint">
-          No folder selected
-        </p>
+
+        <h1>Settings</h1>
       </div>
-    </div>
 
-    <!-- appearance card -->
-    <div ref="appearanceSectionRef" class="card">
-      <h2 class="card-title">
-        Appearance
-      </h2>
-      <OptionSwitcher v-model="settings.theme" :options="themeOptions" aria-label="Theme" />
 
-      <div class="field accent-field">
-        <span>Accent color</span>
-        <div class="accent-controls">
-          <input v-model="accentPickerValue" class="accent-picker" type="color" aria-label="Accent color picker">
-          <button class="glass-button glass-button--secondary accent-reset" type="button" @click="resetAccentColor">
-            Reset default
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div ref="tasksSectionRef" class="section-anchor" aria-hidden="true" />
-
-    <div v-for="(preset, index) in settings.quickTaskPresets" :key="preset.id" class="card">
-      <div class="card-header">
-        <h2>Task {{ index + 1 }}</h2>
-        <button class="glass-icon-button remove-button" :disabled="settings.quickTaskPresets.length === 1"
-          @click="removePreset(preset.id)">
-          <Trash2 :size="14" />
+      <!-- Bottom nav bar for settings -->
+      <nav class="settings-bottom-bar">
+        <button v-for="section in sectionNav" :key="section.value" class="settings-bottom-bar-btn"
+          :class="{ active: selectedSection === section.value }" @click="jumpToSection(section.value)">
+          <component :is="section.icon" :size="22" />
+          <span>{{ section.label }}</span>
         </button>
-      </div>
+      </nav>
 
-      <label class="field">
-        <span>Label</span>
-        <input v-model="preset.label" type="text">
-      </label>
-
-      <label class="field">
-        <span>Tag</span>
-        <input v-model="preset.tag" type="text">
-      </label>
-
-      <div class="field">
-        <span>Save mode</span>
-
-        <div class="segmented-control" :data-active="preset.saveMode === 'daily_note' ? 'right' : 'left'">
-          <button type="button" class="segmented-option" :class="{ 'is-active': preset.saveMode === 'single_file' }"
-            @click="preset.saveMode = 'single_file'">
-            Custom filename
+      <!-- system folder card -->
+      <div ref="systemSectionRef" class="card">
+        <div class="field">
+          <h2 class="card-title">System folder</h2>
+          <button class="glass-button folder-button" type="button" @click="pickBaseFolder">
+            Select folder
           </button>
-
-          <button type="button" class="segmented-option" :class="{ 'is-active': preset.saveMode === 'daily_note' }"
-            @click="preset.saveMode = 'daily_note'">
-            Today’s date
-          </button>
+          <p v-if="settings.baseFolderName" class="hint">
+            {{ settings.baseFolderName }}
+          </p>
+          <p v-else class="hint">
+            No folder selected
+          </p>
         </div>
       </div>
 
-      <label class="field">
-        <span>Filename</span>
-        <input v-model="preset.fileName" type="text" placeholder="tasks.md"
-          :disabled="preset.saveMode === 'daily_note'">
-      </label>
-    </div>
+      <!-- appearance card -->
+      <div ref="appearanceSectionRef" class="card">
+        <h2 class="card-title">
+          Appearance
+        </h2>
+        <OptionSwitcher v-model="settings.theme" :options="themeOptions" aria-label="Theme" />
 
-    <button v-if="canAddPreset" class="glass-button glass-button--block glass-button--secondary add-button"
-      @click="addPreset">
-      + Add Task
-    </button>
-    <p class="hint add-limit-hint">
-      {{ settings.quickTaskPresets.length }}/{{ MAX_QUICK_TASK_PRESETS }} presets used
-    </p>
-
-    <div ref="habitsSectionRef">
-      <div v-for="(draft, idx) in habitDrafts" :key="idx" class="card">
-        <div class="card-header">
-          <h2>Habit {{ idx + 1 }}</h2>
-          <button class="glass-icon-button remove-button" :disabled="habitDrafts.length === 1"
-            @click="removeHabitDraft(idx)">
-            <Trash2 :size="14" />
-          </button>
-        </div>
-        <label class="field">
-          <span>Habit name</span>
-          <input v-model="draft.name" type="text" placeholder="Exercise" />
-        </label>
-        <label class="field">
-          <span>Widget icon</span>
-          <input v-model="draft.icon" type="text" placeholder="🏃" maxlength="8" style="width:6ch">
-          <small class="hint">Emoji shown on the Android home-screen widget.</small>
-        </label>
-        <div class="two-col-grid">
-          <label class="field">
-            <span>Period</span>
-            <select v-model="draft.period" class="glass-select">
-              <option value="day">Daily</option>
-              <option value="week">Weekly</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>{{ draft.period === 'week' ? 'Target per successful day' : 'Daily target' }}</span>
-            <input v-model.number="draft.targetCount" type="number" min="1" step="1">
-          </label>
-        </div>
-        <div v-if="draft.period === 'week'" class="two-col-grid">
-          <label class="field">
-            <span>Days per week</span>
-            <input v-model.number="draft.targetDays" type="number" min="1" :max="draft.scheduledDays.length || 1"
-              step="1">
-            <small class="hint">Example: 6 means you need to hit the amount goal on 6 scheduled days.</small>
-          </label>
-          <div class="field field-summary">
-            <span>Weekly goal</span>
-            <p class="habit-goal-summary">
-              {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }}/{{
-                draft.scheduledDays.length || 1 }} days
-            </p>
-          </div>
-        </div>
-        <div class="two-col-grid">
-          <label class="field">
-            <span>Unit</span>
-            <input v-model="draft.unit" type="text" placeholder="times">
-            <small class="hint">Display label, for example times, km, pages.</small>
-          </label>
-          <label class="field">
-            <span>Reminder</span>
-            <input v-model="draft.reminder" type="time">
-          </label>
-        </div>
-        <label class="checkbox-row">
-          <input v-model="draft.allowSkip" type="checkbox">
-          <span>Allow skip</span>
-        </label>
-        <div v-if="draft.period === 'week'" class="field">
-          <span>Scheduled days</span>
-          <small class="hint">For weekly habits, these are the eligible days counted toward the days-per-week
-            goal.</small>
-          <div class="day-row">
-            <button v-for="day in dayOptions" :key="day.value" type="button" class="day-chip"
-              :class="{ 'is-active': draft.scheduledDays.includes(day.value) }"
-              @click="toggleHabitScheduledDay(draft, day.value)">
-              {{ day.label }}
+        <div class="field accent-field">
+          <span>Accent color</span>
+          <div class="accent-controls">
+            <input v-model="accentPickerValue" class="accent-picker" type="color" aria-label="Accent color picker">
+            <button class="glass-button glass-button--secondary accent-reset" type="button" @click="resetAccentColor">
+              Reset default
             </button>
           </div>
         </div>
-        <p v-if="draft.savedFileName" class="hint success-text">
-          {{ draft.isSaving ? 'Auto-saving...' : `Auto-saved: ${draft.savedFileName}` }}
-        </p>
-        <p v-if="draft.saveError" class="hint error-text">
-          {{ draft.saveError }}
-        </p>
       </div>
-      <button v-if="habitDrafts.length < MAX_HABITS"
-        class="glass-button glass-button--block glass-button--secondary add-button" @click="addHabitDraft">
-        + Add Habit
+
+      <div ref="tasksSectionRef" class="section-anchor" aria-hidden="true" />
+
+      <div v-for="(preset, index) in settings.quickTaskPresets" :key="preset.id" class="card">
+        <div class="card-header">
+          <h2>Task {{ index + 1 }}</h2>
+          <button class="glass-icon-button remove-button" :disabled="settings.quickTaskPresets.length === 1"
+            @click="removePreset(preset.id)">
+            <Trash2 :size="14" />
+          </button>
+        </div>
+
+        <label class="field">
+          <span>Label</span>
+          <input v-model="preset.label" type="text">
+        </label>
+
+        <label class="field">
+          <span>Tag</span>
+          <input v-model="preset.tag" type="text">
+        </label>
+
+        <div class="field">
+          <span>Save mode</span>
+
+          <div class="segmented-control" :data-active="preset.saveMode === 'daily_note' ? 'right' : 'left'">
+            <button type="button" class="segmented-option" :class="{ 'is-active': preset.saveMode === 'single_file' }"
+              @click="preset.saveMode = 'single_file'">
+              Custom filename
+            </button>
+
+            <button type="button" class="segmented-option" :class="{ 'is-active': preset.saveMode === 'daily_note' }"
+              @click="preset.saveMode = 'daily_note'">
+              Today’s date
+            </button>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>Filename</span>
+          <input v-model="preset.fileName" type="text" placeholder="tasks.md"
+            :disabled="preset.saveMode === 'daily_note'">
+        </label>
+      </div>
+
+      <button v-if="canAddPreset" class="glass-button glass-button--block glass-button--secondary add-button"
+        @click="addPreset">
+        + Add Task
       </button>
-      <p class="hint add-limit-hint">{{ habitDrafts.length }}/{{ MAX_HABITS }} habits used</p>
+      <p class="hint add-limit-hint">
+        {{ settings.quickTaskPresets.length }}/{{ MAX_QUICK_TASK_PRESETS }} presets used
+      </p>
+
+      <div ref="habitsSectionRef">
+        <div v-for="(draft, idx) in habitDrafts" :key="idx" class="card">
+          <div class="card-header">
+            <h2>Habit {{ idx + 1 }}</h2>
+            <button class="glass-icon-button remove-button" :disabled="habitDrafts.length === 1"
+              @click="removeHabitDraft(idx)">
+              <Trash2 :size="14" />
+            </button>
+          </div>
+          <label class="field">
+            <span>Habit name</span>
+            <input v-model="draft.name" type="text" placeholder="Exercise" />
+          </label>
+          <label class="field">
+            <span>Widget icon</span>
+            <input v-model="draft.icon" type="text" placeholder="🏃" maxlength="8" style="width:6ch">
+            <small class="hint">Emoji shown on the Android home-screen widget.</small>
+          </label>
+          <div class="two-col-grid">
+            <label class="field">
+              <span>Period</span>
+              <select v-model="draft.period" class="glass-select">
+                <option value="day">Daily</option>
+                <option value="week">Weekly</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>{{ draft.period === 'week' ? 'Target per successful day' : 'Daily target' }}</span>
+              <input v-model.number="draft.targetCount" type="number" min="1" step="1">
+            </label>
+          </div>
+          <div v-if="draft.period === 'week'" class="two-col-grid">
+            <label class="field">
+              <span>Days per week</span>
+              <input v-model.number="draft.targetDays" type="number" min="1" :max="draft.scheduledDays.length || 1"
+                step="1">
+              <small class="hint">Example: 6 means you need to hit the amount goal on 6 scheduled days.</small>
+            </label>
+            <div class="field field-summary">
+              <span>Weekly goal</span>
+              <p class="habit-goal-summary">
+                {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }}/{{
+                  draft.scheduledDays.length || 1 }} days
+              </p>
+            </div>
+          </div>
+          <div class="two-col-grid">
+            <label class="field">
+              <span>Unit</span>
+              <input v-model="draft.unit" type="text" placeholder="times">
+              <small class="hint">Display label, for example times, km, pages.</small>
+            </label>
+            <label class="field">
+              <span>Reminder</span>
+              <input v-model="draft.reminder" type="time">
+            </label>
+          </div>
+          <label class="checkbox-row">
+            <input v-model="draft.allowSkip" type="checkbox">
+            <span>Allow skip</span>
+          </label>
+          <div v-if="draft.period === 'week'" class="field">
+            <span>Scheduled days</span>
+            <small class="hint">For weekly habits, these are the eligible days counted toward the days-per-week
+              goal.</small>
+            <div class="day-row">
+              <button v-for="day in dayOptions" :key="day.value" type="button" class="day-chip"
+                :class="{ 'is-active': draft.scheduledDays.includes(day.value) }"
+                @click="toggleHabitScheduledDay(draft, day.value)">
+                {{ day.label }}
+              </button>
+            </div>
+          </div>
+          <p v-if="draft.saveError" class="hint error-text">
+            {{ draft.saveError }}
+          </p>
+        </div>
+        <button v-if="habitDrafts.length < MAX_HABITS"
+          class="glass-button glass-button--block glass-button--secondary add-button" @click="addHabitDraft">
+          + Add Habit
+        </button>
+        <p class="hint add-limit-hint">{{ habitDrafts.length }}/{{ MAX_HABITS }} habits used</p>
+      </div>
     </div>
   </div>
 </template>
@@ -509,6 +798,62 @@ function jumpToSection(value: string) {
   padding: var(--page-top-padding) 20px 40px;
   background: var(--bg);
   color: var(--text);
+  overflow-x: hidden;
+  touch-action: pan-x pan-y;
+}
+
+.page-content {
+  will-change: transform;
+}
+
+.pull-refresh {
+  position: fixed;
+  top: calc(var(--page-top-padding) + 8px);
+  left: 0;
+  right: 0;
+  z-index: 120;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+.pull-refresh.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pull-refresh-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--text-soft) 22%, transparent);
+  border-top-color: color-mix(in srgb, var(--primary) 72%, var(--text));
+}
+
+.pull-refresh.is-ready .pull-refresh-spinner,
+.pull-refresh.is-refreshing .pull-refresh-spinner {
+  animation: pull-refresh-spin 0.75s linear infinite;
+}
+
+.pull-refresh:not(.is-ready):not(.is-refreshing) .pull-refresh-spinner {
+  transform: scale(0.86);
+}
+
+@keyframes pull-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .header {

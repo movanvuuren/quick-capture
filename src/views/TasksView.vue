@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
@@ -45,6 +46,8 @@ interface CachedQuickTaskFile {
 }
 
 const QUICK_TASK_READ_CONCURRENCY = 6
+const PULL_REFRESH_THRESHOLD = 72
+const PULL_REFRESH_MAX_DISTANCE = 120
 const TASK_REMINDER_STORAGE_KEY = 'quick-capture-task-reminders'
 
 let quickTaskCacheFolderUri = ''
@@ -88,6 +91,19 @@ const editingAlarmTaskId = ref<string | null>(null)
 const reminderTimes = ref<Record<string, string>>({})
 const highlightedTaskId = ref<string | null>(null)
 let highlightClearTimer: ReturnType<typeof setTimeout> | null = null
+const pullStartY = ref<number | null>(null)
+const pullStartX = ref<number | null>(null)
+const pullDistance = ref(0)
+const pullAxisLock = ref<'none' | 'vertical' | 'horizontal'>('none')
+const isPullRefreshing = ref(false)
+const pullReadyHapticPlayed = ref(false)
+
+const isPullReady = computed(() => pullDistance.value >= PULL_REFRESH_THRESHOLD)
+const showPullIndicator = computed(() => pullDistance.value > 0 || isPullRefreshing.value)
+const pageContentStyle = computed<CSSProperties>(() => ({
+  transform: `translateY(${pullDistance.value}px)`,
+  transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
+}))
 
 const taskStateOrder: Record<TaskState, number> = {
   pending: 0,
@@ -241,6 +257,116 @@ watch(taskFilterOptions, (options) => {
 
 function goBack() {
   router.push('/')
+}
+
+function isPageScrolledToTop() {
+  return window.scrollY <= 0
+}
+
+async function triggerHaptic(kind: 'light' | 'medium' = 'light') {
+  try {
+    const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
+    const style = kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light
+    await Haptics.impact({ style })
+    return
+  }
+  catch {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
+      navigator.vibrate(kind === 'medium' ? 20 : 10)
+  }
+}
+
+function resetPullState() {
+  pullStartY.value = null
+  pullStartX.value = null
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+  pullReadyHapticPlayed.value = false
+}
+
+function onPullTouchStart(event: TouchEvent) {
+  if (!settings.baseFolderUri || isPullRefreshing.value)
+    return
+  if (!isPageScrolledToTop())
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  pullStartY.value = touch.clientY
+  pullStartX.value = touch.clientX
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+}
+
+function onPullTouchMove(event: TouchEvent) {
+  if (pullStartY.value === null || pullStartX.value === null)
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const deltaY = touch.clientY - pullStartY.value
+  const deltaX = touch.clientX - pullStartX.value
+
+  if (pullAxisLock.value === 'none' && (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6))
+    pullAxisLock.value = Math.abs(deltaY) >= Math.abs(deltaX) ? 'vertical' : 'horizontal'
+
+  if (pullAxisLock.value === 'horizontal')
+    return
+
+  if (deltaY <= 0) {
+    pullDistance.value = 0
+    pullReadyHapticPlayed.value = false
+    return
+  }
+
+  if (!isPageScrolledToTop()) {
+    resetPullState()
+    return
+  }
+
+  event.preventDefault()
+  pullDistance.value = Math.min(PULL_REFRESH_MAX_DISTANCE, deltaY * 0.45)
+
+  const reachedReadyState = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  if (reachedReadyState && !pullReadyHapticPlayed.value) {
+    pullReadyHapticPlayed.value = true
+    void triggerHaptic('light')
+  }
+  else if (!reachedReadyState) {
+    pullReadyHapticPlayed.value = false
+  }
+}
+
+async function onPullTouchEnd() {
+  if (pullStartY.value === null)
+    return
+
+  const shouldRefresh = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  pullStartY.value = null
+  pullStartX.value = null
+  pullAxisLock.value = 'none'
+
+  if (!shouldRefresh) {
+    pullDistance.value = 0
+    return
+  }
+
+  isPullRefreshing.value = true
+  pullDistance.value = 44
+  void triggerHaptic('medium')
+
+  try {
+    invalidateQuickTaskCache()
+    await loadQuickTasks()
+  }
+  finally {
+    isPullRefreshing.value = false
+    pullDistance.value = 0
+  }
 }
 
 function todayIso(): string {
@@ -943,105 +1069,115 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-        ←
-      </button>
-
-      <h1>Quick Tasks</h1>
+  <div class="page" @touchstart="onPullTouchStart" @touchmove="onPullTouchMove" @touchend="onPullTouchEnd"
+    @touchcancel="onPullTouchEnd">
+    <div class="pull-refresh"
+      :class="{ 'is-visible': showPullIndicator, 'is-ready': isPullReady, 'is-refreshing': isPullRefreshing }"
+      :aria-label="isPullRefreshing ? 'Refreshing tasks' : 'Pull to refresh tasks'" role="status">
+      <div class="pull-refresh-spinner" aria-hidden="true" />
+      <span>{{ isPullRefreshing ? 'Refreshing…' : isPullReady ? 'Release to refresh' : '' }}</span>
     </div>
 
-    <div class="card glass-card quick-add-card">
-      <div class="quick-add-row">
-        <div class="preset-switcher-wrap">
-          <OptionSwitcher v-model="selectedPresetId" :options="presetOptions" aria-label="Task preset" />
-        </div>
-
-        <input v-model="newTaskText" class="glass-input quick-task-input" type="text" placeholder="Add quick task..."
-          @keydown.enter.prevent="addQuickTask">
-
-        <div class="quick-add-actions">
-          <input v-model="newDueDate" class="glass-input date-input quick-add-date" type="date">
-
-          <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
-            @click="addQuickTask">
-            Add
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="stats-row card glass-card">
-      <div v-if="taskFilterOptions.length > 0" class="filter-switcher-row">
-        <Filter :size="16" class="switcher-icon" />
-        <OptionSwitcher :model-value="selectedTaskFilter" :options="taskFilterOptions" aria-label="Task status filter"
-          @update:model-value="onTaskFilterChange" />
-      </div>
-      <div class="sort-switcher-row">
-        <ArrowUpDown :size="16" class="switcher-icon" />
-        <OptionSwitcher :model-value="selectedSortMode" :options="taskSortOptions" aria-label="Task sort mode"
-          @update:model-value="onTaskSortChange" />
-      </div>
-    </div>
-
-    <div v-if="isLoading" class="card glass-card empty-state">
-      Loading tasks...
-    </div>
-
-    <div v-else-if="error" class="card glass-card empty-state error-text">
-      {{ error }}
-    </div>
-
-    <div v-else-if="visibleTasks.length === 0" class="card glass-card empty-state">
-      No tasks found yet.
-    </div>
-
-    <div v-else class="task-list">
-      <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row" :data-task-id="task.id"
-        :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id }]">
-        <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
-          @click="toggleTaskState(task)">
-          {{ task.state === 'done' ? '✓' : task.state === 'cancelled' ? '–' : '○' }}
+    <div class="page-content" :style="pageContentStyle">
+      <div class="header">
+        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+          ←
         </button>
 
-        <div class="task-content">
-          <div class="task-main-line">
-            <input v-if="editingTaskId === task.id" v-model="editingTaskText" class="glass-input task-main-edit"
-              type="text" @keydown.enter.prevent="saveTaskText(task)" @keydown.esc.prevent="cancelEditTask"
-              @blur="saveTaskText(task)">
-            <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
-              {{ displayTaskBody(task) }}
-            </button>
+        <h1>Quick Tasks</h1>
+      </div>
 
-            <div v-if="task.dueDate || editingDueDateTaskId === task.id" class="task-datetime-stack">
-              <input class="glass-input inline-date" type="date" :value="task.dueDate || ''"
-                @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
-                @blur="hideDueDateEditor(task)">
-
-              <input v-if="task.dueDate && (hasReminder(task) || editingAlarmTaskId === task.id)"
-                class="glass-input inline-time" type="time" :value="getReminderTime(task)"
-                @change="changeReminderTime(task, ($event.target as HTMLInputElement).value)"
-                @blur="hideAlarmEditor(task)">
-              <button v-else-if="task.dueDate" class="glass-icon-button alarm-task-button" type="button"
-                aria-label="Set reminder" @click="showAlarmEditor(task)">
-                <AlarmClock :size="14" />
-              </button>
-            </div>
-            <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
-              @click="showDueDateEditor(task)">
-              Add date
-            </button>
-
-            <button class="glass-icon-button delete-task-button" type="button" :disabled="isSaving"
-              aria-label="Delete task" @click="deleteTask(task)">
-              <Trash2 :size="14" />
-            </button>
+      <div class="card glass-card quick-add-card">
+        <div class="quick-add-row">
+          <div class="preset-switcher-wrap">
+            <OptionSwitcher v-model="selectedPresetId" :options="presetOptions" aria-label="Task preset" />
           </div>
 
-          <div class="task-meta">
-            <span>{{ task.presetLabel || 'Preset' }}</span>
-            <span>{{ task.fileName }}</span>
+          <input v-model="newTaskText" class="glass-input quick-task-input" type="text" placeholder="Add quick task..."
+            @keydown.enter.prevent="addQuickTask">
+
+          <div class="quick-add-actions">
+            <input v-model="newDueDate" class="glass-input date-input quick-add-date" type="date">
+
+            <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
+              @click="addQuickTask">
+              Add
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-row card glass-card">
+        <div v-if="taskFilterOptions.length > 0" class="filter-switcher-row">
+          <Filter :size="16" class="switcher-icon" />
+          <OptionSwitcher :model-value="selectedTaskFilter" :options="taskFilterOptions" aria-label="Task status filter"
+            @update:model-value="onTaskFilterChange" />
+        </div>
+        <div class="sort-switcher-row">
+          <ArrowUpDown :size="16" class="switcher-icon" />
+          <OptionSwitcher :model-value="selectedSortMode" :options="taskSortOptions" aria-label="Task sort mode"
+            @update:model-value="onTaskSortChange" />
+        </div>
+      </div>
+
+      <div v-if="isLoading" class="card glass-card empty-state">
+        Loading tasks...
+      </div>
+
+      <div v-else-if="error" class="card glass-card empty-state error-text">
+        {{ error }}
+      </div>
+
+      <div v-else-if="visibleTasks.length === 0" class="card glass-card empty-state">
+        No tasks found yet.
+      </div>
+
+      <div v-else class="task-list">
+        <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row" :data-task-id="task.id"
+          :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id }]">
+          <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
+            @click="toggleTaskState(task)">
+            {{ task.state === 'done' ? '✓' : task.state === 'cancelled' ? '–' : '○' }}
+          </button>
+
+          <div class="task-content">
+            <div class="task-main-line">
+              <input v-if="editingTaskId === task.id" v-model="editingTaskText" class="glass-input task-main-edit"
+                type="text" @keydown.enter.prevent="saveTaskText(task)" @keydown.esc.prevent="cancelEditTask"
+                @blur="saveTaskText(task)">
+              <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
+                {{ displayTaskBody(task) }}
+              </button>
+
+              <div v-if="task.dueDate || editingDueDateTaskId === task.id" class="task-datetime-stack">
+                <input class="glass-input inline-date" type="date" :value="task.dueDate || ''"
+                  @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
+                  @blur="hideDueDateEditor(task)">
+
+                <input v-if="task.dueDate && (hasReminder(task) || editingAlarmTaskId === task.id)"
+                  class="glass-input inline-time" type="time" :value="getReminderTime(task)"
+                  @change="changeReminderTime(task, ($event.target as HTMLInputElement).value)"
+                  @blur="hideAlarmEditor(task)">
+                <button v-else-if="task.dueDate" class="glass-icon-button alarm-task-button" type="button"
+                  aria-label="Set reminder" @click="showAlarmEditor(task)">
+                  <AlarmClock :size="14" />
+                </button>
+              </div>
+              <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
+                @click="showDueDateEditor(task)">
+                Add date
+              </button>
+
+              <button class="glass-icon-button delete-task-button" type="button" :disabled="isSaving"
+                aria-label="Delete task" @click="deleteTask(task)">
+                <Trash2 :size="14" />
+              </button>
+            </div>
+
+            <div class="task-meta">
+              <span>{{ task.presetLabel || 'Preset' }}</span>
+              <span>{{ task.fileName }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -1054,6 +1190,62 @@ onMounted(async () => {
   min-height: 100vh;
   padding: var(--page-top-padding) 20px 40px;
   color: var(--text);
+  overflow-x: hidden;
+  touch-action: pan-x pan-y;
+}
+
+.page-content {
+  will-change: transform;
+}
+
+.pull-refresh {
+  position: fixed;
+  top: calc(var(--page-top-padding) + 8px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+.pull-refresh.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pull-refresh-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--text-soft) 22%, transparent);
+  border-top-color: color-mix(in srgb, var(--primary) 72%, var(--text));
+}
+
+.pull-refresh.is-ready .pull-refresh-spinner,
+.pull-refresh.is-refreshing .pull-refresh-spinner {
+  animation: pull-refresh-spin 0.75s linear infinite;
+}
+
+.pull-refresh:not(.is-ready):not(.is-refreshing) .pull-refresh-spinner {
+  transform: scale(0.86);
+}
+
+@keyframes pull-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .header {

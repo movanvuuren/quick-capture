@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import type { CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
 import { Check, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
@@ -37,6 +38,8 @@ const LOG_START = '<!-- QUICK_CAPTURE_HABIT_LOG_START -->'
 const LOG_END = '<!-- QUICK_CAPTURE_HABIT_LOG_END -->'
 const HEATMAP_WEEKS = 4
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+const PULL_REFRESH_THRESHOLD = 72
+const PULL_REFRESH_MAX_DISTANCE = 120
 
 const router = useRouter()
 const settings = loadSettings()
@@ -52,6 +55,21 @@ const isCreatingExample = ref(false)
 const exampleError = ref('')
 
 const hasBaseFolder = computed(() => Boolean(settings.baseFolderUri))
+const EXTERNAL_REFRESH_COOLDOWN_MS = 1000
+let lastExternalRefreshAt = 0
+
+const pullStartY = ref<number | null>(null)
+const pullStartX = ref<number | null>(null)
+const pullDistance = ref(0)
+const pullAxisLock = ref<'none' | 'vertical' | 'horizontal'>('none')
+const isPullRefreshing = ref(false)
+const pullReadyHapticPlayed = ref(false)
+const isPullReady = computed(() => pullDistance.value >= PULL_REFRESH_THRESHOLD)
+const showPullIndicator = computed(() => pullDistance.value > 0 || isPullRefreshing.value)
+const pageContentStyle = computed<CSSProperties>(() => ({
+  transform: `translateY(${pullDistance.value}px)`,
+  transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
+}))
 
 function goBack() {
   router.push('/')
@@ -699,6 +717,141 @@ async function loadHabits() {
   }
 }
 
+async function refreshHabitsFromExternal(force = false) {
+  if (!settings.baseFolderUri)
+    return
+  if (isLoading.value)
+    return
+
+  if (!force) {
+    const now = Date.now()
+    if (now - lastExternalRefreshAt < EXTERNAL_REFRESH_COOLDOWN_MS)
+      return
+
+    lastExternalRefreshAt = now
+  }
+
+  await loadHabits()
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'visible')
+    void refreshHabitsFromExternal()
+}
+
+function handleWindowFocus() {
+  void refreshHabitsFromExternal()
+}
+
+function isPageScrolledToTop() {
+  return window.scrollY <= 0
+}
+
+async function triggerHaptic(kind: 'light' | 'medium' = 'light') {
+  try {
+    const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
+    const style = kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light
+    await Haptics.impact({ style })
+    return
+  }
+  catch {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
+      navigator.vibrate(kind === 'medium' ? 20 : 10)
+  }
+}
+
+function resetPullState() {
+  pullStartY.value = null
+  pullStartX.value = null
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+  pullReadyHapticPlayed.value = false
+}
+
+function onPullTouchStart(event: TouchEvent) {
+  if (!settings.baseFolderUri || isPullRefreshing.value)
+    return
+  if (!isPageScrolledToTop())
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  pullStartY.value = touch.clientY
+  pullStartX.value = touch.clientX
+  pullDistance.value = 0
+  pullAxisLock.value = 'none'
+}
+
+function onPullTouchMove(event: TouchEvent) {
+  if (pullStartY.value === null || pullStartX.value === null)
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const deltaY = touch.clientY - pullStartY.value
+  const deltaX = touch.clientX - pullStartX.value
+
+  if (pullAxisLock.value === 'none' && (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6))
+    pullAxisLock.value = Math.abs(deltaY) >= Math.abs(deltaX) ? 'vertical' : 'horizontal'
+
+  if (pullAxisLock.value === 'horizontal')
+    return
+
+  if (deltaY <= 0) {
+    pullDistance.value = 0
+    pullReadyHapticPlayed.value = false
+    return
+  }
+
+  if (!isPageScrolledToTop()) {
+    resetPullState()
+    return
+  }
+
+  event.preventDefault()
+  pullDistance.value = Math.min(PULL_REFRESH_MAX_DISTANCE, deltaY * 0.45)
+
+  const reachedReadyState = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  if (reachedReadyState && !pullReadyHapticPlayed.value) {
+    pullReadyHapticPlayed.value = true
+    void triggerHaptic('light')
+  }
+  else if (!reachedReadyState) {
+    pullReadyHapticPlayed.value = false
+  }
+}
+
+async function onPullTouchEnd() {
+  if (pullStartY.value === null)
+    return
+
+  const shouldRefresh = pullDistance.value >= PULL_REFRESH_THRESHOLD
+  pullStartY.value = null
+  pullStartX.value = null
+  pullAxisLock.value = 'none'
+
+  if (!shouldRefresh) {
+    pullDistance.value = 0
+    return
+  }
+
+  isPullRefreshing.value = true
+  pullDistance.value = 44
+  void triggerHaptic('medium')
+
+  try {
+    await refreshHabitsFromExternal(true)
+  }
+  finally {
+    isPullRefreshing.value = false
+    pullDistance.value = 0
+  }
+}
+
 async function createExampleHabit() {
   if (!settings.baseFolderUri || isCreatingExample.value)
     return
@@ -759,128 +912,146 @@ async function createExampleHabit() {
 }
 
 onMounted(async () => {
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('focus', handleWindowFocus)
   await loadHabits()
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('focus', handleWindowFocus)
 })
 </script>
 
 <template>
-  <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-        ←
-      </button>
-      <h1>Habits</h1>
+  <div class="page" @touchstart="onPullTouchStart" @touchmove="onPullTouchMove" @touchend="onPullTouchEnd"
+    @touchcancel="onPullTouchEnd">
+    <div class="pull-refresh"
+      :class="{ 'is-visible': showPullIndicator, 'is-ready': isPullReady, 'is-refreshing': isPullRefreshing }"
+      :aria-label="isPullRefreshing ? 'Refreshing habits' : 'Pull to refresh habits'" role="status">
+      <div class="pull-refresh-spinner" aria-hidden="true" />
+      <span>{{ isPullRefreshing ? 'Refreshing…' : isPullReady ? 'Release to refresh' : '' }}</span>
     </div>
 
-    <div v-if="!hasBaseFolder" class="card glass-card empty-state">
-      <p class="empty-title">No folder selected</p>
-      <p class="empty-text">Choose a system folder in Settings before using habits.</p>
-      <button class="glass-button glass-button--primary" @click="router.push('/settings')">
-        Open Settings
-      </button>
-    </div>
-
-    <div v-else-if="isLoading" class="card glass-card empty-state">
-      Loading habits...
-    </div>
-
-    <div v-else-if="error" class="card glass-card empty-state error-text">
-      {{ error }}
-    </div>
-
-    <div v-else-if="habits.length === 0" class="card glass-card empty-state">
-      <p class="empty-title">No habits yet</p>
-      <p class="empty-text">Create one from Settings, or insert a ready-to-use example habit.</p>
-      <div class="empty-actions">
-        <button class="glass-button glass-button--primary" :disabled="isCreatingExample" @click="createExampleHabit">
-          {{ isCreatingExample ? 'Creating example...' : 'Create Example Habit' }}
+    <div class="page-content" :style="pageContentStyle">
+      <div class="header">
+        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+          ←
         </button>
-        <button class="glass-button glass-button--secondary" @click="router.push('/settings')">
+        <h1>Habits</h1>
+      </div>
+
+      <div v-if="!hasBaseFolder" class="card glass-card empty-state">
+        <p class="empty-title">No folder selected</p>
+        <p class="empty-text">Choose a system folder in Settings before using habits.</p>
+        <button class="glass-button glass-button--primary" @click="router.push('/settings')">
           Open Settings
         </button>
       </div>
-      <p v-if="exampleError" class="hint error-text">{{ exampleError }}</p>
-      <p class="hint">Example habit: Daily Walk (target 1 walk/day).</p>
-    </div>
 
-    <div v-else class="habit-list">
-      <div v-for="habit in habits" :key="habit.fileName" class="card glass-card habit-card">
-        <div class="habit-head">
-          <button class="habit-icon-wrap habit-icon-button" type="button" :title="`Change icon for ${habit.name}`"
-            :aria-label="`Change icon for ${habit.name}`" @click="editHabitIcon(habit)">
-            <span v-if="habit.icon" class="habit-emoji">{{ habit.icon }}</span>
-            <Flame v-else :size="16" />
+      <div v-else-if="isLoading" class="card glass-card empty-state">
+        Loading habits...
+      </div>
+
+      <div v-else-if="error" class="card glass-card empty-state error-text">
+        {{ error }}
+      </div>
+
+      <div v-else-if="habits.length === 0" class="card glass-card empty-state">
+        <p class="empty-title">No habits yet</p>
+        <p class="empty-text">Create one from Settings, or insert a ready-to-use example habit.</p>
+        <div class="empty-actions">
+          <button class="glass-button glass-button--primary" :disabled="isCreatingExample" @click="createExampleHabit">
+            {{ isCreatingExample ? 'Creating example...' : 'Create Example Habit' }}
           </button>
-          <div>
-            <h2>{{ habit.name }}</h2>
-          </div>
+          <button class="glass-button glass-button--secondary" @click="router.push('/settings')">
+            Open Settings
+          </button>
         </div>
+        <p v-if="exampleError" class="hint error-text">{{ exampleError }}</p>
+        <p class="hint">Example habit: Daily Walk (target 1 walk/day).</p>
+      </div>
 
-        <div class="habit-main-row">
-          <div class="heatmap-wrap">
-            <div class="heatmap-days" aria-hidden="true">
-              <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
-              }}</span>
-            </div>
-            <div class="heatmap-grid" role="img" :aria-label="`Heat map for ${habit.name}`">
-              <div v-for="cell in getHeatmap(habit)" :key="`${habit.fileName}-${cell.date}`" class="heatmap-cell"
-                :class="[
-                  `level-${cell.level}`,
-                  {
-                    'is-today': cell.isToday,
-                    'is-unscheduled': !cell.isScheduled,
-                    'is-future': cell.isFuture,
-                    'is-fail': cell.value === 'fail',
-                    'is-skip': cell.value === 'skip',
-                    'is-clickable': !cell.isFuture,
-                    'is-selected': isSelectedCell(habit, cell),
-                  },
-                ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
+      <div v-else class="habit-list">
+        <div v-for="habit in habits" :key="habit.fileName" class="card glass-card habit-card">
+          <div class="habit-head">
+            <button class="habit-icon-wrap habit-icon-button" type="button" :title="`Change icon for ${habit.name}`"
+              :aria-label="`Change icon for ${habit.name}`" @click="editHabitIcon(habit)">
+              <span v-if="habit.icon" class="habit-emoji">{{ habit.icon }}</span>
+              <Flame v-else :size="16" />
+            </button>
+            <div>
+              <h2>{{ habit.name }}</h2>
             </div>
           </div>
 
-          <div class="habit-controls">
-            <label v-if="habit.targetCount > 1" class="habit-count-entry">
-              <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
-              <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
-                :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
-                @change="handleSelectedNumberInput(habit, $event)">
-            </label>
-
-            <div class="habit-actions">
-              <button class="glass-button glass-button--secondary" type="button" @click="markSelectedDone(habit)">
-                <Check :size="14" />
-
-              </button>
-              <button class="glass-button glass-button--secondary" type="button" @click="markSelectedFail(habit)">
-                <X :size="14" />
-
-              </button>
-              <button v-if="habit.allowSkip" class="glass-button glass-button--secondary" type="button"
-                @click="markSelectedSkip(habit)">
-                <SkipForward :size="14" />
-
-              </button>
+          <div class="habit-main-row">
+            <div class="heatmap-wrap">
+              <div class="heatmap-days" aria-hidden="true">
+                <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
+                }}</span>
+              </div>
+              <div class="heatmap-grid" role="img" :aria-label="`Heat map for ${habit.name}`">
+                <div v-for="cell in getHeatmap(habit)" :key="`${habit.fileName}-${cell.date}`" class="heatmap-cell"
+                  :class="[
+                    `level-${cell.level}`,
+                    {
+                      'is-today': cell.isToday,
+                      'is-unscheduled': !cell.isScheduled,
+                      'is-future': cell.isFuture,
+                      'is-fail': cell.value === 'fail',
+                      'is-skip': cell.value === 'skip',
+                      'is-clickable': !cell.isFuture,
+                      'is-selected': isSelectedCell(habit, cell),
+                    },
+                  ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
+              </div>
             </div>
 
-            <p v-if="habitSaving[habit.fileName]" class="hint">Saving update...</p>
-            <p v-if="habitSaveErrors[habit.fileName]" class="hint error-text">{{ habitSaveErrors[habit.fileName] }}</p>
+            <div class="habit-controls">
+              <label v-if="habit.targetCount > 1" class="habit-count-entry">
+                <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
+                <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
+                  :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
+                  @change="handleSelectedNumberInput(habit, $event)">
+              </label>
+
+              <div class="habit-actions">
+                <button class="glass-button glass-button--secondary" type="button" @click="markSelectedDone(habit)">
+                  <Check :size="14" />
+
+                </button>
+                <button class="glass-button glass-button--secondary" type="button" @click="markSelectedFail(habit)">
+                  <X :size="14" />
+
+                </button>
+                <button v-if="habit.allowSkip" class="glass-button glass-button--secondary" type="button"
+                  @click="markSelectedSkip(habit)">
+                  <SkipForward :size="14" />
+
+                </button>
+              </div>
+
+              <p v-if="habitSaving[habit.fileName]" class="hint">Saving update...</p>
+              <p v-if="habitSaveErrors[habit.fileName]" class="hint error-text">{{ habitSaveErrors[habit.fileName] }}
+              </p>
+            </div>
           </div>
-        </div>
-        <p class="habit-score">{{ getStreakSummary(habit) }}</p>
-        <div class="habit-meta-row">
-          <!-- <span>{{ habit.period === 'week' ? 'Weekly' : 'Daily' }}</span> -->
-          <span>{{ getTargetSummary(habit) }}</span>
-          <!-- <span>{{ getSelectedDateTitle(habit) }}</span> -->
-          <span v-if="habit.reminder">Reminder: {{ habit.reminder }}</span>
-          <!-- <span class="mini-status">
-            <span class="mini-status-dot mini-status-dot--skip" />
-            Skip
-          </span>
-          <span class="mini-status">
-            <span class="mini-status-dot mini-status-dot--fail" />
-            Miss
-          </span> -->
+          <p class="habit-score">{{ getStreakSummary(habit) }}</p>
+          <div class="habit-meta-row">
+            <!-- <span>{{ habit.period === 'week' ? 'Weekly' : 'Daily' }}</span> -->
+            <span>{{ getTargetSummary(habit) }}</span>
+            <!-- <span>{{ getSelectedDateTitle(habit) }}</span> -->
+            <span v-if="habit.reminder">Reminder: {{ habit.reminder }}</span>
+            <!-- <span class="mini-status">
+              <span class="mini-status-dot mini-status-dot--skip" />
+              Skip
+            </span>
+            <span class="mini-status">
+              <span class="mini-status-dot mini-status-dot--fail" />
+              Miss
+            </span> -->
+          </div>
         </div>
       </div>
     </div>
@@ -892,6 +1063,62 @@ onMounted(async () => {
   min-height: 100vh;
   padding: var(--page-top-padding) 20px 36px;
   color: var(--text);
+  overflow-x: hidden;
+  touch-action: pan-x pan-y;
+}
+
+.page-content {
+  will-change: transform;
+}
+
+.pull-refresh {
+  position: fixed;
+  top: calc(var(--page-top-padding) + 8px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+.pull-refresh.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pull-refresh-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--text-soft) 22%, transparent);
+  border-top-color: color-mix(in srgb, var(--primary) 72%, var(--text));
+}
+
+.pull-refresh.is-ready .pull-refresh-spinner,
+.pull-refresh.is-refreshing .pull-refresh-spinner {
+  animation: pull-refresh-spin 0.75s linear infinite;
+}
+
+.pull-refresh:not(.is-ready):not(.is-refreshing) .pull-refresh-spinner {
+  transform: scale(0.86);
+}
+
+@keyframes pull-refresh-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .header {
