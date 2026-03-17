@@ -14,7 +14,7 @@ import {
   Undo2,
 } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import MetaWell from '../components/MetaWell.vue'
 import PageHeader from '../components/PageHeader.vue'
 import PinToggleButton from '../components/PinToggleButton.vue'
@@ -604,6 +604,24 @@ function scheduleAutosave(immediate = false) {
   }, AUTOSAVE_DELAY_MS)
 }
 
+async function flushPendingAutosave() {
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer)
+    autosaveTimer = null
+  }
+
+  await persistNote(false)
+
+  let guard = 0
+  while ((isPersisting || pendingAutosave) && guard < 60) {
+    await new Promise(resolve => setTimeout(resolve, 25))
+    guard += 1
+  }
+
+  if (!isPersisting)
+    await persistNote(false)
+}
+
 function handleEditorInput() {
   pushUndoSnapshot()
   scheduleAutosave()
@@ -826,8 +844,15 @@ watch(() => noteTitle.value, () => {
 })
 
 function goBack() {
-  router.back()
+  void (async () => {
+    await flushPendingAutosave()
+    router.back()
+  })()
 }
+
+onBeforeRouteLeave(async () => {
+  await flushPendingAutosave()
+})
 
 async function toggleNotePin() {
   if (!noteFileName.value || !settings.baseFolderUri)
