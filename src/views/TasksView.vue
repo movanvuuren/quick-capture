@@ -639,6 +639,30 @@ function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
   return scanned
 }
 
+function matchesScannedTask(task: QuickTaskItem, scanned: ParsedTaskLine): boolean {
+  return scanned.body === task.body
+    && scanned.state === task.state
+    && scanned.dueDate === task.dueDate
+    && Boolean(scanned.isHighPriority) === Boolean(task.isHighPriority)
+    && scanned.repeat === task.repeat
+}
+
+function resolveTaskLineIndex(lines: string[], task: QuickTaskItem): number {
+  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
+    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
+    if (parsedAtStoredIndex && matchesScannedTask(task, parsedAtStoredIndex))
+      return task.lineIndex
+  }
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const parsed = parseTaskLine(lines[lineIndex] || '')
+    if (parsed && matchesScannedTask(task, parsed))
+      return lineIndex
+  }
+
+  return -1
+}
+
 function invalidateQuickTaskCache(fileName?: string) {
   if (fileName) {
     quickTaskFileCache.delete(fileName)
@@ -812,10 +836,11 @@ async function updateTaskInFile(
   })
 
   const lines = read.content.split(/\r?\n/)
-  if (task.lineIndex < 0 || task.lineIndex >= lines.length)
+  const lineIndex = resolveTaskLineIndex(lines, task)
+  if (lineIndex < 0)
     return
 
-  lines[task.lineIndex] = serializeTaskLine(
+  lines[lineIndex] = serializeTaskLine(
     nextState,
     nextBody ?? task.body,
     nextDueDate,
@@ -1055,8 +1080,11 @@ async function deleteTask(task: QuickTaskItem) {
     })
 
     const lines = read.content.split(/\r?\n/)
-    if (task.lineIndex >= 0 && task.lineIndex < lines.length)
-      lines.splice(task.lineIndex, 1)
+    const lineIndex = resolveTaskLineIndex(lines, task)
+    if (lineIndex < 0)
+      throw new Error('Could not locate task line in file')
+
+    lines.splice(lineIndex, 1)
 
     await FolderPicker.writeFile({
       folderUri: settings.baseFolderUri,
@@ -1609,7 +1637,7 @@ h1 {
 
 .task-main-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) 130px 34px 34px;
   align-items: start;
   gap: 8px;
 }
@@ -1618,6 +1646,8 @@ h1 {
   display: grid;
   gap: 6px;
   align-content: start;
+  width: 130px;
+  min-width: 130px;
 }
 
 .task-main {
@@ -1701,6 +1731,7 @@ h1 {
 }
 
 .add-date-button {
+  width: 130px;
   min-height: 34px;
   padding: 6px 10px;
   border-radius: 12px;
@@ -1798,6 +1829,16 @@ h1 {
   .inline-time,
   .alarm-task-button {
     width: 124px;
+  }
+
+  .task-main-line {
+    grid-template-columns: minmax(0, 1fr) 124px 34px 34px;
+  }
+
+  .task-datetime-stack,
+  .add-date-button {
+    width: 124px;
+    min-width: 124px;
   }
 }
 </style>
