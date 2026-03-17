@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
+import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
@@ -20,6 +20,7 @@ interface ParsedTaskLine {
   state: TaskState
   body: string
   dueDate?: string
+  isHighPriority?: boolean
 }
 
 interface QuickTaskItem {
@@ -29,6 +30,7 @@ interface QuickTaskItem {
   state: TaskState
   body: string
   dueDate?: string
+  isHighPriority?: boolean
   presetId?: string
   presetLabel?: string
 }
@@ -38,6 +40,7 @@ interface ScannedQuickTaskLine {
   state: TaskState
   body: string
   dueDate?: string
+  isHighPriority?: boolean
 }
 
 interface CachedQuickTaskFile {
@@ -49,6 +52,7 @@ const QUICK_TASK_READ_CONCURRENCY = 6
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 const TASK_REMINDER_STORAGE_KEY = 'quick-capture-task-reminders'
+const TASK_STATE_CHANGE_SORT_DELAY = 300
 
 let quickTaskCacheFolderUri = ''
 const quickTaskFileCache = new Map<string, CachedQuickTaskFile>()
@@ -81,6 +85,7 @@ const error = ref('')
 const tasks = ref<QuickTaskItem[]>([])
 const newTaskText = ref('')
 const newDueDate = ref('')
+const newTaskIsHighPriority = ref(false)
 const selectedPresetId = ref(getDefaultPresetId())
 const selectedTaskFilter = ref<TaskFilter>('pending')
 const selectedSortMode = ref<TaskSortMode>('status')
@@ -90,7 +95,10 @@ const editingDueDateTaskId = ref<string | null>(null)
 const editingAlarmTaskId = ref<string | null>(null)
 const reminderTimes = ref<Record<string, string>>({})
 const highlightedTaskId = ref<string | null>(null)
+const swipingTaskId = ref<string | null>(null)
+const taskSwipeDistance = ref<Record<string, number>>({})
 let highlightClearTimer: ReturnType<typeof setTimeout> | null = null
+let sortDelayTimer: ReturnType<typeof setTimeout> | null = null
 const pullStartY = ref<number | null>(null)
 const pullStartX = ref<number | null>(null)
 const pullDistance = ref(0)
@@ -114,6 +122,10 @@ const taskStateOrder: Record<TaskState, number> = {
 const selectedPreset = computed(() =>
   settings.quickTaskPresets.find(preset => preset.id === selectedPresetId.value),
 )
+
+const getTaskSwipeDistance = (taskId: string) => {
+  return (taskSwipeDistance.value as Record<string, number | undefined>)[taskId] ?? 0
+}
 
 const presetOptions = computed(() =>
   orderedPresets().map(preset => ({
@@ -154,6 +166,10 @@ const visibleTasks = computed(() => {
     filteredTasks = presetTasks.value.filter(task => task.state === selectedTaskFilter.value)
 
   return filteredTasks.sort((a, b) => {
+    // High priority tasks first
+    if (!!a.isHighPriority !== !!b.isHighPriority)
+      return a.isHighPriority ? -1 : 1
+
     if (selectedSortMode.value === 'due') {
       const aDue = a.dueDate || '9999-99-99'
       const bDue = b.dueDate || '9999-99-99'
@@ -369,6 +385,79 @@ async function onPullTouchEnd() {
   }
 }
 
+function onTaskTouchStart(event: TouchEvent, taskId: string) {
+  if (editingTaskId.value || editingDueDateTaskId.value || editingAlarmTaskId.value)
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const el = event.currentTarget as HTMLElement
+  const data = el.dataset as Record<string, string | number>
+  data.swipeStartX = touch.clientX
+  data.swipeStartY = touch.clientY
+  data.swipeTaskId = taskId
+}
+
+function onTaskTouchMove(event: TouchEvent, taskId: string) {
+  const el = event.currentTarget as HTMLElement
+  const data = el.dataset as Record<string, string | number>
+  const startX = data.swipeStartX as unknown as number
+  const startY = data.swipeStartY as unknown as number
+
+  if (typeof startX !== 'number' || typeof startY !== 'number')
+    return
+
+  const touch = event.touches[0]
+  if (!touch)
+    return
+
+  const deltaX = touch.clientX - startX
+  const deltaY = touch.clientY - startY
+
+  // Ignore if mostly vertical movement
+  if (Math.abs(deltaY) > Math.abs(deltaX) * 0.5)
+    return
+
+  // Only handle right-to-left swipe (negative deltaX)
+  if (deltaX > -10)
+    return
+
+  const distance = Math.max(0, Math.min(100, -deltaX * 0.5))
+  taskSwipeDistance.value[taskId] = distance
+
+  if (distance > 10)
+    swipingTaskId.value = taskId
+}
+
+function onTaskTouchEnd(taskId: string) {
+  const distance = taskSwipeDistance.value[taskId] || 0
+
+  // Snap threshold at 25px
+  if (distance < 25) {
+    taskSwipeDistance.value[taskId] = 0
+  }
+  else {
+    taskSwipeDistance.value[taskId] = 50
+  }
+
+  if (swipingTaskId.value === taskId)
+    swipingTaskId.value = null
+
+  const el = document.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`) as HTMLElement | null
+  if (el) {
+    const data = el.dataset as Record<string, unknown>
+    delete data.swipeStartX
+    delete data.swipeStartY
+    delete data.swipeTaskId
+  }
+}
+
+function dismissTaskSwipe(taskId: string) {
+  taskSwipeDistance.value[taskId] = 0
+}
+
 function todayIso(): string {
   const now = new Date()
   const year = now.getFullYear()
@@ -533,26 +622,32 @@ async function changeReminderTime(task: QuickTaskItem, value: string) {
 }
 
 function parseTaskLine(line: string): ParsedTaskLine | null {
-  const match = line.match(/^\s*-\s\[([ xX-])\]\s+(.*)$/)
+  const match = line.match(/^\s*-\s\[([fFxX-\s]*?)\]\s+(.*)$/)
   if (!match)
     return null
 
-  const [, marker = ' ', rawBody = ''] = match
+  const [, markerRaw = '', rawBody = ''] = match
   const body = rawBody.trim()
+
+  const markerStr = markerRaw.toLowerCase()
+  const isHighPriority = markerStr.includes('f')
+
+  const stateChar = markerStr.replace(/f/g, '').trim() || ' '
 
   const dueMatch = body.match(/📅\s*(\d{4}-\d{2}-\d{2})/)
   const dueDate = dueMatch?.[1]
 
   let state: TaskState = 'pending'
-  if (marker === 'x' || marker === 'X')
+  if (stateChar === 'x')
     state = 'done'
-  else if (marker === '-')
+  else if (stateChar === '-')
     state = 'cancelled'
 
   return {
     state,
     body,
     dueDate,
+    isHighPriority: isHighPriority || undefined,
   }
 }
 
@@ -606,6 +701,7 @@ function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
       state: parsed.state,
       body: parsed.body,
       dueDate: parsed.dueDate,
+      isHighPriority: parsed.isHighPriority,
     })
   }
 
@@ -621,8 +717,10 @@ function invalidateQuickTaskCache(fileName?: string) {
   quickTaskFileCache.clear()
 }
 
-function serializeTaskLine(state: TaskState, body: string, dueDate?: string): string {
-  const marker = state === 'done' ? 'x' : state === 'cancelled' ? '-' : ' '
+function serializeTaskLine(state: TaskState, body: string, dueDate?: string, isHighPriority?: boolean): string {
+  let marker = state === 'done' ? 'x' : state === 'cancelled' ? '-' : ' '
+  if (isHighPriority)
+    marker = `${marker}f`.trim() || 'f'
 
   let normalizedBody = body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, ' ').trim()
   if (dueDate)
@@ -734,6 +832,7 @@ async function loadQuickTasks() {
           state: task.state,
           body: task.body,
           dueDate: task.dueDate,
+          isHighPriority: task.isHighPriority,
           presetId: preset.id,
           presetLabel: preset.label,
         })
@@ -769,6 +868,7 @@ async function updateTaskInFile(
   nextState: TaskState,
   nextDueDate?: string,
   nextBody?: string,
+  nextIsHighPriority?: boolean,
 ) {
   if (!settings.baseFolderUri)
     return
@@ -782,7 +882,12 @@ async function updateTaskInFile(
   if (task.lineIndex < 0 || task.lineIndex >= lines.length)
     return
 
-  lines[task.lineIndex] = serializeTaskLine(nextState, nextBody ?? task.body, nextDueDate)
+  lines[task.lineIndex] = serializeTaskLine(
+    nextState,
+    nextBody ?? task.body,
+    nextDueDate,
+    nextIsHighPriority ?? task.isHighPriority,
+  )
 
   await FolderPicker.writeFile({
     folderUri: settings.baseFolderUri,
@@ -803,12 +908,46 @@ async function toggleTaskState(task: QuickTaskItem) {
   task.state = nextState
 
   try {
-    await updateTaskInFile(task, nextState, task.dueDate)
+    await updateTaskInFile(task, nextState, task.dueDate, undefined, task.isHighPriority)
+
+    // Force immediate re-render without re-sorting by clearing any pending sort delay
+    if (sortDelayTimer !== null)
+      clearTimeout(sortDelayTimer)
+
+    // Add delay before re-sorting so user can see the status change
+    sortDelayTimer = setTimeout(() => {
+      sortDelayTimer = null
+    }, TASK_STATE_CHANGE_SORT_DELAY)
   }
   catch (err) {
     task.state = previousState
     console.error('Failed to toggle task state', err)
     error.value = 'Could not update task state.'
+  }
+  finally {
+    isSaving.value = false
+  }
+}
+
+async function toggleTaskPriority(task: QuickTaskItem) {
+  if (isSaving.value)
+    return
+
+  isSaving.value = true
+  const previousPriority = task.isHighPriority
+  task.isHighPriority = !previousPriority
+
+  try {
+    await updateTaskInFile(task, task.state, task.dueDate, undefined, task.isHighPriority)
+
+    // Force immediate re-render without re-sorting
+    if (sortDelayTimer !== null)
+      clearTimeout(sortDelayTimer)
+  }
+  catch (err) {
+    task.isHighPriority = previousPriority
+    console.error('Failed to toggle task priority', err)
+    error.value = 'Could not update task priority.'
   }
   finally {
     isSaving.value = false
@@ -858,8 +997,23 @@ function hideDueDateEditor(task: QuickTaskItem) {
     editingDueDateTaskId.value = null
 }
 
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function getTaskTag(task: QuickTaskItem): string {
+  const preset = settings.quickTaskPresets.find(candidate => candidate.id === task.presetId)
+  return preset?.tag?.trim() || ''
+}
+
 function displayTaskBody(task: QuickTaskItem): string {
-  return task.body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, '').trim()
+  const withoutDueDate = task.body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, '').trim()
+  const tag = getTaskTag(task)
+  if (!tag)
+    return withoutDueDate
+
+  const leadingTagPattern = new RegExp(`^${escapeForRegex(tag)}\\s+`)
+  return withoutDueDate.replace(leadingTagPattern, '').trim()
 }
 
 function startEditTask(task: QuickTaskItem) {
@@ -968,7 +1122,8 @@ async function addQuickTask() {
   const fileName = getTargetFileName(preset)
   const duePart = newDueDate.value ? ` 📅 ${newDueDate.value}` : ''
   const tagPart = preset.tag?.trim() ? `${preset.tag.trim()} ` : ''
-  const line = `- [ ] ${tagPart}${newTaskText.value.trim()}${duePart}`
+  const marker = newTaskIsHighPriority.value ? 'f' : ' '
+  const line = `- [${marker}] ${tagPart}${newTaskText.value.trim()}${duePart}`
 
   try {
     let existingContent = ''
@@ -1007,6 +1162,7 @@ async function addQuickTask() {
 
     newTaskText.value = ''
     newDueDate.value = ''
+    newTaskIsHighPriority.value = false
     await loadQuickTasks()
   }
   catch (err) {
@@ -1097,7 +1253,14 @@ onMounted(async () => {
             @keydown.enter.prevent="addQuickTask">
 
           <div class="quick-add-actions">
-            <input v-model="newDueDate" class="glass-input date-input quick-add-date" type="date">
+            <div class="quick-add-date-priority">
+              <input v-model="newDueDate" class="glass-input date-input quick-add-date" type="date">
+              <button class="glass-icon-button priority-toggle-button" :class="{ 'is-active': newTaskIsHighPriority }"
+                :aria-label="newTaskIsHighPriority ? 'High priority (click to remove)' : 'Not high priority (click to set)'"
+                @click="newTaskIsHighPriority = !newTaskIsHighPriority">
+                <Flame :size="14" />
+              </button>
+            </div>
 
             <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
               @click="addQuickTask">
@@ -1134,10 +1297,22 @@ onMounted(async () => {
 
       <div v-else class="task-list">
         <div v-for="task in visibleTasks" :key="task.id" class="card glass-card task-row" :data-task-id="task.id"
-          :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id }]">
+          :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id, 'is-high-priority': task.isHighPriority }]"
+          :style="{ transform: `translateX(-${getTaskSwipeDistance(task.id)}px)` }"
+          @touchstart="onTaskTouchStart($event, task.id)" @touchmove="onTaskTouchMove($event, task.id)"
+          @touchend="onTaskTouchEnd(task.id)" @touchcancel="onTaskTouchEnd(task.id)"
+          @click="getTaskSwipeDistance(task.id) > 0 && dismissTaskSwipe(task.id)">
           <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
             @click="toggleTaskState(task)">
-            {{ task.state === 'done' ? '✓' : task.state === 'cancelled' ? '–' : '○' }}
+            <Flame v-if="task.isHighPriority && task.state === 'pending'" :size="14" class="state-icon-flame"
+              aria-hidden="true" />
+            <span v-else class="state-icon">
+              <Square v-if="task.state === 'pending'" :size="12" :stroke-width="2.2" aria-hidden="true"
+                class="state-icon-square" />
+              <span v-else>{{ task.state === 'done' ? '✓' : '–' }}</span>
+            </span>
+            <Flame v-if="task.isHighPriority && task.state !== 'pending'" :size="12" class="state-flame"
+              aria-hidden="true" />
           </button>
 
           <div class="task-content">
@@ -1168,13 +1343,21 @@ onMounted(async () => {
                 Add date
               </button>
 
+              <button class="glass-icon-button priority-task-button" :class="{ 'is-active': task.isHighPriority }"
+                type="button" :disabled="isSaving"
+                :aria-label="task.isHighPriority ? 'High priority (click to remove)' : 'Set as high priority'"
+                @click="toggleTaskPriority(task)">
+                <Flame :size="14" />
+              </button>
+
               <button class="glass-icon-button delete-task-button" type="button" :disabled="isSaving"
                 aria-label="Delete task" @click="deleteTask(task)">
                 <Trash2 :size="14" />
               </button>
             </div>
 
-            <div class="task-meta">
+            <div class="task-meta" v-if="getTaskSwipeDistance(task.id) > 20">
+              <span v-if="getTaskTag(task)">{{ getTaskTag(task) }}</span>
               <span>{{ task.presetLabel || 'Preset' }}</span>
               <span>{{ task.fileName }}</span>
             </div>
@@ -1305,6 +1488,13 @@ h1 {
   gap: 8px;
 }
 
+.quick-add-date-priority {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 6px;
+}
+
 .date-input {
 
   padding-left: 10px;
@@ -1375,9 +1565,13 @@ h1 {
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 8px;
+  transition: transform 0.2s ease;
 }
 
 .state-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 32px;
   height: 32px;
   border-radius: 10px;
@@ -1386,6 +1580,29 @@ h1 {
   color: var(--state-pending-text);
   font-size: 0.95rem;
   font-weight: 700;
+  position: relative;
+  gap: 2px;
+}
+
+.state-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.state-icon-square {
+  display: block;
+}
+
+.state-icon-flame {
+  color: #ef4444;
+}
+
+.state-flame {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  color: #ef4444;
 }
 
 .state-button.done {
@@ -1406,7 +1623,7 @@ h1 {
 
 .task-main-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: start;
   gap: 8px;
 }
@@ -1532,6 +1749,43 @@ h1 {
 
 .delete-task-button:hover {
   color: var(--danger);
+}
+
+.priority-task-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: var(--text-soft);
+}
+
+.priority-task-button:hover {
+  color: #ef4444;
+}
+
+.priority-task-button.is-active {
+  color: #ef4444;
+  background: color-mix(in srgb, #ef4444 14%, transparent);
+}
+
+.priority-toggle-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  color: var(--text-soft);
+  flex-shrink: 0;
+}
+
+.priority-toggle-button:hover {
+  color: #ef4444;
+}
+
+.priority-toggle-button.is-active {
+  color: #ef4444;
+  background: color-mix(in srgb, #ef4444 14%, transparent);
+}
+
+.task-row.is-high-priority {
+  border-color: color-mix(in srgb, #ef4444 35%, var(--border));
 }
 
 @media (max-width: 860px) {
