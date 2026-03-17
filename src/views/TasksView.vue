@@ -1163,7 +1163,11 @@ async function addQuickTask() {
       const fm = parseFrontmatter(existingContent)
       if (!fm.type) {
         // Existing file without frontmatter — prepend type:task
-        newContent = `---\ntype: task\n---\n\n${existingContent.trimStart()}${line}\n`
+        const normalizedExisting = existingContent
+          .replace(/\r\n/g, '\n')
+          .trimStart()
+          .replace(/\n*$/, '\n')
+        newContent = `---\ntype: task\n---\n\n${normalizedExisting}${line}\n`
       }
       else {
         // File already has frontmatter — just append the task line
