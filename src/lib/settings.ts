@@ -30,6 +30,9 @@ export interface AppSettings {
   noteFileName?: string
 
   quickTaskPresets: QuickTaskPreset[]
+
+  /** show extra task metadata for troubleshooting */
+  debugMode?: boolean
 }
 
 const SETTINGS_KEY = 'quick-capture-settings'
@@ -60,6 +63,7 @@ export const defaultSettings: AppSettings = {
       fileName: 'tasks.md',
     },
   ],
+  debugMode: false,
 }
 
 export function getThemeAccentColor(theme: Theme): string {
@@ -122,6 +126,7 @@ export function loadSettings(): AppSettings {
       noteSaveMode: parsed.noteSaveMode === 'daily_note' ? 'daily_note' : 'single_file',
       noteFileName: parsed.noteFileName?.trim() || defaultSettings.noteFileName,
       quickTaskPresets: presets.length > 0 ? presets : defaultSettings.quickTaskPresets,
+      debugMode: parsed.debugMode === true,
     }
   }
   catch {
@@ -156,6 +161,7 @@ export function resetSettings(): AppSettings {
     listFileName: defaultSettings.listFileName,
     noteSaveMode: defaultSettings.noteSaveMode,
     noteFileName: defaultSettings.noteFileName,
+    debugMode: defaultSettings.debugMode,
     quickTaskPresets: defaultSettings.quickTaskPresets.map(preset => ({
       ...preset,
       id: crypto.randomUUID(),

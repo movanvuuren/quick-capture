@@ -29,6 +29,102 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "FolderPicker")
 public class FolderPickerPlugin extends Plugin {
 
+    private String sanitizeRelativePath(String path) {
+        if (path == null) return "";
+        String normalized = path.replace('\\', '/').trim();
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        return normalized;
+    }
+
+    private DocumentFile resolveDirectoryPath(DocumentFile baseDir, String relativePath, boolean createIfMissing) {
+        String normalized = sanitizeRelativePath(relativePath);
+        if (normalized.isEmpty()) {
+            return baseDir;
+        }
+
+        String[] parts = normalized.split("/");
+        DocumentFile current = baseDir;
+        for (String rawPart : parts) {
+            String part = rawPart == null ? "" : rawPart.trim();
+            if (part.isEmpty()) {
+                continue;
+            }
+
+            DocumentFile child = current.findFile(part);
+            if (child == null) {
+                if (!createIfMissing) {
+                    return null;
+                }
+                child = current.createDirectory(part);
+            }
+
+            if (child == null || !child.isDirectory()) {
+                return null;
+            }
+
+            current = child;
+        }
+
+        return current;
+    }
+
+    private DocumentFile findFileByRelativePath(DocumentFile baseDir, String filePath) {
+        String normalized = sanitizeRelativePath(filePath);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+
+        int slash = normalized.lastIndexOf('/');
+        String parentPath = slash >= 0 ? normalized.substring(0, slash) : "";
+        String fileName = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        if (fileName.isEmpty()) {
+            return null;
+        }
+
+        DocumentFile parentDir = resolveDirectoryPath(baseDir, parentPath, false);
+        if (parentDir == null) {
+            return null;
+        }
+
+        DocumentFile found = parentDir.findFile(fileName);
+        if (found == null || !found.isFile()) {
+            return null;
+        }
+
+        return found;
+    }
+
+    private DocumentFile getOrCreateFileByRelativePath(DocumentFile baseDir, String filePath, String mime) {
+        String normalized = sanitizeRelativePath(filePath);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+
+        int slash = normalized.lastIndexOf('/');
+        String parentPath = slash >= 0 ? normalized.substring(0, slash) : "";
+        String fileName = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        if (fileName.isEmpty()) {
+            return null;
+        }
+
+        DocumentFile parentDir = resolveDirectoryPath(baseDir, parentPath, true);
+        if (parentDir == null) {
+            return null;
+        }
+
+        DocumentFile existing = parentDir.findFile(fileName);
+        if (existing != null) {
+            return existing.isFile() ? existing : null;
+        }
+
+        return parentDir.createFile(mime, fileName);
+    }
+
     private DocumentFile resolveTree(String folderUriStr) {
         Uri treeUri = Uri.parse(folderUriStr);
         DocumentFile tree = DocumentFile.fromTreeUri(getContext(), treeUri);
@@ -75,6 +171,12 @@ public class FolderPickerPlugin extends Plugin {
             return;
         }
 
+        // Mirror the URI to SharedPreferences so the home-screen widget can read it
+        getContext().getSharedPreferences("quick_capture_prefs", android.content.Context.MODE_PRIVATE)
+            .edit()
+            .putString("folder_uri", treeUri.toString())
+            .apply();
+
         String folderName = DocumentsContract.getTreeDocumentId(treeUri);
 
         JSObject ret = new JSObject();
@@ -119,18 +221,15 @@ public class FolderPickerPlugin extends Plugin {
             return;
         }
 
-        DocumentFile file = tree.findFile(fileName);
         try {
             String mime = "text/plain";
             if (fileName.toLowerCase().endsWith(".md") || fileName.toLowerCase().endsWith(".markdown")) {
                 mime = "text/markdown";
             }
+            DocumentFile file = getOrCreateFileByRelativePath(tree, fileName, mime);
             if (file == null) {
-                file = tree.createFile(mime, fileName);
-                if (file == null) {
-                    call.reject("Unable to create file");
-                    return;
-                }
+                call.reject("Unable to create file");
+                return;
             }
 
             String mode = append ? "wa" : "w";
@@ -203,7 +302,7 @@ public class FolderPickerPlugin extends Plugin {
             return;
         }
 
-        DocumentFile file = tree.findFile(fileName);
+        DocumentFile file = findFileByRelativePath(tree, fileName);
         if (file == null || !file.isFile()) {
             call.reject("File not found");
             return;
@@ -251,7 +350,7 @@ public class FolderPickerPlugin extends Plugin {
             return;
         }
 
-        DocumentFile file = tree.findFile(fileName);
+        DocumentFile file = findFileByRelativePath(tree, fileName);
         if (file == null || !file.isFile()) {
             call.reject("File not found");
             return;

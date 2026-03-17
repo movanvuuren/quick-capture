@@ -6,6 +6,7 @@ const ListView = () => import('../views/ListView.vue')
 const NoteView = () => import('../views/NoteView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
 const TasksView = () => import('../views/TasksView.vue')
+const HabitsView = () => import('../views/HabitsView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -16,6 +17,7 @@ const router = createRouter({
     { path: '/lists', name: 'lists', component: ListView },
     { path: '/list/:id', name: 'list-detail', component: ListView },
     { path: '/tasks', name: 'tasks', component: TasksView },
+    { path: '/habits', name: 'habits', component: HabitsView },
     { path: '/task-list/:id', name: 'task-detail', component: ListView },
 
     { path: '/settings', component: SettingsView },

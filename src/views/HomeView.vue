@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { CSSProperties } from 'vue'
-import { CheckSquare, FileText, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
+import { CheckSquare, FileText, Flame, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -64,6 +64,7 @@ const activeTheme = computed(() => settings.value.theme || 'light')
 const swipeOffsets = ref<Record<string, number>>({})
 const activeSwipeKey = ref<string | null>(null)
 const swipeStartX = ref(0)
+const swipeStartY = ref(0)
 const swipeStartOffset = ref(0)
 const swipeMoved = ref(false)
 
@@ -417,6 +418,10 @@ function getCardOffset(card: DashboardCard) {
   return swipeOffsets.value[getCardKey(card)] ?? 0
 }
 
+function isCardMetaVisible() {
+  return settings.value.debugMode === true
+}
+
 function getCardStyle(card: DashboardCard) {
   return {
     transform: `translateX(-${getCardOffset(card)}px)`,
@@ -465,6 +470,7 @@ function onSwipeStart(card: DashboardCard, event: TouchEvent) {
 
   activeSwipeKey.value = key
   swipeStartX.value = touch.clientX
+  swipeStartY.value = touch.clientY
   swipeStartOffset.value = swipeOffsets.value[key] ?? 0
   swipeMoved.value = false
 }
@@ -477,6 +483,13 @@ function onSwipeMove(card: DashboardCard, event: TouchEvent) {
   const key = getCardKey(card)
   if (activeSwipeKey.value !== key)
     return
+
+  const deltaY = touch.clientY - swipeStartY.value
+  if (Math.abs(deltaY) > Math.abs(swipeStartX.value - touch.clientX) * 0.6)
+    return
+
+  if (event.cancelable)
+    event.preventDefault()
 
   const deltaX = swipeStartX.value - touch.clientX
   const nextOffset = Math.min(
@@ -830,9 +843,10 @@ async function toggleNotePin(note: AppFile) {
               <span>Delete</span>
             </button>
 
-            <div class="glass-button collection-card"
-              :class="{ 'collection-card--swiping': activeSwipeKey === getCardKey(card) }" :style="getCardStyle(card)"
-              @click="openCard(card)">
+            <div class="glass-button collection-card" :class="{
+              'collection-card--swiping': activeSwipeKey === getCardKey(card),
+              'collection-card--meta-hidden': !isCardMetaVisible(),
+            }" :style="getCardStyle(card)" @click="openCard(card)">
               <div class="collection-top">
                 <div class="collection-main">
                   <div class="type-icon-wrap" :class="{
@@ -879,7 +893,8 @@ async function toggleNotePin(note: AppFile) {
                 <div class="summary-progress-fill" :style="{ width: `${getProgressPercent(card.item)}%` }" />
               </div>
 
-              <div class="card-footer" :class="{ 'card-footer--note': card.kind === 'note' }">
+              <div v-if="isCardMetaVisible()" class="card-footer"
+                :class="{ 'card-footer--note': card.kind === 'note' }">
                 <div class="footer-spacer" />
                 <div class="footer-meta">
                   <span class="type-pill">{{ getCardTypeLabel(card.kind) }}</span>
@@ -905,7 +920,6 @@ async function toggleNotePin(note: AppFile) {
         </div>
 
         <div class="quick-add-actions">
-
           <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Quick tasks"
             aria-label="Quick tasks" @click="go('/tasks')">
             <CheckSquare :size="16" />
@@ -919,6 +933,11 @@ async function toggleNotePin(note: AppFile) {
           <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create note"
             aria-label="Create note" @click="go('/note')">
             <FileText :size="16" />
+          </button>
+
+          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Habits" aria-label="Habits"
+            @click="go('/habits')">
+            <Flame :size="16" />
           </button>
         </div>
       </div>
@@ -1027,6 +1046,7 @@ h1 {
   position: relative;
   border-radius: 30px;
   overflow: hidden;
+  touch-action: pan-y;
 }
 
 .swipe-delete-button {
@@ -1068,7 +1088,7 @@ h1 {
   align-items: stretch;
   justify-content: flex-start;
   gap: 12px;
-  min-height: 190px;
+  min-height: 172px;
   width: 100%;
   border-color: color-mix(in srgb, var(--c-light) 18%, transparent);
   background:
@@ -1085,6 +1105,12 @@ h1 {
 
 .collection-card--swiping {
   transition: none;
+}
+
+.collection-card--meta-hidden {
+  min-height: 148px;
+  gap: 10px;
+  padding-bottom: 12px;
 }
 
 .collection-top {
