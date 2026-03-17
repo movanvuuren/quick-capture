@@ -53,6 +53,7 @@ const lastSavedSignature = ref('')
 let autosaveTimer: ReturnType<typeof setTimeout> | null = null
 let isPersisting = false
 let pendingAutosave = false
+let tagDecorateTimer: ReturnType<typeof setTimeout> | null = null
 
 const autosaveLabel = computed(() => {
   if (autosaveState.value === 'saving')
@@ -97,6 +98,13 @@ function escapeHtml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+function tagHue(tag: string): number {
+  let hash = 0
+  for (let i = 0; i < tag.length; i++)
+    hash = ((hash << 5) - hash + tag.charCodeAt(i)) | 0
+  return Math.abs(hash) % 360
+}
+
 function renderMarkdown(md: string): string {
   const lines = md.split('\n')
   const out: string[] = []
@@ -109,12 +117,17 @@ function renderMarkdown(md: string): string {
   }
 
   function inlineRender(text: string): string {
-    return escapeHtml(text)
+    const inline = escapeHtml(text)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/~~(.+?)~~/g, '<s>$1</s>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
       .replace(/_(.+?)_/g, '<em>$1</em>')
       .replace(/`(.+?)`/g, '<code>$1</code>')
+
+    return inline.replace(/(^|\s)#([A-Za-z][\w-]{1,24})\b/g, (_m, lead, tag) => {
+      const hue = tagHue(tag)
+      return `${lead}<span class="tag-chip" style="--tag-h:${hue}">#${tag}</span>`
+    })
   }
 
   const paraBuffer: string[] = []
@@ -594,6 +607,158 @@ function scheduleAutosave(immediate = false) {
 function handleEditorInput() {
   pushUndoSnapshot()
   scheduleAutosave()
+  scheduleTagDecoration()
+}
+
+function getCaretOffsetWithin(scope: HTMLElement): number | null {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0)
+    return null
+
+  const range = selection.getRangeAt(0)
+  if (!range.collapsed || !scope.contains(range.startContainer))
+    return null
+
+  const pre = range.cloneRange()
+  pre.selectNodeContents(scope)
+  pre.setEnd(range.startContainer, range.startOffset)
+  return pre.toString().length
+}
+
+function restoreCaretOffsetWithin(scope: HTMLElement, targetOffset: number) {
+  const selection = window.getSelection()
+  if (!selection)
+    return
+
+  let remaining = Math.max(0, targetOffset)
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT)
+  let textNode: Node | null = walker.nextNode()
+
+  while (textNode) {
+    const value = textNode.nodeValue || ''
+    if (remaining <= value.length) {
+      const range = document.createRange()
+      range.setStart(textNode, remaining)
+      range.collapse(true)
+      selection.removeAllRanges()
+      selection.addRange(range)
+      return
+    }
+    remaining -= value.length
+    textNode = walker.nextNode()
+  }
+
+  const range = document.createRange()
+  range.selectNodeContents(scope)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function getActiveEditableBlock(): HTMLElement | null {
+  const editor = editorEl.value
+  if (!editor)
+    return null
+
+  const selection = window.getSelection()
+  const anchor = selection?.anchorNode
+  if (!anchor)
+    return null
+
+  const anchorEl = anchor instanceof HTMLElement ? anchor : anchor.parentElement
+  if (!anchorEl || !editor.contains(anchorEl))
+    return null
+
+  const block = anchorEl.closest('p,li,h1,h2,h3,div') as HTMLElement | null
+  return block && editor.contains(block) ? block : editor
+}
+
+function decorateTagsInScope(scope: HTMLElement) {
+  const sourceText = scope.textContent || ''
+  if (!sourceText.includes('#') && !scope.querySelector('.tag-chip'))
+    return
+
+  const caretOffset = getCaretOffsetWithin(scope)
+
+  const existing = Array.from(scope.querySelectorAll('span.tag-chip'))
+  existing.forEach((chip) => {
+    const text = chip.textContent || ''
+    chip.replaceWith(document.createTextNode(text))
+  })
+
+  const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT)
+  const nodes: Text[] = []
+  let current: Node | null = walker.nextNode()
+  while (current) {
+    if (current instanceof Text)
+      nodes.push(current)
+    current = walker.nextNode()
+  }
+
+  for (const textNode of nodes) {
+    const parent = textNode.parentElement
+    if (!parent)
+      continue
+    if (parent.closest('code,pre') || parent.classList.contains('tag-chip'))
+      continue
+
+    const value = textNode.nodeValue || ''
+    if (!value.includes('#'))
+      continue
+
+    const regex = /(^|\s)#([A-Za-z][\w-]{1,24})\b/g
+    let lastIndex = 0
+    let matched = false
+    const fragment = document.createDocumentFragment()
+    let match: RegExpExecArray | null
+
+    while ((match = regex.exec(value)) !== null) {
+      matched = true
+      const whole = match[0] || ''
+      const lead = match[1] || ''
+      const tag = match[2] || ''
+      const matchIndex = match.index
+
+      const leadOffset = whole.length - (`${lead}#${tag}`).length
+      const tagStart = matchIndex + Math.max(0, leadOffset)
+
+      if (tagStart > lastIndex)
+        fragment.appendChild(document.createTextNode(value.slice(lastIndex, tagStart)))
+
+      const chip = document.createElement('span')
+      chip.className = 'tag-chip'
+      chip.style.setProperty('--tag-h', String(tagHue(tag)))
+      chip.textContent = `#${tag}`
+      fragment.appendChild(chip)
+
+      lastIndex = tagStart + `#${tag}`.length
+    }
+
+    if (!matched)
+      continue
+
+    if (lastIndex < value.length)
+      fragment.appendChild(document.createTextNode(value.slice(lastIndex)))
+
+    textNode.replaceWith(fragment)
+  }
+
+  if (caretOffset !== null)
+    restoreCaretOffsetWithin(scope, caretOffset)
+}
+
+function scheduleTagDecoration() {
+  if (tagDecorateTimer) {
+    clearTimeout(tagDecorateTimer)
+    tagDecorateTimer = null
+  }
+
+  tagDecorateTimer = setTimeout(() => {
+    tagDecorateTimer = null
+    const block = getActiveEditableBlock()
+    if (block)
+      decorateTagsInScope(block)
+  }, 80)
 }
 
 const toolbarActions = [
@@ -648,6 +813,10 @@ onBeforeUnmount(() => {
   if (autosaveTimer) {
     clearTimeout(autosaveTimer)
     autosaveTimer = null
+  }
+  if (tagDecorateTimer) {
+    clearTimeout(tagDecorateTimer)
+    tagDecorateTimer = null
   }
 })
 
@@ -946,6 +1115,20 @@ async function saveNote() {
 .prose :deep(.empty-hint) {
   color: var(--text-soft);
   font-style: italic;
+}
+
+.prose :deep(.tag-chip) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin: 0 1px;
+  line-height: 1.25;
+  font-size: 0.82em;
+  font-weight: 600;
+  color: color-mix(in srgb, hsl(var(--tag-h) 76% 42%) 76%, var(--text));
+  background: color-mix(in srgb, hsl(var(--tag-h) 82% 58%) 24%, transparent);
+  border: 1px solid color-mix(in srgb, hsl(var(--tag-h) 80% 58%) 40%, transparent);
 }
 
 .save-button {

@@ -300,12 +300,21 @@ function escapeHtml(value: string) {
 }
 
 function renderInlineMarkdown(value: string) {
-  return escapeHtml(value)
+  const inline = escapeHtml(value)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/~~(.+?)~~/g, '<s>$1</s>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/_(.+?)_/g, '<em>$1</em>')
     .replace(/`(.+?)`/g, '<code>$1</code>')
+
+  return inline.replace(/(^|\s)#([A-Za-z][\w-]{1,24})\b/g, (_m, lead, tag) => {
+    let hash = 0
+    for (let i = 0; i < tag.length; i++)
+      hash = ((hash << 5) - hash + tag.charCodeAt(i)) | 0
+
+    const hue = Math.abs(hash) % 360
+    return `${lead}<span class="tag-chip" style="--tag-h:${hue}">#${tag}</span>`
+  })
 }
 
 function renderNotePreviewMarkdown(markdown: string) {
@@ -944,6 +953,11 @@ async function toggleNotePin(note: AppFile) {
                         <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index"
                           class="todo-preview-item">
                           <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
+                          <span
+                            v-if="card.kind === 'task' && previewItem.state === 'pending' && previewItem.isHighPriority"
+                            class="todo-preview-flame" aria-label="High priority" title="High priority">
+                            <Flame :size="11" />
+                          </span>
                           <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
                             previewItem.text }}</span>
                         </li>
@@ -1347,6 +1361,20 @@ h1 {
   opacity: 0.86;
 }
 
+.note-preview :deep(.tag-chip) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin: 0 1px;
+  line-height: 1.25;
+  font-size: 0.82em;
+  font-weight: 600;
+  color: color-mix(in srgb, hsl(var(--tag-h) 76% 42%) 76%, var(--text));
+  background: color-mix(in srgb, hsl(var(--tag-h) 82% 58%) 24%, transparent);
+  border: 1px solid color-mix(in srgb, hsl(var(--tag-h) 80% 58%) 40%, transparent);
+}
+
 .meta-line {
   margin: 0;
   color: var(--text-soft);
@@ -1392,6 +1420,16 @@ h1 {
 .todo-preview-dot.is-done {
   background: color-mix(in srgb, var(--primary) 80%, var(--c-light) 20%);
   border-color: color-mix(in srgb, var(--primary) 80%, var(--c-light) 20%);
+}
+
+.todo-preview-flame {
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: color-mix(in srgb, #f97316 74%, #f43f5e 26%);
 }
 
 .todo-preview-text {

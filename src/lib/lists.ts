@@ -1,6 +1,7 @@
 export interface TodoItem {
   text: string
   state: TodoState
+  isHighPriority?: boolean
 }
 
 export interface TodoList {
@@ -170,7 +171,13 @@ export function listToMarkdown(list: TodoList): string {
 
   const items = list.items
     .filter(item => item.text.trim().length > 0)
-    .map(item => `- [${stateToCheckbox(item.state)}] ${item.text.trim()}`)
+    .map((item) => {
+      const stateMarker = stateToCheckbox(item.state)
+      const marker = item.isHighPriority && item.state === 'pending'
+        ? `f${stateMarker === ' ' ? '' : stateMarker}`
+        : stateMarker
+      return `- [${marker}] ${item.text.trim()}`
+    })
     .join('\n')
 
   return [
@@ -198,13 +205,17 @@ export function markdownToList(markdown: string, fileName = ''): TodoList {
       continue
     }
 
-    const match = line.match(/^- \[([ xX-])\]\s+(.*)$/)
+    const match = line.match(/^- \[([fFxX\-\s]*?)\](?:\s+(.*))?$/)
     if (match) {
-      const [, rawState = ' ', rawText = ''] = match
+      const [, rawMarker = ' ', rawText = ''] = match
+      const markerStr = rawMarker.toLowerCase()
+      const isHighPriority = markerStr.includes('f')
+      const rawState = markerStr.replace(/f/g, '').trim() || ' '
 
       items.push({
         text: rawText.trim(),
         state: checkboxToState(rawState),
+        isHighPriority,
       })
     }
   }
