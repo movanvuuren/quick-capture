@@ -1,6 +1,6 @@
 import type { TodoList, StoredTodoList, Note, StoredNote } from './lists'
+import { getFileSignature, mapWithConcurrency } from './asyncUtils'
 import { FolderPicker } from '../plugins/folder-picker'
-import type { FolderFileEntry } from '../plugins/folder-picker'
 import {
   buildFrontmatter,
   coerceBoolean,
@@ -21,6 +21,7 @@ export interface AppFile {
   created?: string
   updated?: string
   preview: string
+  previewMarkdown?: string
 }
 
 export type TodoFileType = 'list' | 'task'
@@ -46,6 +47,12 @@ const DASHBOARD_READ_CONCURRENCY = 6
 
 let dashboardCacheFolderUri = ''
 const dashboardFileCache = new Map<string, CachedDashboardFile>()
+
+function toAppFileType(value: unknown): AppFile['type'] {
+  if (value === 'list' || value === 'task' || value === 'note')
+    return value
+  return 'note'
+}
 
 function setPinnedInMarkdown(markdown: string, pinned: boolean): string {
   const frontmatterMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
@@ -158,54 +165,20 @@ function cloneParsedDashboardFile(parsed: ParsedDashboardFile): ParsedDashboardF
   }
 }
 
-function getFileSignature(file: FolderFileEntry): string | null {
-  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
-    return null
-
-  return `${file.lastModified}:${file.size}`
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0)
-    return []
-
-  const results = new Array<R>(items.length)
-  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
-  let cursor = 0
-
-  const workers = Array.from({ length: runnerCount }, async () => {
-    while (true) {
-      const index = cursor
-      cursor += 1
-
-      if (index >= items.length)
-        return
-
-      results[index] = await mapper(items[index] as T, index)
-    }
-  })
-
-  await Promise.all(workers)
-  return results
-}
-
 function parseDashboardMarkdown(fileName: string, content: string): ParsedDashboardFile | null {
   const frontmatter = parseFrontmatter(content)
   if (frontmatter.type === 'habit')
     return null
 
   const body = stripFrontmatter(content)
-  const type = ['list', 'task', 'note'].includes(frontmatter.type as any)
-    ? (frontmatter.type as AppFile['type'])
-    : 'note'
+  const type = toAppFileType(frontmatter.type)
 
   const previewSource = type === 'note' ? stripLeadingHeading(body) : body
   const plainTextBody = markdownToPreviewText(previewSource)
   const preview = plainTextBody.substring(0, 80) + (plainTextBody.length > 80 ? '…' : '')
+  const previewMarkdown = type === 'note'
+    ? previewSource.trim().slice(0, 260)
+    : undefined
 
   const parsed: ParsedDashboardFile = {
     appFile: {
@@ -217,6 +190,7 @@ function parseDashboardMarkdown(fileName: string, content: string): ParsedDashbo
       created: frontmatter.created as string,
       updated: frontmatter.updated as string,
       preview,
+      previewMarkdown,
     },
   }
 

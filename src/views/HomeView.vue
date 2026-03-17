@@ -5,23 +5,16 @@ import { CalendarDays, CheckSquare, FileText, Flame, List, Plus, Search, Setting
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { FolderPicker } from '../plugins/folder-picker'
-import { loadSettings } from '../lib/settings'
+import { useDashboardData } from '../lib/useDashboardData'
+import { escapeHtml, renderNotePreviewMarkdown } from '../lib/notePreviewRenderer'
+import { getActiveItems, getCompletedCount, getPreviewItems, getPreviewOverflowCount, getProgressPercent } from '../lib/todoSelectors'
 import type { AppFile } from '../lib/listFiles'
 import {
   createListFile,
-  loadDashboardData,
   saveListToFile,
   setFilePinned,
 } from '../lib/listFiles'
 import type { StoredTodoList } from '../lib/lists'
-
-const HOME_REFRESH_DEBOUNCE_MS = 1200
-
-interface DashboardSnapshot {
-  lists: StoredTodoList[]
-  tasks: StoredTodoList[]
-  notes: AppFile[]
-}
 
 type DashboardCard =
   | { kind: 'list', item: StoredTodoList }
@@ -40,21 +33,21 @@ const SWIPE_MOVE_THRESHOLD = 10
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 
-let cachedFolderUri = ''
-let cachedAt = 0
-let cachedSnapshot: DashboardSnapshot | null = null
-let activeRefreshPromise: Promise<void> | null = null
-
 const router = useRouter()
-const settings = ref(loadSettings())
-const baseFolderUri = computed(() => settings.value.baseFolderUri || '')
-
-const lists = ref<StoredTodoList[]>([])
-const tasks = ref<StoredTodoList[]>([])
-const notes = ref<AppFile[]>([])
-
-const isLoading = ref(true)
-const error = ref('')
+const {
+  settings,
+  baseFolderUri,
+  lists,
+  tasks,
+  notes,
+  isLoading,
+  error,
+  sortPinnedTodos,
+  sortPinnedFiles,
+  syncDashboardCache,
+  syncSettingsAndRefresh,
+} = useDashboardData()
+const notePreviewHtmlCache = new Map<string, string>()
 
 const selectedKinds = ref<DashboardCard['kind'][]>(['list', 'note', 'task'])
 const allFilterKinds: DashboardCard['kind'][] = ['list', 'note', 'task']
@@ -133,126 +126,28 @@ const filteredDashboardCards = computed(() => {
   return dashboardCards.value.filter(card => selectedKinds.value.includes(card.kind))
 })
 
-function sortPinnedTodos(items: StoredTodoList[]): StoredTodoList[] {
-  return [...items].sort((a, b) => {
-    if (a.pinned && !b.pinned)
-      return -1
-    if (!a.pinned && b.pinned)
-      return 1
-    return a.fileName.localeCompare(b.fileName)
-  })
-}
-
-function sortPinnedFiles(items: AppFile[]): AppFile[] {
-  return [...items].sort((a, b) => {
-    if (a.pinned && !b.pinned)
-      return -1
-    if (!a.pinned && b.pinned)
-      return 1
-    return a.name.localeCompare(b.name)
-  })
-}
-
-function hasDashboardContent() {
-  return lists.value.length > 0 || tasks.value.length > 0 || notes.value.length > 0
-}
-
-function applySnapshot(snapshot: DashboardSnapshot) {
-  lists.value = sortPinnedTodos(snapshot.lists)
-  tasks.value = sortPinnedTodos(snapshot.tasks)
-  notes.value = sortPinnedFiles(snapshot.notes)
+async function syncDashboard(options: { preferCache?: boolean, force?: boolean } = {}) {
+  await syncSettingsAndRefresh(options)
   buildSortedDashboardCards()
 }
 
-function syncDashboardCache() {
-  if (!baseFolderUri.value)
-    return
-
-  cachedFolderUri = baseFolderUri.value
-  cachedAt = Date.now()
-  cachedSnapshot = {
-    lists: [...lists.value],
-    tasks: [...tasks.value],
-    notes: [...notes.value],
-  }
-}
-
-async function refreshDashboard(options: { preferCache?: boolean, force?: boolean } = {}) {
-  if (!baseFolderUri.value) {
-    lists.value = []
-    tasks.value = []
-    notes.value = []
-    buildSortedDashboardCards()
-    error.value = ''
-    isLoading.value = false
-    return
-  }
-
-  const shouldDebounceRefresh = !options.force
-    && cachedSnapshot
-    && cachedFolderUri === baseFolderUri.value
-    && Date.now() - cachedAt < HOME_REFRESH_DEBOUNCE_MS
-
-  if (!options.force && options.preferCache && cachedSnapshot && cachedFolderUri === baseFolderUri.value) {
-    applySnapshot(cachedSnapshot)
-    isLoading.value = false
-  }
-
-  if (shouldDebounceRefresh)
-    return
-
-  if (activeRefreshPromise)
-    return activeRefreshPromise
-
-  if (!hasDashboardContent())
-    isLoading.value = true
-
-  error.value = ''
-
-  activeRefreshPromise = (async () => {
-    try {
-      const dashboard = await loadDashboardData(baseFolderUri.value)
-      lists.value = dashboard.lists
-      tasks.value = dashboard.tasks
-      notes.value = sortPinnedFiles(dashboard.files.filter(file => file.type === 'note'))
-      buildSortedDashboardCards()
-      syncDashboardCache()
-    }
-    catch (err) {
-      console.error('Failed to load dashboard', err)
-      error.value = 'Failed to load files. Check folder permissions.'
-    }
-    finally {
-      isLoading.value = false
-      activeRefreshPromise = null
-    }
-  })()
-
-  return activeRefreshPromise
-}
-
-async function syncSettingsAndRefresh(options: { preferCache?: boolean, force?: boolean } = {}) {
-  settings.value = loadSettings()
-  await refreshDashboard(options)
-}
-
 function handleWindowFocus() {
-  void syncSettingsAndRefresh({ preferCache: true, force: true })
+  void syncDashboard({ preferCache: true, force: true })
 }
 
 function handleVisibilityChange() {
   if (document.visibilityState === 'visible')
-    void syncSettingsAndRefresh({ preferCache: true, force: true })
+    void syncDashboard({ preferCache: true, force: true })
 }
 
 onMounted(() => {
-  void syncSettingsAndRefresh({ preferCache: true })
+  void syncDashboard({ preferCache: true })
   window.addEventListener('focus', handleWindowFocus)
   document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onActivated(() => {
-  void syncSettingsAndRefresh({ preferCache: true, force: true })
+  void syncDashboard({ preferCache: true, force: true })
 })
 
 onBeforeUnmount(() => {
@@ -260,34 +155,22 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
-function getActiveItems(list: StoredTodoList) {
-  return list.items.filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
-}
+function getNotePreviewHtml(note: AppFile) {
+  const source = (note.previewMarkdown || '').trim()
+  const cacheKey = `${note.name}|${note.updated || note.created || ''}|${source}`
+  const cached = notePreviewHtmlCache.get(cacheKey)
+  if (cached)
+    return cached
 
-function getCompletedCount(list: StoredTodoList) {
-  return list.items.filter(item => item.state === 'done' && item.text.trim().length > 0).length
-}
+  const html = source
+    ? renderNotePreviewMarkdown(source)
+    : `<span class="empty">${escapeHtml(note.preview || 'No preview available.')}</span>`
 
-function getProgressPercent(list: StoredTodoList) {
-  const active = getActiveItems(list)
-  if (active.length === 0)
-    return 0
+  notePreviewHtmlCache.set(cacheKey, html)
+  if (notePreviewHtmlCache.size > 300)
+    notePreviewHtmlCache.clear()
 
-  const done = active.filter(item => item.state === 'done').length
-  return Math.round((done / active.length) * 100)
-}
-
-function getPreviewItems(list: StoredTodoList) {
-  return list.items
-    .filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
-    .slice(0, 3)
-}
-
-function getPreviewOverflowCount(list: StoredTodoList) {
-  const visibleCount = list.items
-    .filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
-    .length
-  return Math.max(visibleCount - 3, 0)
+  return html
 }
 
 function go(path: string) {
@@ -703,7 +586,7 @@ async function onPullTouchEnd() {
   void triggerHaptic('medium')
 
   try {
-    await syncSettingsAndRefresh({ force: true })
+    await syncDashboard({ force: true })
   }
   finally {
     isPullRefreshing.value = false
@@ -867,7 +750,8 @@ async function toggleNotePin(note: AppFile) {
                     <h3>{{ card.item.title || ('name' in card.item ? card.item.name : 'Untitled') }}</h3>
 
                     <template v-if="card.kind === 'note'">
-                      <p class="note-preview">{{ card.item.preview || 'No preview available.' }}</p>
+                      <!-- eslint-disable-next-line vue/no-v-html -->
+                      <p class="note-preview" v-html="getNotePreviewHtml(card.item)" />
                     </template>
 
                     <template v-else>
@@ -875,6 +759,11 @@ async function toggleNotePin(note: AppFile) {
                         <li v-for="(previewItem, index) in getPreviewItems(card.item)" :key="index"
                           class="todo-preview-item">
                           <span class="todo-preview-dot" :class="{ 'is-done': previewItem.state === 'done' }" />
+                          <span
+                            v-if="card.kind === 'task' && previewItem.state === 'pending' && previewItem.isHighPriority"
+                            class="todo-preview-flame" aria-label="High priority" title="High priority">
+                            <Flame :size="11" />
+                          </span>
                           <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
                             previewItem.text }}</span>
                         </li>
@@ -1244,13 +1133,52 @@ h1 {
   margin: 0;
   width: 100%;
   color: var(--text-soft);
-  font-size: 1rem;
+  font-size: 0.95rem;
   line-height: 1.45;
   display: -webkit-box;
   line-clamp: 3;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+.note-preview :deep(strong) {
+  color: color-mix(in srgb, var(--text) 88%, var(--primary) 12%);
+  font-weight: 650;
+}
+
+.note-preview :deep(em) {
+  font-style: italic;
+}
+
+.note-preview :deep(s) {
+  opacity: 0.8;
+}
+
+.note-preview :deep(code) {
+  font-family: ui-monospace, 'Cascadia Code', Menlo, Monaco, monospace;
+  font-size: 0.84em;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.note-preview :deep(.empty) {
+  opacity: 0.86;
+}
+
+.note-preview :deep(.tag-chip) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 1px 7px;
+  margin: 0 1px;
+  line-height: 1.25;
+  font-size: 0.82em;
+  font-weight: 600;
+  color: color-mix(in srgb, hsl(var(--tag-h) 76% 42%) 76%, var(--text));
+  background: color-mix(in srgb, hsl(var(--tag-h) 82% 58%) 24%, transparent);
+  border: 1px solid color-mix(in srgb, hsl(var(--tag-h) 80% 58%) 40%, transparent);
 }
 
 .meta-line {
@@ -1298,6 +1226,16 @@ h1 {
 .todo-preview-dot.is-done {
   background: color-mix(in srgb, var(--primary) 80%, var(--c-light) 20%);
   border-color: color-mix(in srgb, var(--primary) 80%, var(--c-light) 20%);
+}
+
+.todo-preview-flame {
+  width: 13px;
+  height: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: color-mix(in srgb, #f97316 74%, #f43f5e 26%);
 }
 
 .todo-preview-text {

@@ -32,8 +32,6 @@ public class HabitWidgetProvider extends AppWidgetProvider {
 
     static final String ACTION_TOGGLE = "com.mo.quickcapture.HABIT_WIDGET_TOGGLE";
     static final String EXTRA_WIDGET_ID = "widgetId";
-    static final String LOG_START = "<!-- QUICK_CAPTURE_HABIT_LOG_START -->";
-    static final String LOG_END = "<!-- QUICK_CAPTURE_HABIT_LOG_END -->";
     static final String HABIT_LOGS_DIR = "habit-logs";
 
     @Override
@@ -46,11 +44,24 @@ public class HabitWidgetProvider extends AppWidgetProvider {
     @Override
     public void onReceive(Context context, Intent intent) {
         super.onReceive(context, intent);
-        if (ACTION_TOGGLE.equals(intent.getAction())) {
+        String action = intent.getAction();
+        if (ACTION_TOGGLE.equals(action)) {
             int widgetId = intent.getIntExtra(EXTRA_WIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID);
             if (widgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
                 toggleHabitState(context, widgetId);
             }
+            return;
+        }
+
+        if (Intent.ACTION_DATE_CHANGED.equals(action)
+            || Intent.ACTION_TIME_CHANGED.equals(action)
+            || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
+            || Intent.ACTION_BOOT_COMPLETED.equals(action)) {
+            AppWidgetManager manager = AppWidgetManager.getInstance(context);
+            int[] widgetIds = manager.getAppWidgetIds(
+                new android.content.ComponentName(context, HabitWidgetProvider.class)
+            );
+            onUpdate(context, manager, widgetIds);
         }
     }
 
@@ -72,7 +83,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         String folderUri = getFolderUri(context);
         String fileName = prefs.getString("widget_" + widgetId + "_file", null);
         String habitId = prefs.getString("widget_" + widgetId + "_habit_id", null);
-        int targetCount = prefs.getInt("widget_" + widgetId + "_target", 1);
+        int targetCount = Math.max(1, prefs.getInt("widget_" + widgetId + "_target", 1));
 
         if (folderUri == null || fileName == null) return;
 
@@ -114,7 +125,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         String habitId = prefs.getString("widget_" + widgetId + "_habit_id", null);
         String habitName = prefs.getString("widget_" + widgetId + "_name", "Habit");
         String habitIcon = prefs.getString("widget_" + widgetId + "_icon", "");
-        int targetCount = prefs.getInt("widget_" + widgetId + "_target", 1);
+        int targetCount = Math.max(1, prefs.getInt("widget_" + widgetId + "_target", 1));
 
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.habit_widget);
         views.setTextViewText(R.id.widget_icon, habitIcon.isEmpty() ? "⭐" : habitIcon);
@@ -303,20 +314,6 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         pfd.close();
     }
 
-    /** Returns the raw value string for today ("1", "*", "!", or null if absent). */
-    static String getTodayValue(String content, String today) {
-        String prefix = "- " + today + ": ";
-        boolean inLog = false;
-        for (String line : content.split("\n", -1)) {
-            if (line.equals(LOG_START)) { inLog = true; continue; }
-            if (line.equals(LOG_END)) break;
-            if (inLog && line.startsWith(prefix)) {
-                return line.substring(prefix.length()).trim();
-            }
-        }
-        return null;
-    }
-
     static String getTodayValueFromMonthlyLog(String content, String today) {
         String month = today.substring(0, 7);
         String dayKey = "d" + today.substring(8, 10);
@@ -377,24 +374,8 @@ public class HabitWidgetProvider extends AppWidgetProvider {
     static String getTodayValueForHabit(Context context, String folderUri, String habitFileName, String habitId, String today) throws IOException {
         String logPath = monthLogFileName(habitFileName, habitId, today);
         String monthly = readFile(context, folderUri, logPath);
-        if (monthly != null) {
-            String fromMonthly = getTodayValueFromMonthlyLog(monthly, today);
-            if (fromMonthly != null) return fromMonthly;
-        }
-
-        // Backward compatibility: old builds used file-name-based stems.
-        String legacyLogPath = monthLogFileName(habitFileName, null, today);
-        if (!legacyLogPath.equals(logPath)) {
-            String legacyMonthly = readFile(context, folderUri, legacyLogPath);
-            if (legacyMonthly != null) {
-                String fromLegacyMonthly = getTodayValueFromMonthlyLog(legacyMonthly, today);
-                if (fromLegacyMonthly != null) return fromLegacyMonthly;
-            }
-        }
-
-        String legacy = readFile(context, folderUri, habitFileName);
-        if (legacy == null) return null;
-        return getTodayValue(legacy, today);
+        if (monthly == null) return null;
+        return getTodayValueFromMonthlyLog(monthly, today);
     }
 
     static String upsertMonthLogContent(String existingContent, String habitFileName, String today, String newValue) {
@@ -475,61 +456,4 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         writeFile(context, folderUri, logPath, updated);
     }
 
-    /**
-     * Returns updated file content with today's log entry set to newValue.
-     * Passing null removes today's entry.
-     */
-    static String updateTodayValue(String content, String today, String newValue) {
-        String prefix = "- " + today + ": ";
-        String[] lines = content.split("\n", -1);
-        List<String> result = new ArrayList<>();
-        boolean inLog = false;
-        boolean foundLogBlock = false;
-        boolean foundToday = false;
-        boolean addedNewValue = false;
-
-        for (String line : lines) {
-            if (line.equals(LOG_START)) {
-                inLog = true;
-                foundLogBlock = true;
-                result.add(line);
-                continue;
-            }
-            if (line.equals(LOG_END)) {
-                // Add new entry just before the closing marker if we haven't already
-                if (!foundToday && newValue != null && !addedNewValue) {
-                    result.add(prefix + newValue);
-                    addedNewValue = true;
-                }
-                inLog = false;
-                result.add(line);
-                continue;
-            }
-            if (inLog && line.startsWith(prefix)) {
-                foundToday = true;
-                if (newValue != null && !addedNewValue) {
-                    result.add(prefix + newValue); // replace
-                    addedNewValue = true;
-                }
-                // else: skip (effectively removes today's entry)
-                continue;
-            }
-            result.add(line);
-        }
-
-        // No log block in file at all – append one
-        if (!foundLogBlock && newValue != null) {
-            result.add("");
-            result.add(LOG_START);
-            result.add(prefix + newValue);
-            result.add(LOG_END);
-        }
-
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < result.size(); i++) {
-            if (i > 0) sb.append('\n');
-            sb.append(result.get(i));
-        }
-        return sb.toString();
-    }
 }

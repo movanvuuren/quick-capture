@@ -104,7 +104,7 @@ public class HabitWidgetConfigureActivity extends AppCompatActivity {
             .putString("widget_" + appWidgetId + "_file", habit.file)
             .putString("widget_" + appWidgetId + "_name", habit.name)
             .putString("widget_" + appWidgetId + "_icon", habit.icon != null ? habit.icon : "")
-            .putInt("widget_" + appWidgetId + "_target", habit.target)
+            .putInt("widget_" + appWidgetId + "_target", Math.max(1, habit.target))
             .apply();
 
         AppWidgetManager manager = AppWidgetManager.getInstance(this);

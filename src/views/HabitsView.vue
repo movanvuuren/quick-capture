@@ -4,6 +4,7 @@ import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
+import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { WidgetSync } from '../plugins/widget-sync'
@@ -48,9 +49,8 @@ interface CachedHabitDefinition {
   habit: HabitCard | null
 }
 
-const LOG_START = '<!-- QUICK_CAPTURE_HABIT_LOG_START -->'
-const LOG_END = '<!-- QUICK_CAPTURE_HABIT_LOG_END -->'
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+const HABIT_CONFIGS_DIR = 'habits'
 const HABIT_LOGS_DIR = 'habit-logs'
 const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 1
 const HABIT_LOG_READ_CONCURRENCY = 6
@@ -183,13 +183,6 @@ async function waitForNextFrame() {
   })
 }
 
-function getFileSignature(file: { lastModified?: number, size?: number }): string | null {
-  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
-    return null
-
-  return `${file.lastModified}:${file.size}`
-}
-
 function parseScheduledDays(value: unknown): number[] {
   if (Array.isArray(value))
     return value.map(v => Number(v)).filter(v => Number.isInteger(v) && v >= 1 && v <= 7)
@@ -204,37 +197,6 @@ function parseScheduledDays(value: unknown): number[] {
   }
 
   return [1, 2, 3, 4, 5, 6, 7]
-}
-
-function parseLegacyHabitLog(content: string): Record<string, HabitLogValue> {
-  const result: Record<string, HabitLogValue> = {}
-  const start = content.indexOf(LOG_START)
-  const end = content.indexOf(LOG_END)
-
-  if (start === -1 || end === -1 || end <= start)
-    return result
-
-  const block = content.slice(start + LOG_START.length, end)
-  const lines = block.split(/\r?\n/)
-
-  for (const line of lines) {
-    const match = line.match(/^-\s+(\d{4}-\d{2}-\d{2}):\s*(\*|!|\d+)\s*$/)
-    if (!match)
-      continue
-
-    const [, date, rawValue] = match
-    if (!date)
-      continue
-
-    if (rawValue === '*')
-      result[date] = 'skip'
-    else if (rawValue === '!')
-      result[date] = 'fail'
-    else
-      result[date] = Math.max(0, Number(rawValue))
-  }
-
-  return result
 }
 
 function normalizeHabitLogValue(raw: unknown): HabitLogValue | null {
@@ -336,34 +298,6 @@ function parseHabitMonthLog(content: string): Record<string, HabitLogValue> {
   return result
 }
 
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0)
-    return []
-
-  const results = new Array<R>(items.length)
-  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
-  let cursor = 0
-
-  const workers = Array.from({ length: runnerCount }, async () => {
-    while (true) {
-      const index = cursor
-      cursor += 1
-
-      if (index >= items.length)
-        return
-
-      results[index] = await mapper(items[index] as T, index)
-    }
-  })
-
-  await Promise.all(workers)
-  return results
-}
-
 async function loadHabitLogsForHabit(
   habit: HabitCard,
   monthsToLoad = HABIT_LOG_INITIAL_MONTHS_TO_LOAD,
@@ -401,16 +335,7 @@ async function loadHabitLogsForHabit(
       Object.assign(logs, monthLog)
   }
 
-  if (Object.keys(logs).length > 0)
-    return logs
-
-  try {
-    const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName: habit.fileName })
-    return parseLegacyHabitLog(read.content)
-  }
-  catch {
-    return {}
-  }
+  return logs
 }
 
 function toWeekdayIndex(date: Date): number {
@@ -1142,7 +1067,10 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
 
   activeHabitsLoadPromise = (async () => {
     try {
-      const listed = await FolderPicker.listFiles({ folderUri })
+      const listed = await FolderPicker.listFiles({
+        folderUri,
+        relativePath: HABIT_CONFIGS_DIR,
+      })
       const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
 
       const loaded = await mapWithConcurrency(
@@ -1150,19 +1078,20 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         HABIT_DEFINITION_READ_CONCURRENCY,
         async (file) => {
           try {
+            const habitFilePath = `${HABIT_CONFIGS_DIR}/${file.name}`
             const signature = getFileSignature(file)
-            const cachedDefinition = habitDefinitionCache.get(file.name)
+            const cachedDefinition = habitDefinitionCache.get(habitFilePath)
 
             if (signature && cachedDefinition && cachedDefinition.signature === signature)
               return cachedDefinition.habit ? { ...cachedDefinition.habit, scheduledDays: [...cachedDefinition.habit.scheduledDays] } : null
 
-            const read = await FolderPicker.readFile({ folderUri, fileName: file.name })
+            const read = await FolderPicker.readFile({ folderUri, fileName: habitFilePath })
             const frontmatter = parseFrontmatter(read.content)
             if (frontmatter.type !== 'habit') {
               if (signature)
-                habitDefinitionCache.set(file.name, { signature, habit: null })
+                habitDefinitionCache.set(habitFilePath, { signature, habit: null })
               else
-                habitDefinitionCache.delete(file.name)
+                habitDefinitionCache.delete(habitFilePath)
 
               return null
             }
@@ -1190,13 +1119,13 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
               reminder: String(frontmatter.reminder || ''),
               allowSkip: String(frontmatter.allowSkip || 'true') !== 'false',
               scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
-              fileName: file.name,
+              fileName: habitFilePath,
             } satisfies HabitCard
 
             if (signature)
-              habitDefinitionCache.set(file.name, { signature, habit: parsedHabit })
+              habitDefinitionCache.set(habitFilePath, { signature, habit: parsedHabit })
             else
-              habitDefinitionCache.delete(file.name)
+              habitDefinitionCache.delete(habitFilePath)
 
             return parsedHabit
           }
@@ -1206,7 +1135,7 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         },
       )
 
-      const activeNames = new Set(mdFiles.map(file => file.name))
+      const activeNames = new Set(mdFiles.map(file => `${HABIT_CONFIGS_DIR}/${file.name}`))
       for (const cachedName of Array.from(habitDefinitionCache.keys())) {
         if (!activeNames.has(cachedName))
           habitDefinitionCache.delete(cachedName)

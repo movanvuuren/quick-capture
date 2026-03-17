@@ -93,12 +93,35 @@ export class FolderPickerWeb implements FolderPickerPlugin {
   async listFiles(options: ListFilesOptions): Promise<ListFilesResult> {
     console.log('[Web Mock] Listing files in', options.folderUri)
 
+    const relativePath = (options.relativePath || '')
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/, '')
+
     const files: FolderFileEntry[] = []
 
-    for (const name of virtualFileSystem.keys()) {
-      const meta = virtualMetadata.get(name)
+    const added = new Set<string>()
+    for (const fullName of virtualFileSystem.keys()) {
+      const normalized = fullName.replace(/\\/g, '/')
+      let localName = normalized
+
+      if (relativePath) {
+        const prefix = `${relativePath}/`
+        if (!normalized.startsWith(prefix))
+          continue
+        localName = normalized.slice(prefix.length)
+      }
+
+      if (!localName || localName.includes('/'))
+        continue
+
+      if (added.has(localName))
+        continue
+
+      added.add(localName)
+      const meta = virtualMetadata.get(fullName)
       files.push({
-        name,
+        name: localName,
         isFile: true,
         size: meta?.size,
         lastModified: meta?.lastModified,

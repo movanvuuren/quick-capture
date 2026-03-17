@@ -13,6 +13,7 @@ const router = useRouter()
 const MAX_QUICK_TASK_PRESETS = 3
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
+const HABIT_CONFIGS_DIR = 'habits'
 type HabitPeriod = 'day' | 'week' | 'month'
 type SettingsSection = 'system' | 'appearance' | 'tasks' | 'habits'
 
@@ -306,7 +307,7 @@ function buildHabitMarkdown(draft: HabitDraft): string {
 async function uniqueHabitFileName(baseName: string): Promise<string> {
   if (!settings.baseFolderUri)
     return baseName
-  const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
+  const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri, relativePath: HABIT_CONFIGS_DIR })
   const existing = new Set(listed.files.map(file => file.name.toLowerCase()))
   if (!existing.has(baseName.toLowerCase()))
     return baseName
@@ -319,6 +320,10 @@ async function uniqueHabitFileName(baseName: string): Promise<string> {
   return `${stem}-${suffix}${ext}`
 }
 
+function toHabitConfigPath(fileName: string): string {
+  return `${HABIT_CONFIGS_DIR}/${fileName}`
+}
+
 async function loadHabitDrafts() {
   if (!settings.baseFolderUri) {
     habitDrafts.value = [createDefaultHabitDraft()]
@@ -328,13 +333,17 @@ async function loadHabitDrafts() {
   isHydratingHabitDrafts.value = true
 
   try {
-    const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
+    const listed = await FolderPicker.listFiles({
+      folderUri: settings.baseFolderUri,
+      relativePath: HABIT_CONFIGS_DIR,
+    })
     const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
 
     const loaded = await Promise.all(
       mdFiles.map(async (file): Promise<HabitDraft | null> => {
         try {
-          const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri as string, fileName: file.name })
+          const filePath = toHabitConfigPath(file.name)
+          const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri as string, fileName: filePath })
           const frontmatter = parseFrontmatter(read.content)
           if (frontmatter.type !== 'habit')
             return null
@@ -364,9 +373,9 @@ async function loadHabitDrafts() {
             saveError: '',
             savedFileName: '',
             isSaving: false,
-            currentFileName: file.name,
+            currentFileName: filePath,
             lastSavedSignature: '',
-            lastSavedFileName: file.name,
+            lastSavedFileName: filePath,
           }
 
           draft.lastSavedSignature = habitDraftSignature(draft)
@@ -406,7 +415,8 @@ async function saveHabitConfig(draft: HabitDraft) {
   try {
     if (!draft.currentFileName) {
       const fileStem = derivedHabitId(draft) || 'habit'
-      draft.currentFileName = await uniqueHabitFileName(`habit-${fileStem}.md`)
+      const uniqueFileName = await uniqueHabitFileName(`habit-${fileStem}.md`)
+      draft.currentFileName = toHabitConfigPath(uniqueFileName)
     }
     await FolderPicker.writeFile({
       folderUri: settings.baseFolderUri,

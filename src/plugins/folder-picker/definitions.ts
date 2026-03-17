@@ -26,6 +26,7 @@ export interface ReadFileResult {
 
 export interface ListFilesOptions {
   folderUri: string
+  relativePath?: string
 }
 
 export interface FolderFileEntry {

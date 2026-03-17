@@ -3,10 +3,12 @@ import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { parseFrontmatter } from '../lib/lists'
+import { parseTaskLine as parseSharedTaskLine } from '../lib/taskLine'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const HABIT_CONFIGS_DIR = 'habits'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 
@@ -160,28 +162,16 @@ function isDatedTaskFileName(fileName: string): boolean {
 }
 
 function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'lineIndex'> | null {
-  const match = line.match(/^\s*-\s\[([fFxX-\s]*?)\]\s+(.*)$/)
-  if (!match)
+  const parsed = parseSharedTaskLine(line)
+  if (!parsed)
     return null
 
-  const [, markerRaw = '', rawBody = ''] = match
-  const body = rawBody.trim()
-  const dueDate = body.match(/📅\s*(\d{4}-\d{2}-\d{2})/)?.[1]
+  const dueDate = parsed.dueDate
   if (!dueDate)
     return null
 
-  const markerStr = markerRaw.toLowerCase()
-  const isHighPriority = markerStr.includes('f')
-  const stateChar = markerStr.replace(/f/g, '').trim() || ' '
-
-  let state: TaskState = 'pending'
-  if (stateChar === 'x')
-    state = 'done'
-  else if (stateChar === '-')
-    state = 'cancelled'
-
   const displayBody = stripKnownTaskTags(
-    body
+    parsed.body
       .replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, '')
       .replace(/\s*🔁\s*(daily|weekly|weekdays|monthly)\s*/gi, '')
       .trim(),
@@ -189,9 +179,9 @@ function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'line
 
   return {
     body: displayBody,
-    state,
+    state: parsed.state as TaskState,
     dueDate,
-    isHighPriority,
+    isHighPriority: Boolean(parsed.isHighPriority),
   }
 }
 
@@ -208,11 +198,16 @@ async function loadAgendaData() {
     isLoading.value = true
     try {
       const listed = await FolderPicker.listFiles({ folderUri })
-      const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+      const taskMdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
+      const listedHabits = await FolderPicker.listFiles({
+        folderUri,
+        relativePath: HABIT_CONFIGS_DIR,
+      })
+      const habitMdFiles = listedHabits.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
       const tasks: AgendaTask[] = []
       const schedules: HabitSchedule[] = []
 
-      for (const file of mdFiles) {
+      for (const file of taskMdFiles) {
         try {
           const read = await FolderPicker.readFile({
             folderUri,
@@ -222,24 +217,6 @@ async function loadAgendaData() {
           const frontmatter = parseFrontmatter(read.content)
           const isTaskFileByType = frontmatter.type === 'task'
           const isTaskFileByName = isDatedTaskFileName(file.name)
-          if (frontmatter.type === 'habit') {
-            schedules.push({
-              fileName: file.name,
-              id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
-                ? frontmatter.id.trim()
-                : file.name.replace(/\.md$/i, ''),
-              name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
-                ? frontmatter.name.trim()
-                : file.name.replace(/\.md$/i, ''),
-              icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
-                ? frontmatter.icon.trim()
-                : '✓',
-              targetCount: Number.isFinite(Number(frontmatter.targetCount))
-                ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
-                : 1,
-              scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
-            })
-          }
 
           const lines = read.content.split(/\r?\n/)
           for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
@@ -262,6 +239,40 @@ async function loadAgendaData() {
         }
         catch (fileErr) {
           console.warn('Agenda: failed to read file', file.name, fileErr)
+        }
+      }
+
+      for (const file of habitMdFiles) {
+        const habitFilePath = `${HABIT_CONFIGS_DIR}/${file.name}`
+        try {
+          const read = await FolderPicker.readFile({
+            folderUri,
+            fileName: habitFilePath,
+          })
+
+          const frontmatter = parseFrontmatter(read.content)
+          if (frontmatter.type !== 'habit')
+            continue
+
+          schedules.push({
+            fileName: habitFilePath,
+            id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
+              ? frontmatter.id.trim()
+              : file.name.replace(/\.md$/i, ''),
+            name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
+              ? frontmatter.name.trim()
+              : file.name.replace(/\.md$/i, ''),
+            icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
+              ? frontmatter.icon.trim()
+              : '✓',
+            targetCount: Number.isFinite(Number(frontmatter.targetCount))
+              ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
+              : 1,
+            scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
+          })
+        }
+        catch (fileErr) {
+          console.warn('Agenda: failed to read habit file', habitFilePath, fileErr)
         }
       }
 

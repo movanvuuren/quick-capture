@@ -1,6 +1,9 @@
+import { parseTaskLine, serializeTaskLine } from './taskLine'
+
 export interface TodoItem {
   text: string
   state: TodoState
+  isHighPriority?: boolean
 }
 
 export interface TodoList {
@@ -33,25 +36,6 @@ export function slugify(str: string): string {
 
 export function formatDate(date = new Date()): string {
   return date.toISOString().slice(0, 10)
-}
-
-export function stateToCheckbox(state: TodoState): string {
-  switch (state) {
-    case 'done':
-      return 'x'
-    case 'cancelled':
-      return '-'
-    default:
-      return ' '
-  }
-}
-
-export function checkboxToState(value: string): TodoState {
-  if (value === 'x' || value === 'X')
-    return 'done'
-  if (value === '-')
-    return 'cancelled'
-  return 'pending'
 }
 
 export function escapeYamlValue(value: string): string {
@@ -170,7 +154,9 @@ export function listToMarkdown(list: TodoList): string {
 
   const items = list.items
     .filter(item => item.text.trim().length > 0)
-    .map(item => `- [${stateToCheckbox(item.state)}] ${item.text.trim()}`)
+    .map((item) => {
+      return serializeTaskLine(item.state, item.text.trim(), undefined, item.isHighPriority)
+    })
     .join('\n')
 
   return [
@@ -198,13 +184,12 @@ export function markdownToList(markdown: string, fileName = ''): TodoList {
       continue
     }
 
-    const match = line.match(/^- \[([ xX-])\]\s+(.*)$/)
-    if (match) {
-      const [, rawState = ' ', rawText = ''] = match
-
+    const parsed = parseTaskLine(line)
+    if (parsed) {
       items.push({
-        text: rawText.trim(),
-        state: checkboxToState(rawState),
+        text: parsed.body,
+        state: parsed.state,
+        isHighPriority: parsed.isHighPriority,
       })
     }
   }

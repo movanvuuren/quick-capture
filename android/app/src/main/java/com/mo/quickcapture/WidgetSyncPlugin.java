@@ -69,8 +69,17 @@ public class WidgetSyncPlugin extends Plugin {
             String selectedFile = widgetPrefs.getString("widget_" + widgetId + "_file", null);
             if (selectedFile != null) {
                 JSONObject latest = habitsByFile.get(selectedFile);
+                if (latest == null && !selectedFile.contains("/")) {
+                    // Migrate legacy root path habits to the new habits/<file>.md layout.
+                    String migratedPath = "habits/" + selectedFile;
+                    latest = habitsByFile.get(migratedPath);
+                    if (latest != null) {
+                        selectedFile = migratedPath;
+                    }
+                }
                 if (latest != null) {
                     widgetEditor
+                        .putString("widget_" + widgetId + "_file", selectedFile)
                         .putString("widget_" + widgetId + "_habit_id", latest.optString("id", ""))
                         .putString("widget_" + widgetId + "_name", latest.optString("name", "Habit"))
                         .putString("widget_" + widgetId + "_icon", latest.optString("icon", ""))

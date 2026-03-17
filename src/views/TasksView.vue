@@ -4,25 +4,18 @@ import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
-import { Capacitor } from '@capacitor/core'
-import { LocalNotifications } from '@capacitor/local-notifications'
 import { FolderPicker } from '../plugins/folder-picker'
-import type { FolderFileEntry } from '../plugins/folder-picker'
+import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
+import { invalidateQuickTaskCache, loadQuickTasksFromFolder, updateTaskInFolder } from '../lib/quickTasksData'
+import { cancelTaskReminderNotification, scheduleTaskReminderNotification } from '../lib/taskReminderService'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
+import type { TaskRepeat } from '../lib/taskLine'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 type TaskFilter = 'all' | TaskState | 'overdue' | 'closed'
 type TaskSortMode = 'status' | 'due'
-
-interface ParsedTaskLine {
-  state: TaskState
-  body: string
-  dueDate?: string
-  isHighPriority?: boolean
-  repeat?: string
-}
 
 interface QuickTaskItem {
   id: string
@@ -32,23 +25,9 @@ interface QuickTaskItem {
   body: string
   dueDate?: string
   isHighPriority?: boolean
-  repeat?: string
+  repeat?: TaskRepeat
   presetId?: string
   presetLabel?: string
-}
-
-interface ScannedQuickTaskLine {
-  lineIndex: number
-  state: TaskState
-  body: string
-  dueDate?: string
-  isHighPriority?: boolean
-  repeat?: string
-}
-
-interface CachedQuickTaskFile {
-  signature: string
-  tasks: ScannedQuickTaskLine[]
 }
 
 const QUICK_TASK_READ_CONCURRENCY = 6
@@ -56,9 +35,6 @@ const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 const TASK_REMINDER_STORAGE_KEY = 'quick-capture-task-reminders'
 const TASK_STATE_CHANGE_SORT_DELAY = 300
-
-let quickTaskCacheFolderUri = ''
-const quickTaskFileCache = new Map<string, CachedQuickTaskFile>()
 
 const router = useRouter()
 const route = useRoute()
@@ -212,12 +188,6 @@ const taskCounts = computed(() => {
 const taskFilterOptions = computed(() => {
   const options = [
     {
-      value: 'all',
-      label: '',
-      count: taskCounts.value.total,
-      icon: LayoutGrid,
-    },
-    {
       value: 'pending',
       label: '',
       count: taskCounts.value.pending,
@@ -235,6 +205,12 @@ const taskFilterOptions = computed(() => {
       count: taskCounts.value.overdue,
       icon: AlertTriangle,
     },
+    {
+      value: 'all',
+      label: '',
+      count: taskCounts.value.total,
+      icon: LayoutGrid,
+    }
   ]
 
   return options
@@ -265,7 +241,7 @@ function onTaskSortChange(value: string) {
 watch(taskFilterOptions, (options) => {
   const selectedStillVisible = options.some(option => option.value === selectedTaskFilter.value)
   if (!selectedStillVisible)
-    selectedTaskFilter.value = 'all'
+    selectedTaskFilter.value = 'pending'
 })
 
 function goBack() {
@@ -410,15 +386,6 @@ function persistReminderTimes() {
   window.localStorage.setItem(TASK_REMINDER_STORAGE_KEY, JSON.stringify(reminderTimes.value))
 }
 
-function notificationIdForTask(task: QuickTaskItem): number {
-  const source = `task-reminder:${task.fileName}:${task.lineIndex}`
-  let hash = 0
-  for (let i = 0; i < source.length; i += 1)
-    hash = ((hash << 5) - hash + source.charCodeAt(i)) | 0
-
-  return Math.abs(hash) || 1
-}
-
 function getReminderTime(task: QuickTaskItem): string {
   return reminderTimes.value[task.id] || ''
 }
@@ -427,87 +394,11 @@ function hasReminder(task: QuickTaskItem): boolean {
   return !!getReminderTime(task)
 }
 
-function reminderDateFromTask(task: QuickTaskItem, time: string): Date | null {
-  if (!task.dueDate || !time)
-    return null
-
-  const [hourRaw, minuteRaw] = time.split(':')
-  const hour = Number.parseInt(hourRaw || '', 10)
-  const minute = Number.parseInt(minuteRaw || '', 10)
-  if (!Number.isInteger(hour) || !Number.isInteger(minute))
-    return null
-
-  const date = new Date(`${task.dueDate}T00:00:00`)
-  if (Number.isNaN(date.getTime()))
-    return null
-
-  date.setHours(hour, minute, 0, 0)
-  if (date.getTime() <= Date.now())
-    return null
-
-  return date
-}
-
-async function ensureNotificationPermission(): Promise<boolean> {
-  if (!Capacitor.isNativePlatform())
-    return true
-
-  const status = await LocalNotifications.checkPermissions()
-  if (status.display === 'granted')
-    return true
-
-  const requested = await LocalNotifications.requestPermissions()
-  return requested.display === 'granted'
-}
-
-async function cancelReminderNotification(task: QuickTaskItem) {
-  if (!Capacitor.isNativePlatform())
-    return
-
-  try {
-    await LocalNotifications.cancel({
-      notifications: [{ id: notificationIdForTask(task) }],
-    })
-  }
-  catch {
-    // Ignore cleanup errors to avoid blocking task operations.
-  }
-}
-
-async function scheduleReminderNotification(task: QuickTaskItem, time: string) {
-  if (!Capacitor.isNativePlatform())
-    return
-
-  const at = reminderDateFromTask(task, time)
-  if (!at)
-    throw new Error('Reminder date/time must be in the future')
-
-  const hasPermission = await ensureNotificationPermission()
-  if (!hasPermission)
-    throw new Error('Notification permission not granted')
-
-  const id = notificationIdForTask(task)
-  await LocalNotifications.cancel({ notifications: [{ id }] })
-  await LocalNotifications.schedule({
-    notifications: [
-      {
-        id,
-        title: 'Task reminder',
-        body: displayTaskBody(task),
-        smallIcon: 'ic_stat_quick_capture',
-        iconColor: '#22c55e',
-        schedule: { at },
-        extra: { taskId: task.id },
-      },
-    ],
-  })
-}
-
 async function clearTaskReminder(task: QuickTaskItem) {
   delete reminderTimes.value[task.id]
   persistReminderTimes()
   editingAlarmTaskId.value = editingAlarmTaskId.value === task.id ? null : editingAlarmTaskId.value
-  await cancelReminderNotification(task)
+  await cancelTaskReminderNotification(task.fileName, task.lineIndex)
 }
 
 async function setTaskReminderTime(task: QuickTaskItem, time: string) {
@@ -517,7 +408,13 @@ async function setTaskReminderTime(task: QuickTaskItem, time: string) {
     return
   }
 
-  await scheduleReminderNotification(task, normalized)
+  await scheduleTaskReminderNotification({
+    fileName: task.fileName,
+    lineIndex: task.lineIndex,
+    dueDate: task.dueDate,
+    taskId: task.id,
+    body: displayTaskBody(task),
+  }, normalized)
   reminderTimes.value = {
     ...reminderTimes.value,
     [task.id]: normalized,
@@ -545,143 +442,6 @@ async function changeReminderTime(task: QuickTaskItem, value: string) {
     console.error('Failed to set reminder', err)
     error.value = 'Could not set reminder notification.'
   }
-}
-
-function parseTaskLine(line: string): ParsedTaskLine | null {
-  const match = line.match(/^\s*-\s\[([fFxX-\s]*?)\]\s+(.*)$/)
-  if (!match)
-    return null
-
-  const [, markerRaw = '', rawBody = ''] = match
-  const body = rawBody.trim()
-
-  const markerStr = markerRaw.toLowerCase()
-  const isHighPriority = markerStr.includes('f')
-
-  const stateChar = markerStr.replace(/f/g, '').trim() || ' '
-
-  const dueMatch = body.match(/📅\s*(\d{4}-\d{2}-\d{2})/)
-  const dueDate = dueMatch?.[1]
-
-  const repeatMatch = body.match(/🔁\s*(daily|weekly|weekdays|monthly)/i)
-  const repeat = repeatMatch?.[1]?.toLowerCase()
-
-  let state: TaskState = 'pending'
-  if (stateChar === 'x')
-    state = 'done'
-  else if (stateChar === '-')
-    state = 'cancelled'
-
-  return {
-    state,
-    body,
-    dueDate,
-    isHighPriority: isHighPriority || undefined,
-    repeat,
-  }
-}
-
-function getFileSignature(file: FolderFileEntry): string | null {
-  if (typeof file.lastModified !== 'number' || typeof file.size !== 'number')
-    return null
-
-  return `${file.lastModified}:${file.size}`
-}
-
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  mapper: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  if (items.length === 0)
-    return []
-
-  const results = new Array<R>(items.length)
-  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
-  let cursor = 0
-
-  const workers = Array.from({ length: runnerCount }, async () => {
-    while (true) {
-      const index = cursor
-      cursor += 1
-
-      if (index >= items.length)
-        return
-
-      results[index] = await mapper(items[index] as T, index)
-    }
-  })
-
-  await Promise.all(workers)
-  return results
-}
-
-function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
-  const lines = content.split(/\r?\n/)
-  const scanned: ScannedQuickTaskLine[] = []
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const line = lines[lineIndex] || ''
-    const parsed = parseTaskLine(line)
-    if (!parsed)
-      continue
-
-    scanned.push({
-      lineIndex,
-      state: parsed.state,
-      body: parsed.body,
-      dueDate: parsed.dueDate,
-      isHighPriority: parsed.isHighPriority,
-      repeat: parsed.repeat,
-    })
-  }
-
-  return scanned
-}
-
-function matchesScannedTask(task: QuickTaskItem, scanned: ParsedTaskLine): boolean {
-  return scanned.body === task.body
-    && scanned.state === task.state
-    && scanned.dueDate === task.dueDate
-    && Boolean(scanned.isHighPriority) === Boolean(task.isHighPriority)
-    && scanned.repeat === task.repeat
-}
-
-function resolveTaskLineIndex(lines: string[], task: QuickTaskItem): number {
-  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
-    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
-    if (parsedAtStoredIndex && matchesScannedTask(task, parsedAtStoredIndex))
-      return task.lineIndex
-  }
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const parsed = parseTaskLine(lines[lineIndex] || '')
-    if (parsed && matchesScannedTask(task, parsed))
-      return lineIndex
-  }
-
-  return -1
-}
-
-function invalidateQuickTaskCache(fileName?: string) {
-  if (fileName) {
-    quickTaskFileCache.delete(fileName)
-    return
-  }
-
-  quickTaskFileCache.clear()
-}
-
-function serializeTaskLine(state: TaskState, body: string, dueDate?: string, isHighPriority?: boolean): string {
-  let marker = state === 'done' ? 'x' : state === 'cancelled' ? '-' : ' '
-  if (isHighPriority && state === 'pending')
-    marker = `${marker}f`.trim() || 'f'
-
-  let normalizedBody = body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, ' ').trim()
-  if (dueDate)
-    normalizedBody = `${normalizedBody} 📅 ${dueDate}`.trim()
-
-  return `- [${marker}] ${normalizedBody}`
 }
 
 function getPresetForTask(body: string, fileName: string): QuickTaskPreset | undefined {
@@ -712,95 +472,16 @@ async function loadQuickTasks() {
 
   const folderUri = settings.baseFolderUri
 
-  if (quickTaskCacheFolderUri !== folderUri) {
-    invalidateQuickTaskCache()
-    quickTaskCacheFolderUri = folderUri
-  }
-
   if (tasks.value.length === 0)
     isLoading.value = true
   error.value = ''
 
   try {
-    const listed = await FolderPicker.listFiles({ folderUri })
-    const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
-    const activeNames = new Set(mdFiles.map(file => file.name))
-
-    const scannedFiles = await mapWithConcurrency(
-      mdFiles,
-      QUICK_TASK_READ_CONCURRENCY,
-      async (file) => {
-        try {
-          const signature = getFileSignature(file)
-          const cached = quickTaskFileCache.get(file.name)
-
-          if (signature && cached && cached.signature === signature) {
-            return {
-              fileName: file.name,
-              tasks: cached.tasks.map(task => ({ ...task })),
-            }
-          }
-
-          const read = await FolderPicker.readFile({
-            folderUri,
-            fileName: file.name,
-          })
-
-          const scanned = scanQuickTaskLines(read.content)
-
-          if (signature) {
-            quickTaskFileCache.set(file.name, {
-              signature,
-              tasks: scanned,
-            })
-          }
-          else {
-            quickTaskFileCache.delete(file.name)
-          }
-
-          return {
-            fileName: file.name,
-            tasks: scanned.map(task => ({ ...task })),
-          }
-        }
-        catch (fileErr) {
-          console.warn('Failed to scan task file', file.name, fileErr)
-          return null
-        }
-      },
-    )
-
-    const loadedTasks: QuickTaskItem[] = []
-
-    for (const scannedFile of scannedFiles) {
-      if (!scannedFile)
-        continue
-
-      for (const task of scannedFile.tasks) {
-        const preset = getPresetForTask(task.body, scannedFile.fileName)
-        if (!preset)
-          continue
-
-        loadedTasks.push({
-          id: `${scannedFile.fileName}:${task.lineIndex}`,
-          fileName: scannedFile.fileName,
-          lineIndex: task.lineIndex,
-          state: task.state,
-          body: task.body,
-          dueDate: task.dueDate,
-          isHighPriority: task.isHighPriority,
-          repeat: task.repeat,
-          presetId: preset.id,
-          presetLabel: preset.label,
-        })
-      }
-    }
-
-    for (const cachedName of Array.from(quickTaskFileCache.keys())) {
-      if (!activeNames.has(cachedName))
-        quickTaskFileCache.delete(cachedName)
-    }
-
+    const loadedTasks = await loadQuickTasksFromFolder({
+      folderUri,
+      readConcurrency: QUICK_TASK_READ_CONCURRENCY,
+      matchPreset: (body, fileName) => getPresetForTask(body, fileName),
+    })
     tasks.value = loadedTasks
   }
   catch (err) {
@@ -829,40 +510,14 @@ async function updateTaskInFile(
 ) {
   if (!settings.baseFolderUri)
     return
-
-  const read = await FolderPicker.readFile({
+  await updateTaskInFolder({
     folderUri: settings.baseFolderUri,
-    fileName: task.fileName,
-  })
-
-  const lines = read.content.split(/\r?\n/)
-  let lineIndex = -1
-  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
-    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
-    if (parsedAtStoredIndex)
-      lineIndex = task.lineIndex
-  }
-
-  if (lineIndex < 0)
-    lineIndex = resolveTaskLineIndex(lines, task)
-
-  if (lineIndex < 0)
-    return
-
-  lines[lineIndex] = serializeTaskLine(
+    task,
     nextState,
-    nextBody ?? task.body,
     nextDueDate,
-    nextIsHighPriority ?? task.isHighPriority,
-  )
-
-  await FolderPicker.writeFile({
-    folderUri: settings.baseFolderUri,
-    fileName: task.fileName,
-    content: lines.join('\n'),
+    nextBody,
+    nextIsHighPriority,
   })
-
-  invalidateQuickTaskCache(task.fileName)
 }
 
 function advanceDueDate(dateIso: string, repeat: string): string {
@@ -1056,9 +711,13 @@ async function saveTaskText(task: QuickTaskItem) {
   const previousBody = task.body
 
   const existingTag = selectedPreset.value?.tag?.trim()
-  const nextBody = existingTag && !trimmed.includes(existingTag)
+  const withTag = existingTag && !trimmed.includes(existingTag)
     ? `${existingTag} ${trimmed}`.trim()
     : trimmed
+  const hasRepeatToken = /🔁\s*(daily|weekly|weekdays|monthly)/i.test(withTag)
+  const nextBody = task.repeat && !hasRepeatToken
+    ? `${withTag} 🔁 ${task.repeat}`.trim()
+    : withTag
 
   task.body = nextBody
 
