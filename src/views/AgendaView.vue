@@ -299,8 +299,11 @@ const calendarCells = computed<CalendarCell[]>(() => {
     const date = new Date(year, month, day)
     const weekday = toWeekdayIndex(date)
     const scheduledHabitCount = habitSchedules.value.filter((habit) => {
-      if (habit.scheduledDays.length === 0)
-        return true
+      // Avoid calendar noise: habits that run every day (7/7) are not
+      // highlighted on every single day. Only explicitly scheduled weekdays
+      // get an indicator.
+      if (habit.scheduledDays.length === 0 || habit.scheduledDays.length >= 7)
+        return false
       return habit.scheduledDays.includes(weekday)
     }).length
 

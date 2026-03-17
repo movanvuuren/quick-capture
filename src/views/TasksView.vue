@@ -674,7 +674,7 @@ function invalidateQuickTaskCache(fileName?: string) {
 
 function serializeTaskLine(state: TaskState, body: string, dueDate?: string, isHighPriority?: boolean): string {
   let marker = state === 'done' ? 'x' : state === 'cancelled' ? '-' : ' '
-  if (isHighPriority)
+  if (isHighPriority && state === 'pending')
     marker = `${marker}f`.trim() || 'f'
 
   let normalizedBody = body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, ' ').trim()
