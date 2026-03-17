@@ -719,8 +719,11 @@ function jumpToSection(value: string) {
             <input v-model="draft.name" type="text" placeholder="Exercise" />
           </label>
           <label class="field">
-            <span>Widget icon</span>
-            <input v-model="draft.icon" type="text" placeholder="🏃" maxlength="8" style="width:6ch">
+            <span>Icon</span>
+            <div class="icon-input-wrap">
+              <Flame v-if="!draft.icon.trim()" :size="14" class="icon-input-placeholder" aria-hidden="true" />
+              <input v-model="draft.icon" type="text" maxlength="8" class="icon-input">
+            </div>
             <small class="hint">Emoji shown on the Android home-screen widget.</small>
           </label>
           <div class="two-col-grid">
@@ -986,6 +989,25 @@ h1 {
 
 .field input:disabled {
   opacity: 0.55;
+}
+
+.icon-input-wrap {
+  position: relative;
+  width: 8ch;
+}
+
+.icon-input {
+  width: 100%;
+  padding-left: 30px;
+}
+
+.icon-input-placeholder {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: color-mix(in srgb, var(--text-soft) 82%, white 18%);
+  pointer-events: none;
 }
 
 .glass-select {

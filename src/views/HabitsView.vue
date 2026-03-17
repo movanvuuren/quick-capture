@@ -39,7 +39,9 @@ const LOG_START = '<!-- QUICK_CAPTURE_HABIT_LOG_START -->'
 const LOG_END = '<!-- QUICK_CAPTURE_HABIT_LOG_END -->'
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const HABIT_LOGS_DIR = 'habit-logs'
-const HABIT_LOG_MONTHS_TO_LOAD = 15
+const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 1
+const HABIT_LOG_READ_CONCURRENCY = 6
+const HABIT_LAZY_LOAD_CONCURRENCY = 3
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 
@@ -52,6 +54,8 @@ const habits = ref<HabitCard[]>([])
 const habitLogs = ref<Record<string, Record<string, HabitLogValue>>>({})
 const selectedDates = ref<Record<string, string>>({})
 const visibleMonthOffsets = ref<Record<string, number>>({})
+const loadedHabitLogMonths = ref<Record<string, number>>({})
+const isHabitLogLazyLoading = ref<Record<string, boolean>>({})
 const habitSaving = ref<Record<string, boolean>>({})
 const habitSaveErrors = ref<Record<string, string>>({})
 const isCreatingExample = ref(false)
@@ -60,6 +64,7 @@ const exampleError = ref('')
 const hasBaseFolder = computed(() => Boolean(settings.baseFolderUri))
 const EXTERNAL_REFRESH_COOLDOWN_MS = 1000
 let lastExternalRefreshAt = 0
+let habitsLoadToken = 0
 
 const pullStartY = ref<number | null>(null)
 const pullStartX = ref<number | null>(null)
@@ -228,26 +233,69 @@ function parseHabitMonthLog(content: string): Record<string, HabitLogValue> {
   return result
 }
 
-async function loadHabitLogsForHabit(habit: HabitCard): Promise<Record<string, HabitLogValue>> {
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0)
+    return []
+
+  const results = new Array<R>(items.length)
+  const runnerCount = Math.max(1, Math.min(concurrency, items.length))
+  let cursor = 0
+
+  const workers = Array.from({ length: runnerCount }, async () => {
+    while (true) {
+      const index = cursor
+      cursor += 1
+
+      if (index >= items.length)
+        return
+
+      results[index] = await mapper(items[index] as T, index)
+    }
+  })
+
+  await Promise.all(workers)
+  return results
+}
+
+async function loadHabitLogsForHabit(
+  habit: HabitCard,
+  monthsToLoad = HABIT_LOG_INITIAL_MONTHS_TO_LOAD,
+): Promise<Record<string, HabitLogValue>> {
   if (!settings.baseFolderUri)
     return {}
 
   const logs: Record<string, HabitLogValue> = {}
+  const monthFileNames: string[] = []
 
-  for (let offset = 0; offset < HABIT_LOG_MONTHS_TO_LOAD; offset += 1) {
+  for (let offset = 0; offset < monthsToLoad; offset += 1) {
     const date = new Date()
     date.setDate(1)
     date.setMonth(date.getMonth() - offset)
     const monthIso = monthIsoFromDate(date)
-    const fileName = getHabitLogMonthFileName(habit, monthIso)
+    monthFileNames.push(getHabitLogMonthFileName(habit, monthIso))
+  }
 
-    try {
-      const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName })
-      Object.assign(logs, parseHabitMonthLog(read.content))
-    }
-    catch {
-      // missing month file is expected
-    }
+  const monthReads = await mapWithConcurrency(
+    monthFileNames,
+    HABIT_LOG_READ_CONCURRENCY,
+    async (fileName) => {
+      try {
+        const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri as string, fileName })
+        return parseHabitMonthLog(read.content)
+      }
+      catch {
+        return null
+      }
+    },
+  )
+
+  for (const monthLog of monthReads) {
+    if (monthLog)
+      Object.assign(logs, monthLog)
   }
 
   if (Object.keys(logs).length > 0)
@@ -318,11 +366,18 @@ function canShowNextMonth(habit: HabitCard): boolean {
   return getVisibleMonthOffset(habit) > 0
 }
 
+function isLoadingOlderMonths(habit: HabitCard): boolean {
+  return Boolean(isHabitLogLazyLoading.value[habit.fileName])
+}
+
 function showPreviousMonth(habit: HabitCard) {
+  const nextOffset = getVisibleMonthOffset(habit) + 1
   visibleMonthOffsets.value = {
     ...visibleMonthOffsets.value,
-    [habit.fileName]: getVisibleMonthOffset(habit) + 1,
+    [habit.fileName]: nextOffset,
   }
+
+  void ensureHabitLogsLoadedForOffset(habit, nextOffset)
 }
 
 function showNextMonth(habit: HabitCard) {
@@ -333,6 +388,50 @@ function showNextMonth(habit: HabitCard) {
   visibleMonthOffsets.value = {
     ...visibleMonthOffsets.value,
     [habit.fileName]: current - 1,
+  }
+}
+
+async function ensureHabitLogsLoadedForOffset(habit: HabitCard, monthOffset: number) {
+  if (!settings.baseFolderUri)
+    return
+
+  const requiredMonths = Math.max(HABIT_LOG_INITIAL_MONTHS_TO_LOAD, monthOffset + 1)
+  const loadedMonths = loadedHabitLogMonths.value[habit.fileName] || HABIT_LOG_INITIAL_MONTHS_TO_LOAD
+
+  if (requiredMonths <= loadedMonths)
+    return
+
+  if (isHabitLogLazyLoading.value[habit.fileName])
+    return
+
+  isHabitLogLazyLoading.value = {
+    ...isHabitLogLazyLoading.value,
+    [habit.fileName]: true,
+  }
+
+  try {
+    const logs = await loadHabitLogsForHabit(habit, requiredMonths)
+    habitLogs.value = {
+      ...habitLogs.value,
+      [habit.fileName]: {
+        ...(habitLogs.value[habit.fileName] || {}),
+        ...logs,
+      },
+    }
+
+    loadedHabitLogMonths.value = {
+      ...loadedHabitLogMonths.value,
+      [habit.fileName]: requiredMonths,
+    }
+  }
+  catch (err) {
+    console.warn('Failed to lazy-load older habit logs', habit.fileName, err)
+  }
+  finally {
+    isHabitLogLazyLoading.value = {
+      ...isHabitLogLazyLoading.value,
+      [habit.fileName]: false,
+    }
   }
 }
 
@@ -855,6 +954,8 @@ function getStreakSummary(habit: HabitCard): string {
 }
 
 async function loadHabits() {
+  const loadToken = ++habitsLoadToken
+
   if (!settings.baseFolderUri) {
     habits.value = []
     isLoading.value = false
@@ -913,12 +1014,26 @@ async function loadHabits() {
       .sort((a, b) => a.name.localeCompare(b.name))
 
     const logsByFile: Record<string, Record<string, HabitLogValue>> = {}
-    await Promise.all(
-      habits.value.map(async (habit) => {
-        logsByFile[habit.fileName] = await loadHabitLogsForHabit(habit)
+    const initialLogs = await mapWithConcurrency(
+      habits.value,
+      HABIT_LAZY_LOAD_CONCURRENCY,
+      async habit => ({
+        fileName: habit.fileName,
+        logs: await loadHabitLogsForHabit(habit, HABIT_LOG_INITIAL_MONTHS_TO_LOAD),
       }),
     )
+
+    if (loadToken !== habitsLoadToken)
+      return
+
+    for (const loadedLog of initialLogs)
+      logsByFile[loadedLog.fileName] = loadedLog.logs
+
     habitLogs.value = logsByFile
+    loadedHabitLogMonths.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
+      acc[habit.fileName] = HABIT_LOG_INITIAL_MONTHS_TO_LOAD
+      return acc
+    }, {})
     selectedDates.value = habits.value.reduce<Record<string, string>>((acc, habit) => {
       acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
       return acc
@@ -1168,7 +1283,10 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="isLoading" class="card glass-card empty-state">
-        Loading habits...
+        <div class="loading-inline">
+          <div class="loading-spinner" aria-hidden="true" />
+          <span>Loading habits...</span>
+        </div>
       </div>
 
       <div v-else-if="error" class="card glass-card empty-state error-text">
@@ -1210,7 +1328,13 @@ onBeforeUnmount(() => {
                   @click="showPreviousMonth(habit)">
                   <ChevronLeft :size="14" />
                 </button>
-                <span class="heatmap-month-label">{{ getVisibleMonthLabel(habit) }}</span>
+                <div class="heatmap-month-center">
+                  <span class="heatmap-month-label">{{ getVisibleMonthLabel(habit) }}</span>
+                  <span v-if="isLoadingOlderMonths(habit)" class="heatmap-month-loading">
+                    <span class="mini-spinner" aria-hidden="true" />
+                    Loading older months...
+                  </span>
+                </div>
                 <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show next month"
                   :disabled="!canShowNextMonth(habit)" @click="showNextMonth(habit)">
                   <ChevronRight :size="14" />
@@ -1380,6 +1504,22 @@ h1 {
 .empty-state {
   display: grid;
   gap: 8px;
+}
+
+.loading-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.loading-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--text-soft) 22%, transparent);
+  border-top-color: color-mix(in srgb, var(--primary) 72%, var(--text));
+  animation: pull-refresh-spin 0.75s linear infinite;
 }
 
 .empty-actions {
@@ -1559,11 +1699,35 @@ h1 {
   gap: 8px;
 }
 
+.heatmap-month-center {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+}
+
 .heatmap-month-label {
   text-align: center;
   font-size: 0.76rem;
   font-weight: 700;
   color: var(--text-soft);
+}
+
+.heatmap-month-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  color: var(--text-soft);
+  opacity: 0.9;
+}
+
+.mini-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--text-soft) 28%, transparent);
+  border-top-color: color-mix(in srgb, var(--primary) 72%, var(--text));
+  animation: pull-refresh-spin 0.75s linear infinite;
 }
 
 .heatmap-nav-button {
