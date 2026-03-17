@@ -21,9 +21,12 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 public class HabitWidgetProvider extends AppWidgetProvider {
 
@@ -31,6 +34,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
     static final String EXTRA_WIDGET_ID = "widgetId";
     static final String LOG_START = "<!-- QUICK_CAPTURE_HABIT_LOG_START -->";
     static final String LOG_END = "<!-- QUICK_CAPTURE_HABIT_LOG_END -->";
+    static final String HABIT_LOGS_DIR = "habit-logs";
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -71,11 +75,8 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         if (folderUri == null || fileName == null) return;
 
         try {
-            String content = readFile(context, folderUri, fileName);
-            if (content == null) return;
-
             String today = getToday();
-            String currentValue = getTodayValue(content, today);
+            String currentValue = getTodayValueForHabit(context, folderUri, fileName, today);
 
             // Cycle: blank → done → skip → fail → blank
             String newValue;
@@ -89,8 +90,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
                 newValue = null; // clear
             }
 
-            String updated = updateTodayValue(content, today, newValue);
-            writeFile(context, folderUri, fileName, updated);
+            writeTodayValueForHabit(context, folderUri, fileName, today, newValue);
         } catch (Exception e) {
             // silently fail; widget will show last known state
         }
@@ -115,10 +115,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         String todayValue = null;
         if (folderUri != null && fileName != null) {
             try {
-                String content = readFile(context, folderUri, fileName);
-                if (content != null) {
-                    todayValue = getTodayValue(content, getToday());
-                }
+                todayValue = getTodayValueForHabit(context, folderUri, fileName, getToday());
             } catch (Exception ignored) {}
         }
 
@@ -175,11 +172,77 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         catch (NumberFormatException e) { return false; }
     }
 
+    static String sanitizeRelativePath(String path) {
+        if (path == null) return "";
+        String normalized = path.replace('\\', '/').trim();
+        while (normalized.startsWith("/")) normalized = normalized.substring(1);
+        while (normalized.endsWith("/")) normalized = normalized.substring(0, normalized.length() - 1);
+        return normalized;
+    }
+
+    static DocumentFile resolveDirectoryPath(DocumentFile baseDir, String relativePath, boolean createIfMissing) {
+        String normalized = sanitizeRelativePath(relativePath);
+        if (normalized.isEmpty()) return baseDir;
+
+        String[] parts = normalized.split("/");
+        DocumentFile current = baseDir;
+        for (String rawPart : parts) {
+            String part = rawPart == null ? "" : rawPart.trim();
+            if (part.isEmpty()) continue;
+
+            DocumentFile child = current.findFile(part);
+            if (child == null) {
+                if (!createIfMissing) return null;
+                child = current.createDirectory(part);
+            }
+
+            if (child == null || !child.isDirectory()) return null;
+            current = child;
+        }
+
+        return current;
+    }
+
+    static DocumentFile findFileByRelativePath(DocumentFile baseDir, String filePath) {
+        String normalized = sanitizeRelativePath(filePath);
+        if (normalized.isEmpty()) return null;
+
+        int slash = normalized.lastIndexOf('/');
+        String parentPath = slash >= 0 ? normalized.substring(0, slash) : "";
+        String fileName = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        if (fileName.isEmpty()) return null;
+
+        DocumentFile parentDir = resolveDirectoryPath(baseDir, parentPath, false);
+        if (parentDir == null) return null;
+
+        DocumentFile file = parentDir.findFile(fileName);
+        if (file == null || !file.isFile()) return null;
+        return file;
+    }
+
+    static DocumentFile getOrCreateFileByRelativePath(DocumentFile baseDir, String filePath, String mime) {
+        String normalized = sanitizeRelativePath(filePath);
+        if (normalized.isEmpty()) return null;
+
+        int slash = normalized.lastIndexOf('/');
+        String parentPath = slash >= 0 ? normalized.substring(0, slash) : "";
+        String fileName = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        if (fileName.isEmpty()) return null;
+
+        DocumentFile parentDir = resolveDirectoryPath(baseDir, parentPath, true);
+        if (parentDir == null) return null;
+
+        DocumentFile existing = parentDir.findFile(fileName);
+        if (existing != null) return existing.isFile() ? existing : null;
+
+        return parentDir.createFile(mime, fileName);
+    }
+
     static String readFile(Context context, String folderUriStr, String fileName) throws IOException {
         Uri treeUri = Uri.parse(folderUriStr);
         DocumentFile tree = DocumentFile.fromTreeUri(context, treeUri);
         if (tree == null) return null;
-        DocumentFile file = tree.findFile(fileName);
+        DocumentFile file = findFileByRelativePath(tree, fileName);
         if (file == null || !file.isFile()) return null;
 
         try (InputStream input = context.getContentResolver().openInputStream(file.getUri())) {
@@ -201,7 +264,10 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         Uri treeUri = Uri.parse(folderUriStr);
         DocumentFile tree = DocumentFile.fromTreeUri(context, treeUri);
         if (tree == null) return;
-        DocumentFile file = tree.findFile(fileName);
+        String mime = (fileName.toLowerCase().endsWith(".md") || fileName.toLowerCase().endsWith(".markdown"))
+            ? "text/markdown"
+            : "text/plain";
+        DocumentFile file = getOrCreateFileByRelativePath(tree, fileName, mime);
         if (file == null || !file.isFile()) return;
 
         // "wt" = write + truncate (overwrites fully)
@@ -225,6 +291,151 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             }
         }
         return null;
+    }
+
+    static String getTodayValueFromMonthlyLog(String content, String today) {
+        String month = today.substring(0, 7);
+        String dayKey = "d" + today.substring(8, 10);
+        boolean inFrontmatter = false;
+        String monthValue = null;
+
+        for (String line : content.split("\n", -1)) {
+            String trimmed = line.trim();
+            if (trimmed.equals("---")) {
+                if (!inFrontmatter) {
+                    inFrontmatter = true;
+                    continue;
+                }
+                break;
+            }
+            if (!inFrontmatter || trimmed.isEmpty()) continue;
+
+            int idx = line.indexOf(':');
+            if (idx <= 0) continue;
+            String key = line.substring(0, idx).trim();
+            String value = line.substring(idx + 1).trim();
+            if ("month".equals(key)) monthValue = value;
+            if (dayKey.equals(key)) {
+                if (monthValue == null || month.equals(monthValue)) return normalizeStoredValue(value);
+            }
+        }
+
+        return null;
+    }
+
+    static String normalizeStoredValue(String value) {
+        if (value == null) return null;
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) return null;
+        if ("skip".equals(trimmed) || "*".equals(trimmed)) return "*";
+        if ("fail".equals(trimmed) || "!".equals(trimmed)) return "!";
+        if (isNumeric(trimmed)) return trimmed;
+        return null;
+    }
+
+    static String habitLogStemFromFile(String fileName) {
+        if (fileName == null) return "habit";
+        String base = fileName.replaceAll("(?i)\\.md$", "").toLowerCase(Locale.US);
+        String normalized = base.replaceAll("[^a-z0-9_-]+", "-")
+            .replaceAll("-+", "-")
+            .replaceAll("^-|-$", "");
+        return normalized.isEmpty() ? "habit" : normalized;
+    }
+
+    static String monthLogFileName(String habitFileName, String today) {
+        String month = today.substring(0, 7);
+        return HABIT_LOGS_DIR + "/" + habitLogStemFromFile(habitFileName) + "-" + month + ".md";
+    }
+
+    static String getTodayValueForHabit(Context context, String folderUri, String habitFileName, String today) throws IOException {
+        String logPath = monthLogFileName(habitFileName, today);
+        String monthly = readFile(context, folderUri, logPath);
+        if (monthly != null) {
+            String fromMonthly = getTodayValueFromMonthlyLog(monthly, today);
+            if (fromMonthly != null) return fromMonthly;
+        }
+
+        String legacy = readFile(context, folderUri, habitFileName);
+        if (legacy == null) return null;
+        return getTodayValue(legacy, today);
+    }
+
+    static String upsertMonthLogContent(String existingContent, String habitFileName, String today, String newValue) {
+        String month = today.substring(0, 7);
+        String dayKey = "d" + today.substring(8, 10);
+
+        Map<String, String> fields = new LinkedHashMap<>();
+        if (existingContent != null) {
+            boolean inFrontmatter = false;
+            for (String line : existingContent.split("\n", -1)) {
+                String trimmed = line.trim();
+                if (trimmed.equals("---")) {
+                    if (!inFrontmatter) {
+                        inFrontmatter = true;
+                        continue;
+                    }
+                    break;
+                }
+                if (!inFrontmatter || trimmed.isEmpty()) continue;
+
+                int idx = line.indexOf(':');
+                if (idx <= 0) continue;
+                String key = line.substring(0, idx).trim();
+                String value = line.substring(idx + 1).trim();
+                fields.put(key, value);
+            }
+        }
+
+        fields.put("type", "habit-log");
+        fields.put("habitFile", quoteYamlString(habitFileName));
+        fields.put("month", month);
+
+        if (newValue == null) fields.remove(dayKey);
+        else if ("*".equals(newValue)) fields.put(dayKey, "skip");
+        else if ("!".equals(newValue)) fields.put(dayKey, "fail");
+        else fields.put(dayKey, newValue);
+
+        fields.put("updated", today);
+
+        List<String> dayKeys = new ArrayList<>();
+        for (String key : fields.keySet()) {
+            if (key.matches("d\\d{2}")) dayKeys.add(key);
+        }
+        Collections.sort(dayKeys);
+
+        List<String> lines = new ArrayList<>();
+        lines.add("---");
+        lines.add("type: habit-log");
+        lines.add("habitFile: " + fields.get("habitFile"));
+        lines.add("month: " + month);
+        for (String key : dayKeys) {
+            lines.add(key + ": " + fields.get(key));
+        }
+        lines.add("updated: " + today);
+        lines.add("---");
+        lines.add("");
+        lines.add("Habit log data file.");
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lines.size(); i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(lines.get(i));
+        }
+        sb.append('\n');
+        return sb.toString();
+    }
+
+    static String quoteYamlString(String value) {
+        if (value == null) return "\"\"";
+        String escaped = value.replace("\\", "\\\\").replace("\"", "\\\"");
+        return "\"" + escaped + "\"";
+    }
+
+    static void writeTodayValueForHabit(Context context, String folderUri, String habitFileName, String today, String newValue) throws IOException {
+        String logPath = monthLogFileName(habitFileName, today);
+        String existing = readFile(context, folderUri, logPath);
+        String updated = upsertMonthLogContent(existing, habitFileName, today, newValue);
+        writeFile(context, folderUri, logPath, updated);
     }
 
     /**

@@ -38,6 +38,8 @@ const LOG_START = '<!-- QUICK_CAPTURE_HABIT_LOG_START -->'
 const LOG_END = '<!-- QUICK_CAPTURE_HABIT_LOG_END -->'
 const HEATMAP_WEEKS = 4
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+const HABIT_LOGS_DIR = 'habit-logs'
+const HABIT_LOG_MONTHS_TO_LOAD = 15
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 
@@ -95,7 +97,7 @@ function parseScheduledDays(value: unknown): number[] {
   return [1, 2, 3, 4, 5, 6, 7]
 }
 
-function parseHabitLog(content: string): Record<string, HabitLogValue> {
+function parseLegacyHabitLog(content: string): Record<string, HabitLogValue> {
   const result: Record<string, HabitLogValue> = {}
   const start = content.indexOf(LOG_START)
   const end = content.indexOf(LOG_END)
@@ -126,34 +128,137 @@ function parseHabitLog(content: string): Record<string, HabitLogValue> {
   return result
 }
 
-function serializeHabitLog(log: Record<string, HabitLogValue>): string {
-  const entries = Object.entries(log)
-    .filter(([, value]) => value === 'skip' || value === 'fail' || (Number.isFinite(value) && Number(value) >= 0))
-    .sort((a, b) => a[0].localeCompare(b[0]))
+function normalizeHabitLogValue(raw: unknown): HabitLogValue | null {
+  if (raw === 'skip' || raw === '*')
+    return 'skip'
+  if (raw === 'fail' || raw === '!')
+    return 'fail'
 
-  const lines = entries.map(([date, value]) => {
-    if (value === 'skip')
-      return `- ${date}: *`
-    if (value === 'fail')
-      return `- ${date}: !`
-    return `- ${date}: ${value}`
-  })
-  return [LOG_START, ...lines, LOG_END].join('\n')
+  const numeric = Number(raw)
+  if (Number.isFinite(numeric) && numeric >= 0)
+    return Math.floor(numeric)
+
+  return null
 }
 
-function upsertHabitLogBlock(content: string, log: Record<string, HabitLogValue>): string {
-  const block = serializeHabitLog(log)
-  const start = content.indexOf(LOG_START)
-  const end = content.indexOf(LOG_END)
+function monthIsoFromDate(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  return `${y}-${m}`
+}
 
-  if (start !== -1 && end !== -1 && end > start) {
-    const before = content.slice(0, start).replace(/\s*$/, '')
-    const after = content.slice(end + LOG_END.length).replace(/^\s*/, '')
-    return `${before}\n\n${block}${after ? `\n\n${after}` : ''}\n`
+function monthIsoFromDateIso(dateIso: string): string {
+  return dateIso.slice(0, 7)
+}
+
+function getHabitLogStem(habit: HabitCard): string {
+  const base = (habit.id || habit.fileName.replace(/\.md$/i, '')).trim().toLowerCase()
+  const normalized = base
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return normalized || 'habit'
+}
+
+function getHabitLogMonthFileName(habit: HabitCard, monthIso: string): string {
+  return `${HABIT_LOGS_DIR}/${getHabitLogStem(habit)}-${monthIso}.md`
+}
+
+function serializeHabitMonthLog(habit: HabitCard, monthIso: string, monthEntries: Record<string, HabitLogValue>): string {
+  const lines = [
+    '---',
+    'type: habit-log',
+    `habitId: ${JSON.stringify(habit.id || getHabitLogStem(habit))}`,
+    `habitFile: ${JSON.stringify(habit.fileName)}`,
+    `month: ${monthIso}`,
+  ]
+
+  const dates = Object.keys(monthEntries)
+    .filter(date => date.startsWith(`${monthIso}-`))
+    .sort((a, b) => a.localeCompare(b))
+
+  for (const date of dates) {
+    const day = date.slice(8, 10)
+    const key = `d${day}`
+    const value = monthEntries[date]
+    if (value === undefined)
+      continue
+    if (value === 'skip')
+      lines.push(`${key}: skip`)
+    else if (value === 'fail')
+      lines.push(`${key}: fail`)
+    else
+      lines.push(`${key}: ${Math.max(0, Math.floor(value))}`)
   }
 
-  const trimmed = content.replace(/\s*$/, '')
-  return `${trimmed}\n\n${block}\n`
+  lines.push(`updated: ${todayIso()}`)
+  lines.push('---')
+  lines.push('')
+  lines.push('Habit log data file.')
+  return `${lines.join('\n')}\n`
+}
+
+function parseHabitMonthLog(content: string): Record<string, HabitLogValue> {
+  const frontmatter = parseFrontmatter(content)
+  if (frontmatter.type !== 'habit-log')
+    return {}
+
+  const month = typeof frontmatter.month === 'string' ? frontmatter.month : ''
+  if (!/^\d{4}-\d{2}$/.test(month))
+    return {}
+
+  const result: Record<string, HabitLogValue> = {}
+  for (const [key, raw] of Object.entries(frontmatter)) {
+    const match = key.match(/^d(\d{2})$/)
+    if (!match)
+      continue
+
+    const day = match[1]
+    if (!day)
+      continue
+
+    const value = normalizeHabitLogValue(raw)
+    if (value === null)
+      continue
+
+    result[`${month}-${day}`] = value
+  }
+
+  return result
+}
+
+async function loadHabitLogsForHabit(habit: HabitCard): Promise<Record<string, HabitLogValue>> {
+  if (!settings.baseFolderUri)
+    return {}
+
+  const logs: Record<string, HabitLogValue> = {}
+
+  for (let offset = 0; offset < HABIT_LOG_MONTHS_TO_LOAD; offset += 1) {
+    const date = new Date()
+    date.setDate(1)
+    date.setMonth(date.getMonth() - offset)
+    const monthIso = monthIsoFromDate(date)
+    const fileName = getHabitLogMonthFileName(habit, monthIso)
+
+    try {
+      const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName })
+      Object.assign(logs, parseHabitMonthLog(read.content))
+    }
+    catch {
+      // missing month file is expected
+    }
+  }
+
+  if (Object.keys(logs).length > 0)
+    return logs
+
+  try {
+    const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName: habit.fileName })
+    return parseLegacyHabitLog(read.content)
+  }
+  catch {
+    return {}
+  }
 }
 
 function toWeekdayIndex(date: Date): number {
@@ -297,21 +402,36 @@ function getTargetSummary(habit: HabitCard): string {
   return `Goal: ${habit.targetCount} ${habit.unit} per day`
 }
 
-async function writeHabitLog(habit: HabitCard) {
+async function writeHabitLogMonth(habit: HabitCard, dateIso: string) {
   if (!settings.baseFolderUri)
     return
+
+  const monthIso = monthIsoFromDateIso(dateIso)
+  const monthEntries = Object.fromEntries(
+    Object.entries(habitLogs.value[habit.fileName] || {})
+      .filter(([date]) => date.startsWith(`${monthIso}-`)),
+  )
 
   habitSaving.value[habit.fileName] = true
   habitSaveErrors.value[habit.fileName] = ''
 
   try {
-    const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName: habit.fileName })
-    const nextContent = upsertHabitLogBlock(read.content, habitLogs.value[habit.fileName] || {})
+    const monthFileName = getHabitLogMonthFileName(habit, monthIso)
+    const hasEntries = Object.keys(monthEntries).length > 0
+    if (!hasEntries) {
+      try {
+        await FolderPicker.deleteFile({ folderUri: settings.baseFolderUri, fileName: monthFileName })
+      }
+      catch {
+        // already absent
+      }
+      return
+    }
 
     await FolderPicker.writeFile({
       folderUri: settings.baseFolderUri,
-      fileName: habit.fileName,
-      content: nextContent,
+      fileName: monthFileName,
+      content: serializeHabitMonthLog(habit, monthIso, monthEntries),
     })
   }
   catch (err) {
@@ -423,7 +543,7 @@ async function setLogValueForDate(habit: HabitCard, date: string, value: HabitLo
     [habit.fileName]: current,
   }
 
-  await writeHabitLog(habit)
+  await writeHabitLogMonth(habit, date)
 }
 
 function getSelectedNumberInputValue(habit: HabitCard): string {
@@ -615,25 +735,6 @@ function getStreakSummary(habit: HabitCard): string {
   return `Streak: ${current} days current, ${best} days best`
 }
 
-function buildExampleSeedLog(): string[] {
-  const today = isoToDate(todayIso())
-  const pattern: Array<HabitLogValue | null> = [1, 1, 'skip', 1, null, 1, 1, 'fail', 1, 1, 1, 'skip', 1, null]
-  const lines: string[] = []
-
-  for (let i = pattern.length - 1; i >= 0; i -= 1) {
-    const value = pattern[pattern.length - 1 - i]
-    if (value === null)
-      continue
-
-    const date = dateAddDays(today, -i)
-    const iso = dateToIso(date)
-    const serialized = value === 'skip' ? '*' : value === 'fail' ? '!' : String(value)
-    lines.push(`- ${iso}: ${serialized}`)
-  }
-
-  return lines
-}
-
 async function loadHabits() {
   if (!settings.baseFolderUri) {
     habits.value = []
@@ -691,13 +792,7 @@ async function loadHabits() {
     const logsByFile: Record<string, Record<string, HabitLogValue>> = {}
     await Promise.all(
       habits.value.map(async (habit) => {
-        try {
-          const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri as string, fileName: habit.fileName })
-          logsByFile[habit.fileName] = parseHabitLog(read.content)
-        }
-        catch {
-          logsByFile[habit.fileName] = {}
-        }
+        logsByFile[habit.fileName] = await loadHabitLogsForHabit(habit)
       }),
     )
     habitLogs.value = logsByFile
@@ -887,10 +982,6 @@ async function createExampleHabit() {
       '---',
       '',
       'Example habit created from the Habits screen.',
-      '',
-      LOG_START,
-      ...buildExampleSeedLog(),
-      LOG_END,
       '',
     ].join('\n')
 
