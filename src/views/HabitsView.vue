@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { CSSProperties } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
 import { loadSettings } from '../lib/settings'
@@ -67,6 +67,7 @@ let activeHabitsLoadPromise: Promise<void> | null = null
 const habitDefinitionCache = new Map<string, CachedHabitDefinition>()
 
 const router = useRouter()
+const route = useRoute()
 const settings = reactive(loadSettings())
 
 const isLoading = ref(true)
@@ -96,10 +97,41 @@ const isPullRefreshing = ref(false)
 const pullReadyHapticPlayed = ref(false)
 const isPullReady = computed(() => pullDistance.value >= PULL_REFRESH_THRESHOLD)
 const showPullIndicator = computed(() => pullDistance.value > 0 || isPullRefreshing.value)
+let lastHandledRoutePulse = ''
 const pageContentStyle = computed<CSSProperties>(() => ({
   transform: `translateY(${pullDistance.value}px)`,
   transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
 }))
+
+function readQueryValue(value: unknown): string {
+  if (Array.isArray(value))
+    return typeof value[0] === 'string' ? value[0] : ''
+  return typeof value === 'string' ? value : ''
+}
+
+function applyRouteHabitSelection() {
+  const pulse = readQueryValue(route.query.pulse)
+  if (pulse && pulse === lastHandledRoutePulse)
+    return
+
+  const habitKey = readQueryValue(route.query.habit)
+  if (!habitKey)
+    return
+
+  const rawDate = readQueryValue(route.query.date)
+  const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayIso()
+  const targetHabit = habits.value.find(habit => habit.fileName === habitKey || habit.id === habitKey)
+  if (!targetHabit)
+    return
+
+  selectedDates.value = {
+    ...selectedDates.value,
+    [targetHabit.fileName]: selectedDate,
+  }
+
+  if (pulse)
+    lastHandledRoutePulse = pulse
+}
 
 function goBack() {
   router.push('/')
@@ -1447,6 +1479,7 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
   await loadHabits({ preferCache: true })
+  applyRouteHabitSelection()
 })
 
 onActivated(async () => {
@@ -1456,6 +1489,7 @@ onActivated(async () => {
   }
   Object.assign(settings, loadSettings())
   await loadHabits({ preferCache: true })
+  applyRouteHabitSelection()
 })
 
 onBeforeUnmount(() => {

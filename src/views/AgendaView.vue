@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
-import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { parseFrontmatter } from '../lib/lists'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -32,8 +32,14 @@ interface CalendarCell {
 
 interface HabitSchedule {
   fileName: string
+  id: string
+  name: string
+  icon: string
+  targetCount: number
   scheduledDays: number[]
 }
+
+type HabitLogValue = number | 'skip' | 'fail'
 
 const router = useRouter()
 const settings = loadSettings()
@@ -43,6 +49,8 @@ const viewMonth = ref(new Date().getMonth()) // 0-indexed
 const selectedDate = ref(todayIso())
 const allTasks = ref<AgendaTask[]>([])
 const habitSchedules = ref<HabitSchedule[]>([])
+const habitLogValues = ref<Record<string, Record<string, HabitLogValue>>>({})
+const loadedHabitLogMonths = ref<Record<string, boolean>>({})
 const isLoading = ref(false)
 const error = ref('')
 let activeAgendaLoadPromise: Promise<void> | null = null
@@ -82,6 +90,32 @@ function parseScheduledDays(value: unknown): number[] {
   }
 
   return [1, 2, 3, 4, 5, 6, 7]
+}
+
+function getHabitLogStem(habit: HabitSchedule): string {
+  const base = (habit.id || habit.fileName || '').replace(/\.md$/i, '').trim().toLowerCase()
+  const normalized = base
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+  return normalized || 'habit'
+}
+
+function getHabitLogMonthFileName(habit: HabitSchedule, monthIso: string): string {
+  return `habit-logs/${getHabitLogStem(habit)}-${monthIso}.md`
+}
+
+function normalizeHabitLogValue(raw: unknown): HabitLogValue | null {
+  if (raw === 'skip' || raw === '*')
+    return 'skip'
+  if (raw === 'fail' || raw === '!')
+    return 'fail'
+
+  const numeric = Number(raw)
+  if (Number.isFinite(numeric) && numeric >= 0)
+    return Math.floor(numeric)
+
+  return null
 }
 
 function escapeForRegex(value: string): string {
@@ -185,6 +219,18 @@ async function loadAgendaData() {
           if (frontmatter.type === 'habit') {
             schedules.push({
               fileName: file.name,
+              id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
+                ? frontmatter.id.trim()
+                : file.name.replace(/\.md$/i, ''),
+              name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
+                ? frontmatter.name.trim()
+                : file.name.replace(/\.md$/i, ''),
+              icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
+                ? frontmatter.icon.trim()
+                : '✓',
+              targetCount: Number.isFinite(Number(frontmatter.targetCount))
+                ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
+                : 1,
               scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
             })
           }
@@ -213,6 +259,7 @@ async function loadAgendaData() {
 
       allTasks.value = tasks
       habitSchedules.value = schedules
+      loadedHabitLogMonths.value = {}
     }
     catch (err) {
       console.error('Agenda: failed to load tasks', err)
@@ -225,6 +272,58 @@ async function loadAgendaData() {
   })()
 
   return activeAgendaLoadPromise
+}
+
+async function loadHabitLogsForMonth(monthIso: string) {
+  if (!settings.baseFolderUri || !monthIso || loadedHabitLogMonths.value[monthIso])
+    return
+
+  loadedHabitLogMonths.value = {
+    ...loadedHabitLogMonths.value,
+    [monthIso]: true,
+  }
+
+  const folderUri = settings.baseFolderUri
+
+  for (const habit of habitSchedules.value) {
+    const logFileName = getHabitLogMonthFileName(habit, monthIso)
+    try {
+      const read = await FolderPicker.readFile({
+        folderUri,
+        fileName: logFileName,
+      })
+
+      const frontmatter = parseFrontmatter(read.content)
+      if (frontmatter.type !== 'habit-log')
+        continue
+
+      const parsedMonth = typeof frontmatter.month === 'string' ? frontmatter.month : ''
+      if (parsedMonth !== monthIso)
+        continue
+
+      const next = { ...(habitLogValues.value[habit.fileName] ?? {}) }
+      for (const [key, raw] of Object.entries(frontmatter)) {
+        const match = key.match(/^d(\d{2})$/)
+        if (!match)
+          continue
+
+        const value = normalizeHabitLogValue(raw)
+        if (value === null)
+          continue
+
+        const day = match[1]
+        next[`${monthIso}-${day}`] = value
+      }
+
+      habitLogValues.value = {
+        ...habitLogValues.value,
+        [habit.fileName]: next,
+      }
+    }
+    catch {
+      // Missing monthly log files are expected for untouched months.
+    }
+  }
 }
 
 async function refreshAgendaFromExternal(force = false) {
@@ -249,15 +348,25 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
   await loadAgendaData()
+  await loadHabitLogsForMonth(selectedDate.value.slice(0, 7))
 })
 
 onActivated(() => {
-  void refreshAgendaFromExternal(true)
+  void (async () => {
+    await refreshAgendaFromExternal(true)
+    await loadHabitLogsForMonth(selectedDate.value.slice(0, 7))
+  })()
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('focus', handleWindowFocus)
+})
+
+watch(selectedDate, (value) => {
+  if (!value)
+    return
+  void loadHabitLogsForMonth(value.slice(0, 7))
 })
 
 const monthLabel = computed(() =>
@@ -298,12 +407,21 @@ const calendarCells = computed<CalendarCell[]>(() => {
     const iso = dateToIso(year, month, day)
     const date = new Date(year, month, day)
     const weekday = toWeekdayIndex(date)
+
+    if (iso !== selectedDate.value) {
+      cells.push({
+        date: iso,
+        day,
+        isToday: iso === today,
+        isFuture: iso > today,
+        pendingCount: taskCountByDate.get(iso) ?? 0,
+        scheduledHabitCount: 0,
+        isPlaceholder: false,
+      })
+      continue
+    }
+
     const scheduledHabitCount = habitSchedules.value.filter((habit) => {
-      // Avoid calendar noise: habits that run every day (7/7) are not
-      // highlighted on every single day. Only explicitly scheduled weekdays
-      // get an indicator.
-      if (habit.scheduledDays.length === 0 || habit.scheduledDays.length >= 7)
-        return false
       return habit.scheduledDays.includes(weekday)
     }).length
 
@@ -351,6 +469,30 @@ const overdueTasksForToday = computed(() => {
     .filter(t => t.dueDate && t.dueDate < today && t.state === 'pending')
 })
 
+const incompleteHabitsForSelectedDate = computed(() => {
+  if (!selectedDate.value)
+    return []
+
+  const selected = new Date(`${selectedDate.value}T00:00:00`)
+  const weekday = toWeekdayIndex(selected)
+
+  return habitSchedules.value
+    .filter(habit => habit.scheduledDays.includes(weekday))
+    .filter((habit) => {
+      const value = habitLogValues.value[habit.fileName]?.[selectedDate.value]
+      if (typeof value !== 'number')
+        return true
+      return value < habit.targetCount
+    })
+    .map((habit) => {
+      const value = habitLogValues.value[habit.fileName]?.[selectedDate.value]
+      return {
+        ...habit,
+        currentValue: typeof value === 'number' ? value : 0,
+      }
+    })
+})
+
 function prevMonth() {
   if (viewMonth.value === 0) {
     viewMonth.value = 11
@@ -396,6 +538,20 @@ function openTaskFile(task: AgendaTask) {
     name: 'tasks',
     query: {
       highlight: task.id,
+      pulse: String(Date.now()),
+    },
+  })
+}
+
+function openHabitForDate(habit: HabitSchedule) {
+  if (!selectedDate.value)
+    return
+
+  router.push({
+    path: '/habits',
+    query: {
+      habit: habit.fileName,
+      date: selectedDate.value,
       pulse: String(Date.now()),
     },
   })
@@ -489,6 +645,20 @@ function goBack() {
         <button v-for="task in tasksForSelectedDate" :key="task.id" class="task-item" @click="openTaskFile(task)">
           <span v-if="task.isHighPriority" class="priority-dot" aria-label="High priority" />
           <span class="task-body">{{ task.body }}</span>
+        </button>
+      </div>
+
+      <div class="card glass-card day-habits-card">
+        <h2 class="section-header">
+          Habits Not Complete
+        </h2>
+        <div v-if="incompleteHabitsForSelectedDate.length === 0" class="empty-day">
+          <p class="empty-text">All scheduled habits complete.</p>
+        </div>
+        <button v-for="habit in incompleteHabitsForSelectedDate" :key="habit.fileName" class="habit-item"
+          @click="openHabitForDate(habit)">
+          <span class="habit-name">{{ habit.icon }} {{ habit.name }}</span>
+          <span class="habit-progress">{{ habit.currentValue }}/{{ habit.targetCount }}</span>
         </button>
       </div>
     </template>
@@ -726,6 +896,10 @@ h1 {
   padding: 12px 14px;
 }
 
+.day-habits-card {
+  padding: 12px 14px;
+}
+
 .empty-day {
   padding: 8px 0 4px;
 }
@@ -776,6 +950,38 @@ h1 {
   font-size: 0.78rem;
   color: var(--danger);
   opacity: 0.8;
+}
+
+.habit-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.habit-item:last-child {
+  border-bottom: none;
+}
+
+.habit-name {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.habit-progress {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--text-soft);
 }
 
 .back-button {
