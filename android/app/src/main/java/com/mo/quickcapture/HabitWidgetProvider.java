@@ -59,6 +59,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         SharedPreferences.Editor editor = getWidgetPrefs(context).edit();
         for (int widgetId : appWidgetIds) {
             editor.remove("widget_" + widgetId + "_file");
+            editor.remove("widget_" + widgetId + "_habit_id");
             editor.remove("widget_" + widgetId + "_name");
             editor.remove("widget_" + widgetId + "_icon");
             editor.remove("widget_" + widgetId + "_target");
@@ -70,13 +71,14 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         SharedPreferences prefs = getWidgetPrefs(context);
         String folderUri = getFolderUri(context);
         String fileName = prefs.getString("widget_" + widgetId + "_file", null);
+        String habitId = prefs.getString("widget_" + widgetId + "_habit_id", null);
         int targetCount = prefs.getInt("widget_" + widgetId + "_target", 1);
 
         if (folderUri == null || fileName == null) return;
 
         try {
             String today = getToday();
-            String currentValue = getTodayValueForHabit(context, folderUri, fileName, today);
+            String currentValue = getTodayValueForHabit(context, folderUri, fileName, habitId, today);
 
             // Cycle: blank -> done -> skip -> fail -> blank.
             // Partial numeric values (< target) advance to done first to match app semantics.
@@ -96,7 +98,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
                 newValue = null; // clear
             }
 
-            writeTodayValueForHabit(context, folderUri, fileName, today, newValue);
+            writeTodayValueForHabit(context, folderUri, fileName, habitId, today, newValue);
         } catch (Exception e) {
             // silently fail; widget will show last known state
         }
@@ -109,6 +111,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         SharedPreferences prefs = getWidgetPrefs(context);
         String folderUri = getFolderUri(context);
         String fileName = prefs.getString("widget_" + widgetId + "_file", null);
+        String habitId = prefs.getString("widget_" + widgetId + "_habit_id", null);
         String habitName = prefs.getString("widget_" + widgetId + "_name", "Habit");
         String habitIcon = prefs.getString("widget_" + widgetId + "_icon", "");
         int targetCount = prefs.getInt("widget_" + widgetId + "_target", 1);
@@ -121,7 +124,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         String todayValue = null;
         if (folderUri != null && fileName != null) {
             try {
-                todayValue = getTodayValueForHabit(context, folderUri, fileName, getToday());
+                todayValue = getTodayValueForHabit(context, folderUri, fileName, habitId, getToday());
             } catch (Exception ignored) {}
         }
 
@@ -354,26 +357,39 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         return null;
     }
 
-    static String habitLogStemFromFile(String fileName) {
-        if (fileName == null) return "habit";
-        String base = fileName.replaceAll("(?i)\\.md$", "").toLowerCase(Locale.US);
+    static String habitLogStem(String habitId, String fileName) {
+        String source = habitId;
+        if (source == null || source.trim().isEmpty()) {
+            source = fileName == null ? "" : fileName.replaceAll("(?i)\\.md$", "");
+        }
+        String base = source.toLowerCase(Locale.US);
         String normalized = base.replaceAll("[^a-z0-9_-]+", "-")
             .replaceAll("-+", "-")
             .replaceAll("^-|-$", "");
         return normalized.isEmpty() ? "habit" : normalized;
     }
 
-    static String monthLogFileName(String habitFileName, String today) {
+    static String monthLogFileName(String habitFileName, String habitId, String today) {
         String month = today.substring(0, 7);
-        return HABIT_LOGS_DIR + "/" + habitLogStemFromFile(habitFileName) + "-" + month + ".md";
+        return HABIT_LOGS_DIR + "/" + habitLogStem(habitId, habitFileName) + "-" + month + ".md";
     }
 
-    static String getTodayValueForHabit(Context context, String folderUri, String habitFileName, String today) throws IOException {
-        String logPath = monthLogFileName(habitFileName, today);
+    static String getTodayValueForHabit(Context context, String folderUri, String habitFileName, String habitId, String today) throws IOException {
+        String logPath = monthLogFileName(habitFileName, habitId, today);
         String monthly = readFile(context, folderUri, logPath);
         if (monthly != null) {
             String fromMonthly = getTodayValueFromMonthlyLog(monthly, today);
             if (fromMonthly != null) return fromMonthly;
+        }
+
+        // Backward compatibility: old builds used file-name-based stems.
+        String legacyLogPath = monthLogFileName(habitFileName, null, today);
+        if (!legacyLogPath.equals(logPath)) {
+            String legacyMonthly = readFile(context, folderUri, legacyLogPath);
+            if (legacyMonthly != null) {
+                String fromLegacyMonthly = getTodayValueFromMonthlyLog(legacyMonthly, today);
+                if (fromLegacyMonthly != null) return fromLegacyMonthly;
+            }
         }
 
         String legacy = readFile(context, folderUri, habitFileName);
@@ -452,8 +468,8 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         return "\"" + escaped + "\"";
     }
 
-    static void writeTodayValueForHabit(Context context, String folderUri, String habitFileName, String today, String newValue) throws IOException {
-        String logPath = monthLogFileName(habitFileName, today);
+    static void writeTodayValueForHabit(Context context, String folderUri, String habitFileName, String habitId, String today, String newValue) throws IOException {
+        String logPath = monthLogFileName(habitFileName, habitId, today);
         String existing = readFile(context, folderUri, logPath);
         String updated = upsertMonthLogContent(existing, habitFileName, today, newValue);
         writeFile(context, folderUri, logPath, updated);
