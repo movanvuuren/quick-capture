@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { CSSProperties } from 'vue'
-import { CheckSquare, FileText, Flame, List, Plus, Settings, Trash2 } from 'lucide-vue-next'
+import { CalendarDays, CheckSquare, FileText, Flame, List, Plus, Search, Settings, Trash2 } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -419,7 +419,7 @@ function getCardOffset(card: DashboardCard) {
 }
 
 function isCardMetaVisible() {
-  return settings.value.debugMode === true
+  return false
 }
 
 function getCardStyle(card: DashboardCard) {
@@ -779,9 +779,17 @@ async function toggleNotePin(note: AppFile) {
       <div class="top-row">
         <h1>Quick Capture</h1>
 
-        <button class="glass-icon-button" aria-label="Go to settings" @click="go('/settings')">
-          <Settings :size="22" />
-        </button>
+        <div class="top-actions">
+          <button class="glass-icon-button" aria-label="Search" @click="go('/search')">
+            <Search :size="20" />
+          </button>
+          <button class="glass-icon-button" aria-label="Agenda" @click="go('/agenda')">
+            <CalendarDays :size="20" />
+          </button>
+          <button class="glass-icon-button" aria-label="Go to settings" @click="go('/settings')">
+            <Settings :size="20" />
+          </button>
+        </div>
       </div>
 
       <div v-if="isLoading" class="empty-state card">
@@ -1007,6 +1015,13 @@ async function toggleNotePin(note: AppFile) {
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 22px;
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 h1 {

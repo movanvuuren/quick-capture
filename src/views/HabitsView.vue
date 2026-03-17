@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
 import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
@@ -67,7 +67,7 @@ let activeHabitsLoadPromise: Promise<void> | null = null
 const habitDefinitionCache = new Map<string, CachedHabitDefinition>()
 
 const router = useRouter()
-const settings = loadSettings()
+const settings = reactive(loadSettings())
 
 const isLoading = ref(true)
 const error = ref('')
@@ -512,7 +512,7 @@ async function ensureHabitLogsLoadedForOffset(habit: HabitCard, monthOffset: num
   }
 }
 
-function getHeatmap(habit: HabitCard): HeatmapCell[] {
+function computeHeatmap(habit: HabitCard): HeatmapCell[] {
   const monthDate = getVisibleMonthDate(habit)
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
   const totalDays = daysInMonth(monthDate)
@@ -600,6 +600,17 @@ function getHeatmap(habit: HabitCard): HeatmapCell[] {
   }
 
   return cells
+}
+
+const heatmapMap = computed(() => {
+  const m = new Map<string, HeatmapCell[]>()
+  for (const habit of habits.value)
+    m.set(habit.fileName, computeHeatmap(habit))
+  return m
+})
+
+function getHeatmap(habit: HabitCard): HeatmapCell[] {
+  return heatmapMap.value.get(habit.fileName) ?? []
 }
 
 function getSelectedDate(habit: HabitCard): string {
@@ -1014,7 +1025,7 @@ function getBestStreak(habit: HabitCard): number {
   return best
 }
 
-function getStreakSummary(habit: HabitCard): string {
+function computeStreakSummary(habit: HabitCard): string {
   if (habit.period === 'week') {
     const { success, total } = getWeeklyScoreFromToday(habit)
     return `Streak: ${success}/${total} days`
@@ -1028,6 +1039,17 @@ function getStreakSummary(habit: HabitCard): string {
   const current = getCurrentStreak(habit)
   const best = getBestStreak(habit)
   return `Streak: ${current} days current, ${best} days best`
+}
+
+const streakSummaryMap = computed(() => {
+  const m = new Map<string, string>()
+  for (const habit of habits.value)
+    m.set(habit.fileName, computeStreakSummary(habit))
+  return m
+})
+
+function getStreakSummary(habit: HabitCard): string {
+  return streakSummaryMap.value.get(habit.fileName) ?? ''
 }
 
 async function loadHabits(options: { preferCache?: boolean, force?: boolean } = {}) {
@@ -1402,9 +1424,20 @@ async function createExampleHabit() {
   }
 }
 
+let isFirstHabitsActivation = true
+
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
+  await loadHabits({ preferCache: true })
+})
+
+onActivated(async () => {
+  if (isFirstHabitsActivation) {
+    isFirstHabitsActivation = false
+    return
+  }
+  Object.assign(settings, loadSettings())
   await loadHabits({ preferCache: true })
 })
 
