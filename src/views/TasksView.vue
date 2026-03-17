@@ -711,9 +711,13 @@ async function saveTaskText(task: QuickTaskItem) {
   const previousBody = task.body
 
   const existingTag = selectedPreset.value?.tag?.trim()
-  const nextBody = existingTag && !trimmed.includes(existingTag)
+  const withTag = existingTag && !trimmed.includes(existingTag)
     ? `${existingTag} ${trimmed}`.trim()
     : trimmed
+  const hasRepeatToken = /🔁\s*(daily|weekly|weekdays|monthly)/i.test(withTag)
+  const nextBody = task.repeat && !hasRepeatToken
+    ? `${withTag} 🔁 ${task.repeat}`.trim()
+    : withTag
 
   task.body = nextBody
 

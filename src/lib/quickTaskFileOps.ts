@@ -39,11 +39,12 @@ export function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
 }
 
 export function matchesScannedTask(task: QuickTaskComparable, scanned: ParsedTaskLine): boolean {
+  const repeatMatches = !task.repeat || !scanned.repeat || scanned.repeat === task.repeat
   return scanned.body === task.body
     && scanned.state === task.state
     && scanned.dueDate === task.dueDate
     && Boolean(scanned.isHighPriority) === Boolean(task.isHighPriority)
-    && scanned.repeat === task.repeat
+    && repeatMatches
 }
 
 export function resolveTaskLineIndex(lines: string[], task: QuickTaskComparable): number {
