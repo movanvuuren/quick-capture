@@ -7,6 +7,7 @@ import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { parseFrontmatter } from '../lib/lists'
 import { applyTheme, getThemeAccentColor, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
+import { WidgetSync } from '../plugins/widget-sync'
 
 const router = useRouter()
 const MAX_QUICK_TASK_PRESETS = 3
@@ -415,6 +416,20 @@ async function saveHabitConfig(draft: HabitDraft) {
     draft.savedFileName = draft.currentFileName
     draft.lastSavedSignature = habitDraftSignature(draft)
     draft.lastSavedFileName = draft.currentFileName
+
+    const habitsForWidget = habitDrafts.value
+      .filter(current => current.currentFileName && current.name.trim())
+      .map(current => ({
+        file: current.currentFileName,
+        name: current.name.trim(),
+        icon: current.icon.trim(),
+        target: Math.max(1, Math.floor(current.targetCount || 1)),
+      }))
+
+    await WidgetSync.syncHabits({
+      folderUri: settings.baseFolderUri,
+      habitsJson: JSON.stringify(habitsForWidget),
+    })
   } catch (error) {
     console.error('Failed to save habit config', error)
     draft.saveError = 'Could not save habit note.'
