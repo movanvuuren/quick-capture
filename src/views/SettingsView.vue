@@ -12,7 +12,7 @@ const router = useRouter()
 const MAX_QUICK_TASK_PRESETS = 3
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
-type HabitPeriod = 'day' | 'week'
+type HabitPeriod = 'day' | 'week' | 'month'
 type SettingsSection = 'system' | 'appearance' | 'tasks' | 'habits'
 
 // A single reactive object for all settings, loaded from storage.
@@ -253,7 +253,13 @@ function toggleHabitScheduledDay(draft: HabitDraft, day: number) {
 }
 
 function getDraftTargetDays(draft: HabitDraft): number {
-  return Math.min(Math.max(1, Math.floor(draft.targetDays || 1)), draft.scheduledDays.length || 1)
+  if (draft.period === 'week')
+    return Math.min(Math.max(1, Math.floor(draft.targetDays || 1)), draft.scheduledDays.length || 1)
+
+  if (draft.period === 'month')
+    return Math.min(Math.max(1, Math.floor(draft.targetDays || 1)), 31)
+
+  return 1
 }
 
 function habitDraftSignature(draft: HabitDraft): string {
@@ -285,7 +291,7 @@ function buildHabitMarkdown(draft: HabitDraft): string {
   ]
   if (draft.icon.trim())
     lines.push(`icon: ${JSON.stringify(draft.icon.trim())}`)
-  if (draft.period === 'week')
+  if (draft.period === 'week' || draft.period === 'month')
     lines.push(`targetDays: ${getDraftTargetDays(draft)}`)
   if (draft.reminder.trim())
     lines.push(`reminder: ${JSON.stringify(draft.reminder.trim())}`)
@@ -332,11 +338,15 @@ async function loadHabitDrafts() {
           if (frontmatter.type !== 'habit')
             return null
 
-          const period: HabitPeriod = frontmatter.period === 'week' ? 'week' : 'day'
+          const period: HabitPeriod = frontmatter.period === 'week'
+            ? 'week'
+            : frontmatter.period === 'month'
+              ? 'month'
+              : 'day'
           const targetCount = period === 'week' && frontmatter.targetDays === undefined
             ? Math.max(1, Number(frontmatter.dailyTargetCount || 1))
             : Math.max(1, Number(frontmatter.targetCount || 1))
-          const targetDays = period === 'week'
+          const targetDays = period === 'week' || period === 'month'
             ? Math.max(1, Number(frontmatter.targetDays || frontmatter.targetCount || 1))
             : 1
 
@@ -729,25 +739,32 @@ function jumpToSection(value: string) {
               <select v-model="draft.period" class="glass-select">
                 <option value="day">Daily</option>
                 <option value="week">Weekly</option>
+                <option value="month">Monthly</option>
               </select>
             </label>
             <label class="field">
-              <span>{{ draft.period === 'week' ? 'Target per successful day' : 'Daily target' }}</span>
+              <span>{{ draft.period === 'day' ? 'Daily target' : 'Target per successful day' }}</span>
               <input v-model.number="draft.targetCount" type="number" min="1" step="1">
             </label>
           </div>
-          <div v-if="draft.period === 'week'" class="two-col-grid">
+          <div v-if="draft.period !== 'day'" class="two-col-grid">
             <label class="field">
-              <span>Days per week</span>
-              <input v-model.number="draft.targetDays" type="number" min="1" :max="draft.scheduledDays.length || 1"
-                step="1">
-              <small class="hint">Example: 6 means you need to hit the amount goal on 6 scheduled days.</small>
+              <span>{{ draft.period === 'month' ? 'Days per month' : 'Days per week' }}</span>
+              <input v-model.number="draft.targetDays" type="number" min="1"
+                :max="draft.period === 'month' ? 31 : draft.scheduledDays.length || 1" step="1">
+              <small class="hint">Example: 4 means you need to hit the amount goal on at least 4 days in this
+                period.</small>
             </label>
             <div class="field field-summary">
-              <span>Weekly goal</span>
+              <span>{{ draft.period === 'month' ? 'Monthly goal' : 'Weekly goal' }}</span>
               <p class="habit-goal-summary">
-                {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }}/{{
+                <template v-if="draft.period === 'month'">
+                  {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }} days
+                </template>
+                <template v-else>
+                  {{ draft.targetCount || 1 }} {{ draft.unit || 'times' }} on {{ getDraftTargetDays(draft) }}/{
                   draft.scheduledDays.length || 1 }} days
+                </template>
               </p>
             </div>
           </div>

@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRouter } from 'vue-router'
-import { Check, Flame, SkipForward, X } from 'lucide-vue-next'
+import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -12,7 +12,7 @@ interface HabitCard {
   id: string
   name: string
   icon: string
-  period: 'day' | 'week'
+  period: 'day' | 'week' | 'month'
   targetCount: number
   targetDays: number
   unit: string
@@ -32,11 +32,11 @@ interface HeatmapCell {
   isToday: boolean
   isScheduled: boolean
   isFuture: boolean
+  isPlaceholder?: boolean
 }
 
 const LOG_START = '<!-- QUICK_CAPTURE_HABIT_LOG_START -->'
 const LOG_END = '<!-- QUICK_CAPTURE_HABIT_LOG_END -->'
-const HEATMAP_WEEKS = 4
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const HABIT_LOGS_DIR = 'habit-logs'
 const HABIT_LOG_MONTHS_TO_LOAD = 15
@@ -51,6 +51,7 @@ const error = ref('')
 const habits = ref<HabitCard[]>([])
 const habitLogs = ref<Record<string, Record<string, HabitLogValue>>>({})
 const selectedDates = ref<Record<string, string>>({})
+const visibleMonthOffsets = ref<Record<string, number>>({})
 const habitSaving = ref<Record<string, boolean>>({})
 const habitSaveErrors = ref<Record<string, string>>({})
 const isCreatingExample = ref(false)
@@ -284,12 +285,8 @@ function isoToDate(iso: string): Date {
   return new Date(year, month - 1, day)
 }
 
-function startOfDisplayWeek(date: Date): Date {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  const day = d.getDay()
-  d.setDate(d.getDate() - day)
-  return d
+function daysInMonth(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
 }
 
 function isScheduledForDate(habit: HabitCard, date: Date): boolean {
@@ -298,26 +295,90 @@ function isScheduledForDate(habit: HabitCard, date: Date): boolean {
   return habit.scheduledDays.includes(toWeekdayIndex(date))
 }
 
+function getVisibleMonthOffset(habit: HabitCard): number {
+  return Math.max(0, visibleMonthOffsets.value[habit.fileName] || 0)
+}
+
+function getVisibleMonthDate(habit: HabitCard): Date {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(1)
+  date.setMonth(date.getMonth() - getVisibleMonthOffset(habit))
+  return date
+}
+
+function getVisibleMonthLabel(habit: HabitCard): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    year: 'numeric',
+  }).format(getVisibleMonthDate(habit))
+}
+
+function canShowNextMonth(habit: HabitCard): boolean {
+  return getVisibleMonthOffset(habit) > 0
+}
+
+function showPreviousMonth(habit: HabitCard) {
+  visibleMonthOffsets.value = {
+    ...visibleMonthOffsets.value,
+    [habit.fileName]: getVisibleMonthOffset(habit) + 1,
+  }
+}
+
+function showNextMonth(habit: HabitCard) {
+  const current = getVisibleMonthOffset(habit)
+  if (current <= 0)
+    return
+
+  visibleMonthOffsets.value = {
+    ...visibleMonthOffsets.value,
+    [habit.fileName]: current - 1,
+  }
+}
+
 function getHeatmap(habit: HabitCard): HeatmapCell[] {
-  const end = new Date()
-  end.setHours(0, 0, 0, 0)
-  const endWeekStart = startOfDisplayWeek(end)
-  const start = dateAddDays(endWeekStart, -((HEATMAP_WEEKS - 1) * 7))
+  const monthDate = getVisibleMonthDate(habit)
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
+  const totalDays = daysInMonth(monthDate)
+  const leadingPadding = monthStart.getDay()
   const logs = habitLogs.value[habit.fileName] || {}
   const today = todayIso()
   const cells: HeatmapCell[] = []
 
-  for (let i = 0; i < HEATMAP_WEEKS * 7; i += 1) {
-    const date = dateAddDays(start, i)
+  for (let i = 0; i < leadingPadding; i += 1) {
+    cells.push({
+      date: `placeholder-leading-${i}`,
+      value: null,
+      level: 0,
+      isToday: false,
+      isScheduled: false,
+      isFuture: false,
+      isPlaceholder: true,
+    })
+  }
+
+  for (let day = 1; day <= totalDays; day += 1) {
+    const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day)
     const iso = dateToIso(date)
-    const value = logs[iso] ?? null
     const isFuture = iso > today
-    let level: 0 | 1 | 2 | 3 | 4 = 0
 
     if (isFuture) {
-      level = 0
+      cells.push({
+        date: `placeholder-future-${iso}`,
+        value: null,
+        level: 0,
+        isToday: false,
+        isScheduled: false,
+        isFuture: true,
+        isPlaceholder: true,
+      })
+      continue
     }
-    else if (value === 'skip') {
+
+    const value = logs[iso] ?? null
+    let level: 0 | 1 | 2 | 3 | 4 = 0
+
+    if (value === 'skip') {
       level = 1
     }
     else if (value === 'fail') {
@@ -341,8 +402,25 @@ function getHeatmap(habit: HabitCard): HeatmapCell[] {
       level,
       isToday: iso === today,
       isScheduled: isScheduledForDate(habit, date),
-      isFuture,
+      isFuture: false,
+      isPlaceholder: false,
     })
+  }
+
+  const remainder = cells.length % 7
+  if (remainder > 0) {
+    const trailing = 7 - remainder
+    for (let i = 0; i < trailing; i += 1) {
+      cells.push({
+        date: `placeholder-trailing-${i}`,
+        value: null,
+        level: 0,
+        isToday: false,
+        isScheduled: false,
+        isFuture: false,
+        isPlaceholder: true,
+      })
+    }
   }
 
   return cells
@@ -374,7 +452,7 @@ function getSelectedValue(habit: HabitCard): HabitLogValue | null {
 }
 
 function selectCell(habit: HabitCard, cell: HeatmapCell) {
-  if (cell.isFuture)
+  if (cell.isFuture || cell.isPlaceholder)
     return
 
   selectedDates.value = {
@@ -384,6 +462,9 @@ function selectCell(habit: HabitCard, cell: HeatmapCell) {
 }
 
 function isSelectedCell(habit: HabitCard, cell: HeatmapCell): boolean {
+  if (cell.isPlaceholder)
+    return false
+
   return getSelectedDate(habit) === cell.date
 }
 
@@ -392,12 +473,18 @@ function getScheduledDaysCount(habit: HabitCard): number {
 }
 
 function getRequiredDays(habit: HabitCard, eligibleDays = getScheduledDaysCount(habit)): number {
+  if (habit.period === 'month')
+    return Math.min(Math.max(1, habit.targetDays), 31)
+
   return Math.min(Math.max(1, habit.targetDays), Math.max(1, eligibleDays))
 }
 
 function getTargetSummary(habit: HabitCard): string {
   if (habit.period === 'week')
     return `Goal: ${habit.targetCount} ${habit.unit} on ${getRequiredDays(habit)}/${getScheduledDaysCount(habit)} days`
+
+  if (habit.period === 'month')
+    return `Goal: ${habit.targetCount} ${habit.unit} on ${getRequiredDays(habit)} days this month`
 
   return `Goal: ${habit.targetCount} ${habit.unit} per day`
 }
@@ -598,6 +685,9 @@ function getCellState(habit: HabitCard, cell: HeatmapCell): HabitCellState {
 }
 
 function cellTitle(habit: HabitCard, cell: HeatmapCell): string {
+  if (cell.isPlaceholder)
+    return ''
+
   const state = getCellState(habit, cell)
   const valueText = state === 'complete'
     ? `complete (${typeof cell.value === 'number' ? cell.value : habit.targetCount}/${habit.targetCount})`
@@ -657,6 +747,30 @@ function getWeeklyScoreFromToday(habit: HabitCard): { success: number, total: nu
   return {
     success,
     total,
+  }
+}
+
+function getMonthlyScoreFromCurrentMonth(habit: HabitCard): { success: number, required: number } {
+  const log = habitLogs.value[habit.fileName] || {}
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+  const required = getRequiredDays(habit)
+  let success = 0
+
+  for (let date = new Date(monthStart); date <= today; date = dateAddDays(date, 1)) {
+    if (!isScheduledForDate(habit, date))
+      continue
+
+    const value = log[dateToIso(date)] ?? null
+    if (isSuccessValue(habit, value))
+      success += 1
+  }
+
+  return {
+    success,
+    required,
   }
 }
 
@@ -730,6 +844,11 @@ function getStreakSummary(habit: HabitCard): string {
     return `Streak: ${success}/${total} days`
   }
 
+  if (habit.period === 'month') {
+    const { success, required } = getMonthlyScoreFromCurrentMonth(habit)
+    return `Month: ${success}/${required} days`
+  }
+
   const current = getCurrentStreak(habit)
   const best = getBestStreak(habit)
   return `Streak: ${current} days current, ${best} days best`
@@ -757,11 +876,15 @@ async function loadHabits() {
           if (frontmatter.type !== 'habit')
             return null
 
-          const period = frontmatter.period === 'week' ? 'week' : 'day'
+          const period = frontmatter.period === 'week'
+            ? 'week'
+            : frontmatter.period === 'month'
+              ? 'month'
+              : 'day'
           const targetCount = period === 'week' && frontmatter.targetDays === undefined
             ? Math.max(1, Number(frontmatter.dailyTargetCount || 1))
             : Math.max(1, Number(frontmatter.targetCount || 1))
-          const targetDays = period === 'week'
+          const targetDays = period === 'week' || period === 'month'
             ? Math.max(1, Number(frontmatter.targetDays || frontmatter.targetCount || 1))
             : 1
 
@@ -798,6 +921,10 @@ async function loadHabits() {
     habitLogs.value = logsByFile
     selectedDates.value = habits.value.reduce<Record<string, string>>((acc, habit) => {
       acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
+      return acc
+    }, {})
+    visibleMonthOffsets.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
+      acc[habit.fileName] = getVisibleMonthOffset(habit)
       return acc
     }, {})
 
@@ -1078,6 +1205,17 @@ onBeforeUnmount(() => {
 
           <div class="habit-main-row">
             <div class="heatmap-wrap">
+              <div class="heatmap-month-nav">
+                <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show previous month"
+                  @click="showPreviousMonth(habit)">
+                  <ChevronLeft :size="14" />
+                </button>
+                <span class="heatmap-month-label">{{ getVisibleMonthLabel(habit) }}</span>
+                <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show next month"
+                  :disabled="!canShowNextMonth(habit)" @click="showNextMonth(habit)">
+                  <ChevronRight :size="14" />
+                </button>
+              </div>
               <div class="heatmap-days" aria-hidden="true">
                 <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
                 }}</span>
@@ -1087,12 +1225,13 @@ onBeforeUnmount(() => {
                   :class="[
                     `level-${cell.level}`,
                     {
+                      'is-placeholder': cell.isPlaceholder,
                       'is-today': cell.isToday,
                       'is-unscheduled': !cell.isScheduled,
                       'is-future': cell.isFuture,
                       'is-fail': cell.value === 'fail',
                       'is-skip': cell.value === 'skip',
-                      'is-clickable': !cell.isFuture,
+                      'is-clickable': !cell.isFuture && !cell.isPlaceholder,
                       'is-selected': isSelectedCell(habit, cell),
                     },
                   ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
@@ -1413,6 +1552,27 @@ h1 {
   gap: 8px;
 }
 
+.heatmap-month-nav {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.heatmap-month-label {
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.heatmap-nav-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  color: var(--text-soft);
+}
+
 .heatmap-days {
   display: grid;
   grid-template-columns: repeat(7, 12px);
@@ -1442,6 +1602,12 @@ h1 {
   border-radius: 3px;
   border: 1px solid color-mix(in srgb, var(--c-light) 12%, transparent);
   background: color-mix(in srgb, var(--c-dark) 8%, var(--surface));
+}
+
+.heatmap-cell.is-placeholder {
+  border-color: transparent;
+  background: transparent;
+  pointer-events: none;
 }
 
 .heatmap-cell.is-clickable {
