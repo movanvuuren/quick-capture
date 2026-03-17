@@ -205,18 +205,36 @@ watch(listId, (id) => {
 
 
 const saveTimers = new Map<string, number>()
+const saveVersions = new Map<string, number>()
 
 function queueSave(list: StoredTodoList) {
   const existing = saveTimers.get(list.id)
   if (existing)
     window.clearTimeout(existing)
 
+  const nextVersion = (saveVersions.get(list.id) || 0) + 1
+  saveVersions.set(list.id, nextVersion)
+
   const timer = window.setTimeout(async () => {
+    const queuedVersion = nextVersion
+
     try {
       const saved = await saveListToFile(baseFolderUri.value, list)
+      if (saveVersions.get(list.id) !== queuedVersion)
+        return
+
       const idx = lists.value.findIndex(l => l.id === list.id)
-      if (idx !== -1)
-        lists.value[idx] = saved
+      if (idx !== -1) {
+        const current = lists.value[idx]
+        if (current) {
+          // Keep in-progress local edits stable while still refreshing persisted metadata.
+          current.fileName = saved.fileName
+          current.updated = saved.updated
+          current.created = saved.created
+          current.pinned = saved.pinned
+          current.type = saved.type
+        }
+      }
     }
     catch (err) {
       console.error('Failed to save list', list.title, err)
@@ -273,14 +291,6 @@ function cycleState(list: StoredTodoList, idx: number) {
 //   },
 //   { deep: true },
 // )
-watch(
-  () => currentList.value?.title,
-  () => {
-    if (currentList.value)
-      queueSave(currentList.value)
-  },
-)
-
 function goBack() {
   router.push('/')
 }
