@@ -7,6 +7,7 @@ import PinToggleButton from '../components/PinToggleButton.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import { escapeHtml, renderNotePreviewMarkdown } from '../lib/notePreviewRenderer'
+import { getActiveItems, getCompletedCount, getPreviewItems, getPreviewOverflowCount, getProgressPercent } from '../lib/todoSelectors'
 import type { AppFile } from '../lib/listFiles'
 import {
   createListFile,
@@ -261,36 +262,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', handleWindowFocus)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
-
-function getActiveItems(list: StoredTodoList) {
-  return list.items.filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
-}
-
-function getCompletedCount(list: StoredTodoList) {
-  return list.items.filter(item => item.state === 'done' && item.text.trim().length > 0).length
-}
-
-function getProgressPercent(list: StoredTodoList) {
-  const active = getActiveItems(list)
-  if (active.length === 0)
-    return 0
-
-  const done = active.filter(item => item.state === 'done').length
-  return Math.round((done / active.length) * 100)
-}
-
-function getPreviewItems(list: StoredTodoList) {
-  return list.items
-    .filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
-    .slice(0, 3)
-}
-
-function getPreviewOverflowCount(list: StoredTodoList) {
-  const visibleCount = list.items
-    .filter(item => item.text.trim().length > 0 && item.state !== 'cancelled')
-    .length
-  return Math.max(visibleCount - 3, 0)
-}
 
 function getNotePreviewHtml(note: AppFile) {
   const source = (note.previewMarkdown || '').trim()

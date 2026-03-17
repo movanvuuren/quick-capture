@@ -7,14 +7,12 @@ import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { FolderPicker } from '../plugins/folder-picker'
-import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
-import type { ScannedQuickTaskLine } from '../lib/quickTaskFileOps'
-import { resolveTaskLineIndex, scanQuickTaskLines } from '../lib/quickTaskFileOps'
+import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
+import { invalidateQuickTaskCache, loadQuickTasksFromFolder, updateTaskInFolder } from '../lib/quickTasksData'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
 import type { TaskRepeat } from '../lib/taskLine'
-import { parseTaskLine, serializeTaskLine } from '../lib/taskLine'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 type TaskFilter = 'all' | TaskState | 'overdue' | 'closed'
@@ -33,19 +31,11 @@ interface QuickTaskItem {
   presetLabel?: string
 }
 
-interface CachedQuickTaskFile {
-  signature: string
-  tasks: ScannedQuickTaskLine[]
-}
-
 const QUICK_TASK_READ_CONCURRENCY = 6
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 const TASK_REMINDER_STORAGE_KEY = 'quick-capture-task-reminders'
 const TASK_STATE_CHANGE_SORT_DELAY = 300
-
-let quickTaskCacheFolderUri = ''
-const quickTaskFileCache = new Map<string, CachedQuickTaskFile>()
 
 const router = useRouter()
 const route = useRoute()
@@ -534,15 +524,6 @@ async function changeReminderTime(task: QuickTaskItem, value: string) {
   }
 }
 
-function invalidateQuickTaskCache(fileName?: string) {
-  if (fileName) {
-    quickTaskFileCache.delete(fileName)
-    return
-  }
-
-  quickTaskFileCache.clear()
-}
-
 function getPresetForTask(body: string, fileName: string): QuickTaskPreset | undefined {
   const taggedPreset = settings.quickTaskPresets.find((preset) => {
     const tag = preset.tag?.trim()
@@ -571,95 +552,16 @@ async function loadQuickTasks() {
 
   const folderUri = settings.baseFolderUri
 
-  if (quickTaskCacheFolderUri !== folderUri) {
-    invalidateQuickTaskCache()
-    quickTaskCacheFolderUri = folderUri
-  }
-
   if (tasks.value.length === 0)
     isLoading.value = true
   error.value = ''
 
   try {
-    const listed = await FolderPicker.listFiles({ folderUri })
-    const mdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
-    const activeNames = new Set(mdFiles.map(file => file.name))
-
-    const scannedFiles = await mapWithConcurrency(
-      mdFiles,
-      QUICK_TASK_READ_CONCURRENCY,
-      async (file) => {
-        try {
-          const signature = getFileSignature(file)
-          const cached = quickTaskFileCache.get(file.name)
-
-          if (signature && cached && cached.signature === signature) {
-            return {
-              fileName: file.name,
-              tasks: cached.tasks.map(task => ({ ...task })),
-            }
-          }
-
-          const read = await FolderPicker.readFile({
-            folderUri,
-            fileName: file.name,
-          })
-
-          const scanned = scanQuickTaskLines(read.content)
-
-          if (signature) {
-            quickTaskFileCache.set(file.name, {
-              signature,
-              tasks: scanned,
-            })
-          }
-          else {
-            quickTaskFileCache.delete(file.name)
-          }
-
-          return {
-            fileName: file.name,
-            tasks: scanned.map(task => ({ ...task })),
-          }
-        }
-        catch (fileErr) {
-          console.warn('Failed to scan task file', file.name, fileErr)
-          return null
-        }
-      },
-    )
-
-    const loadedTasks: QuickTaskItem[] = []
-
-    for (const scannedFile of scannedFiles) {
-      if (!scannedFile)
-        continue
-
-      for (const task of scannedFile.tasks) {
-        const preset = getPresetForTask(task.body, scannedFile.fileName)
-        if (!preset)
-          continue
-
-        loadedTasks.push({
-          id: `${scannedFile.fileName}:${task.lineIndex}`,
-          fileName: scannedFile.fileName,
-          lineIndex: task.lineIndex,
-          state: task.state,
-          body: task.body,
-          dueDate: task.dueDate,
-          isHighPriority: task.isHighPriority,
-          repeat: task.repeat,
-          presetId: preset.id,
-          presetLabel: preset.label,
-        })
-      }
-    }
-
-    for (const cachedName of Array.from(quickTaskFileCache.keys())) {
-      if (!activeNames.has(cachedName))
-        quickTaskFileCache.delete(cachedName)
-    }
-
+    const loadedTasks = await loadQuickTasksFromFolder({
+      folderUri,
+      readConcurrency: QUICK_TASK_READ_CONCURRENCY,
+      matchPreset: (body, fileName) => getPresetForTask(body, fileName),
+    })
     tasks.value = loadedTasks
   }
   catch (err) {
@@ -688,40 +590,14 @@ async function updateTaskInFile(
 ) {
   if (!settings.baseFolderUri)
     return
-
-  const read = await FolderPicker.readFile({
+  await updateTaskInFolder({
     folderUri: settings.baseFolderUri,
-    fileName: task.fileName,
-  })
-
-  const lines = read.content.split(/\r?\n/)
-  let lineIndex = -1
-  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
-    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
-    if (parsedAtStoredIndex)
-      lineIndex = task.lineIndex
-  }
-
-  if (lineIndex < 0)
-    lineIndex = resolveTaskLineIndex(lines, task)
-
-  if (lineIndex < 0)
-    return
-
-  lines[lineIndex] = serializeTaskLine(
+    task,
     nextState,
-    nextBody ?? task.body,
     nextDueDate,
-    nextIsHighPriority ?? task.isHighPriority,
-  )
-
-  await FolderPicker.writeFile({
-    folderUri: settings.baseFolderUri,
-    fileName: task.fileName,
-    content: lines.join('\n'),
+    nextBody,
+    nextIsHighPriority,
   })
-
-  invalidateQuickTaskCache(task.fileName)
 }
 
 function advanceDueDate(dateIso: string, repeat: string): string {

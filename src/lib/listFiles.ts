@@ -48,6 +48,12 @@ const DASHBOARD_READ_CONCURRENCY = 6
 let dashboardCacheFolderUri = ''
 const dashboardFileCache = new Map<string, CachedDashboardFile>()
 
+function toAppFileType(value: unknown): AppFile['type'] {
+  if (value === 'list' || value === 'task' || value === 'note')
+    return value
+  return 'note'
+}
+
 function setPinnedInMarkdown(markdown: string, pinned: boolean): string {
   const frontmatterMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
 
@@ -165,9 +171,7 @@ function parseDashboardMarkdown(fileName: string, content: string): ParsedDashbo
     return null
 
   const body = stripFrontmatter(content)
-  const type = ['list', 'task', 'note'].includes(frontmatter.type as any)
-    ? (frontmatter.type as AppFile['type'])
-    : 'note'
+  const type = toAppFileType(frontmatter.type)
 
   const previewSource = type === 'note' ? stripLeadingHeading(body) : body
   const plainTextBody = markdownToPreviewText(previewSource)
