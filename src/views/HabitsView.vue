@@ -81,6 +81,7 @@ const habitSaving = ref<Record<string, boolean>>({})
 const habitSaveErrors = ref<Record<string, string>>({})
 const isCreatingExample = ref(false)
 const exampleError = ref('')
+const isHabitCardHydrating = ref<Record<string, boolean>>({})
 
 const hasBaseFolder = computed(() => Boolean(settings.baseFolderUri))
 const EXTERNAL_REFRESH_COOLDOWN_MS = 1000
@@ -142,6 +143,12 @@ function syncHabitCache() {
 
 function todayIso() {
   return dateToIso(new Date())
+}
+
+async function waitForNextFrame() {
+  await new Promise<void>((resolve) => {
+    requestAnimationFrame(() => resolve())
+  })
 }
 
 function getFileSignature(file: { lastModified?: number, size?: number }): string | null {
@@ -432,6 +439,10 @@ function canShowNextMonth(habit: HabitCard): boolean {
 
 function isLoadingOlderMonths(habit: HabitCard): boolean {
   return Boolean(isHabitLogLazyLoading.value[habit.fileName])
+}
+
+function isHydratingHabitCard(habit: HabitCard): boolean {
+  return Boolean(isHabitCardHydrating.value[habit.fileName])
 }
 
 function showPreviousMonth(habit: HabitCard) {
@@ -1029,6 +1040,7 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
     selectedDates.value = {}
     visibleMonthOffsets.value = {}
     loadedHabitLogMonths.value = {}
+    isHabitCardHydrating.value = {}
     cachedSnapshot = null
     cachedFolderUri = ''
     cachedAt = 0
@@ -1132,27 +1144,6 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         .filter((habit): habit is HabitCard => Boolean(habit))
         .sort((a, b) => a.name.localeCompare(b.name))
 
-      const logsByFile: Record<string, Record<string, HabitLogValue>> = {}
-      const initialLogs = await mapWithConcurrency(
-        habits.value,
-        HABIT_LAZY_LOAD_CONCURRENCY,
-        async habit => ({
-          fileName: habit.fileName,
-          logs: await loadHabitLogsForHabit(habit, HABIT_LOG_INITIAL_MONTHS_TO_LOAD),
-        }),
-      )
-
-      if (loadToken !== habitsLoadToken)
-        return
-
-      for (const loadedLog of initialLogs)
-        logsByFile[loadedLog.fileName] = loadedLog.logs
-
-      habitLogs.value = logsByFile
-      loadedHabitLogMonths.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
-        acc[habit.fileName] = HABIT_LOG_INITIAL_MONTHS_TO_LOAD
-        return acc
-      }, {})
       selectedDates.value = habits.value.reduce<Record<string, string>>((acc, habit) => {
         acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
         return acc
@@ -1161,6 +1152,48 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         acc[habit.fileName] = getVisibleMonthOffset(habit)
         return acc
       }, {})
+      loadedHabitLogMonths.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
+        acc[habit.fileName] = HABIT_LOG_INITIAL_MONTHS_TO_LOAD
+        return acc
+      }, {})
+      habitLogs.value = habits.value.reduce<Record<string, Record<string, HabitLogValue>>>((acc, habit) => {
+        acc[habit.fileName] = habitLogs.value[habit.fileName] || {}
+        return acc
+      }, {})
+      isHabitCardHydrating.value = habits.value.reduce<Record<string, boolean>>((acc, habit) => {
+        acc[habit.fileName] = true
+        return acc
+      }, {})
+
+      if (habits.value.length > 0) {
+        isLoading.value = false
+        await waitForNextFrame()
+      }
+
+      await mapWithConcurrency(
+        habits.value,
+        HABIT_LAZY_LOAD_CONCURRENCY,
+        async (habit) => {
+          const logs = await loadHabitLogsForHabit(habit, HABIT_LOG_INITIAL_MONTHS_TO_LOAD)
+
+          if (loadToken !== habitsLoadToken)
+            return null
+
+          habitLogs.value = {
+            ...habitLogs.value,
+            [habit.fileName]: logs,
+          }
+          isHabitCardHydrating.value = {
+            ...isHabitCardHydrating.value,
+            [habit.fileName]: false,
+          }
+
+          return null
+        },
+      )
+
+      if (loadToken !== habitsLoadToken)
+        return
 
       syncHabitCache()
 
@@ -1407,7 +1440,7 @@ onBeforeUnmount(() => {
         </button>
       </div>
 
-      <div v-else-if="isLoading" class="card glass-card empty-state">
+      <div v-else-if="isLoading && habits.length === 0" class="card glass-card empty-state">
         <div class="loading-inline">
           <div class="loading-spinner" aria-hidden="true" />
           <span>Loading habits...</span>
@@ -1448,89 +1481,124 @@ onBeforeUnmount(() => {
 
           <div class="habit-main-row">
             <div class="heatmap-wrap">
-              <div class="heatmap-month-nav">
-                <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show previous month"
-                  @click="showPreviousMonth(habit)">
-                  <ChevronLeft :size="14" />
-                </button>
-                <div class="heatmap-month-center">
-                  <span class="heatmap-month-label">{{ getVisibleMonthLabel(habit) }}</span>
-                  <span v-if="isLoadingOlderMonths(habit)" class="heatmap-month-loading">
-                    <span class="mini-spinner" aria-hidden="true" />
-                    Loading older months...
-                  </span>
+              <template v-if="isHydratingHabitCard(habit)">
+                <div class="heatmap-skeleton-header skeleton-block" />
+                <div class="heatmap-days" aria-hidden="true">
+                  <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
+                    }}</span>
                 </div>
-                <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show next month"
-                  :disabled="!canShowNextMonth(habit)" @click="showNextMonth(habit)">
-                  <ChevronRight :size="14" />
-                </button>
-              </div>
-              <div class="heatmap-days" aria-hidden="true">
-                <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
-                }}</span>
-              </div>
-              <div class="heatmap-grid" role="img" :aria-label="`Heat map for ${habit.name}`">
-                <div v-for="cell in getHeatmap(habit)" :key="`${habit.fileName}-${cell.date}`" class="heatmap-cell"
-                  :class="[
-                    `level-${cell.level}`,
-                    {
-                      'is-placeholder': cell.isPlaceholder,
-                      'is-today': cell.isToday,
-                      'is-unscheduled': !cell.isScheduled,
-                      'is-future': cell.isFuture,
-                      'is-fail': cell.value === 'fail',
-                      'is-skip': cell.value === 'skip',
-                      'is-clickable': !cell.isFuture && !cell.isPlaceholder,
-                      'is-selected': isSelectedCell(habit, cell),
-                    },
-                  ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
-              </div>
+                <div class="heatmap-grid heatmap-grid--skeleton" aria-hidden="true">
+                  <div v-for="index in 35" :key="`${habit.fileName}-skeleton-${index}`"
+                    class="heatmap-cell heatmap-cell--skeleton" />
+                </div>
+              </template>
+              <template v-else>
+                <div class="heatmap-month-nav">
+                  <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show previous month"
+                    @click="showPreviousMonth(habit)">
+                    <ChevronLeft :size="14" />
+                  </button>
+                  <div class="heatmap-month-center">
+                    <span class="heatmap-month-label">{{ getVisibleMonthLabel(habit) }}</span>
+                    <span v-if="isLoadingOlderMonths(habit)" class="heatmap-month-loading">
+                      <span class="mini-spinner" aria-hidden="true" />
+                      Loading older months...
+                    </span>
+                  </div>
+                  <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show next month"
+                    :disabled="!canShowNextMonth(habit)" @click="showNextMonth(habit)">
+                    <ChevronRight :size="14" />
+                  </button>
+                </div>
+                <div class="heatmap-days" aria-hidden="true">
+                  <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
+                  }}</span>
+                </div>
+                <div class="heatmap-grid" role="img" :aria-label="`Heat map for ${habit.name}`">
+                  <div v-for="cell in getHeatmap(habit)" :key="`${habit.fileName}-${cell.date}`" class="heatmap-cell"
+                    :class="[
+                      `level-${cell.level}`,
+                      {
+                        'is-placeholder': cell.isPlaceholder,
+                        'is-today': cell.isToday,
+                        'is-unscheduled': !cell.isScheduled,
+                        'is-future': cell.isFuture,
+                        'is-fail': cell.value === 'fail',
+                        'is-skip': cell.value === 'skip',
+                        'is-clickable': !cell.isFuture && !cell.isPlaceholder,
+                        'is-selected': isSelectedCell(habit, cell),
+                      },
+                    ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
+                </div>
+              </template>
             </div>
 
             <div class="habit-controls">
-              <label v-if="habit.targetCount > 1" class="habit-count-entry">
-                <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
-                <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
-                  :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
-                  @change="handleSelectedNumberInput(habit, $event)">
-              </label>
+              <template v-if="isHydratingHabitCard(habit)">
+                <div v-if="habit.targetCount > 1" class="habit-count-entry">
+                  <span class="habit-count-label skeleton-block skeleton-line skeleton-line--short" />
+                  <span class="habit-input-skeleton skeleton-block" />
+                </div>
+                <div class="habit-actions">
+                  <span class="habit-action-skeleton skeleton-block" />
+                  <span class="habit-action-skeleton skeleton-block" />
+                  <span v-if="habit.allowSkip" class="habit-action-skeleton skeleton-block" />
+                </div>
+              </template>
+              <template v-else>
+                <label v-if="habit.targetCount > 1" class="habit-count-entry">
+                  <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
+                  <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
+                    :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
+                    @change="handleSelectedNumberInput(habit, $event)">
+                </label>
 
-              <div class="habit-actions">
-                <button class="glass-button glass-button--secondary" type="button" @click="markSelectedDone(habit)">
-                  <Check :size="14" />
+                <div class="habit-actions">
+                  <button class="glass-button glass-button--secondary" type="button" @click="markSelectedDone(habit)">
+                    <Check :size="14" />
 
-                </button>
-                <button class="glass-button glass-button--secondary" type="button" @click="markSelectedFail(habit)">
-                  <X :size="14" />
+                  </button>
+                  <button class="glass-button glass-button--secondary" type="button" @click="markSelectedFail(habit)">
+                    <X :size="14" />
 
-                </button>
-                <button v-if="habit.allowSkip" class="glass-button glass-button--secondary" type="button"
-                  @click="markSelectedSkip(habit)">
-                  <SkipForward :size="14" />
+                  </button>
+                  <button v-if="habit.allowSkip" class="glass-button glass-button--secondary" type="button"
+                    @click="markSelectedSkip(habit)">
+                    <SkipForward :size="14" />
 
-                </button>
-              </div>
+                  </button>
+                </div>
+              </template>
 
               <p v-if="habitSaving[habit.fileName]" class="hint">Saving update...</p>
               <p v-if="habitSaveErrors[habit.fileName]" class="hint error-text">{{ habitSaveErrors[habit.fileName] }}
               </p>
             </div>
           </div>
-          <p class="habit-score">{{ getStreakSummary(habit) }}</p>
-          <div class="habit-meta-row">
-            <!-- <span>{{ habit.period === 'week' ? 'Weekly' : 'Daily' }}</span> -->
-            <span>{{ getTargetSummary(habit) }}</span>
-            <!-- <span>{{ getSelectedDateTitle(habit) }}</span> -->
-            <span v-if="habit.reminder">Reminder: {{ habit.reminder }}</span>
-            <!-- <span class="mini-status">
-              <span class="mini-status-dot mini-status-dot--skip" />
-              Skip
-            </span>
-            <span class="mini-status">
-              <span class="mini-status-dot mini-status-dot--fail" />
-              Miss
-            </span> -->
-          </div>
+          <template v-if="isHydratingHabitCard(habit)">
+            <div class="habit-score-skeleton skeleton-block" />
+            <div class="habit-meta-row habit-meta-row--skeleton">
+              <span class="skeleton-block skeleton-line" />
+              <span v-if="habit.reminder" class="skeleton-block skeleton-line skeleton-line--short" />
+            </div>
+          </template>
+          <template v-else>
+            <p class="habit-score">{{ getStreakSummary(habit) }}</p>
+            <div class="habit-meta-row">
+              <!-- <span>{{ habit.period === 'week' ? 'Weekly' : 'Daily' }}</span> -->
+              <span>{{ getTargetSummary(habit) }}</span>
+              <!-- <span>{{ getSelectedDateTitle(habit) }}</span> -->
+              <span v-if="habit.reminder">Reminder: {{ habit.reminder }}</span>
+              <!-- <span class="mini-status">
+                <span class="mini-status-dot mini-status-dot--skip" />
+                Skip
+              </span>
+              <span class="mini-status">
+                <span class="mini-status-dot mini-status-dot--fail" />
+                Miss
+              </span> -->
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -1645,6 +1713,28 @@ h1 {
   border: 2px solid color-mix(in srgb, var(--text-soft) 22%, transparent);
   border-top-color: color-mix(in srgb, var(--primary) 72%, var(--text));
   animation: pull-refresh-spin 0.75s linear infinite;
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--c-light) 16%);
+}
+
+.skeleton-block::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, white 36%, transparent), transparent);
+  animation: skeleton-shimmer 1.1s ease-in-out infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 .empty-actions {
@@ -1771,6 +1861,11 @@ h1 {
   font-size: 0.86rem;
 }
 
+.habit-score-skeleton {
+  width: 148px;
+  height: 14px;
+}
+
 .habit-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1815,6 +1910,12 @@ h1 {
 .heatmap-wrap {
   display: grid;
   gap: 8px;
+}
+
+.heatmap-skeleton-header {
+  width: 132px;
+  height: 28px;
+  justify-self: center;
 }
 
 .heatmap-month-nav {
@@ -1885,12 +1986,20 @@ h1 {
   width: fit-content;
 }
 
+.heatmap-grid--skeleton {
+  pointer-events: none;
+}
+
 .heatmap-cell {
   width: 12px;
   height: 12px;
   border-radius: 3px;
   border: 1px solid color-mix(in srgb, var(--c-light) 12%, transparent);
   background: color-mix(in srgb, var(--c-dark) 8%, var(--surface));
+}
+
+.heatmap-cell--skeleton {
+  border-color: transparent;
 }
 
 .heatmap-cell.is-placeholder {
@@ -1961,6 +2070,34 @@ h1 {
 
 .error-text {
   color: var(--danger);
+}
+
+.habit-meta-row--skeleton {
+  align-items: center;
+}
+
+.skeleton-line {
+  display: inline-block;
+  width: 190px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.skeleton-line--short {
+  width: 110px;
+}
+
+.habit-input-skeleton {
+  width: 100%;
+  max-width: 180px;
+  height: 40px;
+  border-radius: 14px;
+}
+
+.habit-action-skeleton {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
 }
 
 @media (max-width: 560px) {
