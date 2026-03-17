@@ -10,6 +10,12 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.HashMap;
+import java.util.Map;
+
 @CapacitorPlugin(name = "WidgetSync")
 public class WidgetSyncPlugin extends Plugin {
 
@@ -39,11 +45,41 @@ public class WidgetSyncPlugin extends Plugin {
             .putString("habits_json", habitsJson)
             .apply();
 
+        Map<String, JSONObject> habitsByFile = new HashMap<>();
+        try {
+            JSONArray arr = new JSONArray(habitsJson);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject item = arr.optJSONObject(i);
+                if (item == null) continue;
+                String file = item.optString("file", "");
+                if (!file.isEmpty()) habitsByFile.put(file, item);
+            }
+        } catch (Exception ignored) {}
+
         // Refresh every habit widget that is currently pinned to the home screen
         AppWidgetManager manager = AppWidgetManager.getInstance(ctx);
         int[] widgetIds = manager.getAppWidgetIds(
             new ComponentName(ctx, HabitWidgetProvider.class)
         );
+
+        SharedPreferences widgetPrefs = ctx.getSharedPreferences("quick_capture_widget", Context.MODE_PRIVATE);
+        SharedPreferences.Editor widgetEditor = widgetPrefs.edit();
+
+        for (int widgetId : widgetIds) {
+            String selectedFile = widgetPrefs.getString("widget_" + widgetId + "_file", null);
+            if (selectedFile != null) {
+                JSONObject latest = habitsByFile.get(selectedFile);
+                if (latest != null) {
+                    widgetEditor
+                        .putString("widget_" + widgetId + "_name", latest.optString("name", "Habit"))
+                        .putString("widget_" + widgetId + "_icon", latest.optString("icon", ""))
+                        .putInt("widget_" + widgetId + "_target", Math.max(1, latest.optInt("target", 1)));
+                }
+            }
+        }
+
+        widgetEditor.apply();
+
         for (int widgetId : widgetIds) {
             HabitWidgetProvider.updateWidget(ctx, manager, widgetId);
         }
