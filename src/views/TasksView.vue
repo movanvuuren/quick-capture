@@ -4,11 +4,10 @@ import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
-import { Capacitor } from '@capacitor/core'
-import { LocalNotifications } from '@capacitor/local-notifications'
 import { FolderPicker } from '../plugins/folder-picker'
 import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
 import { invalidateQuickTaskCache, loadQuickTasksFromFolder, updateTaskInFolder } from '../lib/quickTasksData'
+import { cancelTaskReminderNotification, scheduleTaskReminderNotification } from '../lib/taskReminderService'
 import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
@@ -387,15 +386,6 @@ function persistReminderTimes() {
   window.localStorage.setItem(TASK_REMINDER_STORAGE_KEY, JSON.stringify(reminderTimes.value))
 }
 
-function notificationIdForTask(task: QuickTaskItem): number {
-  const source = `task-reminder:${task.fileName}:${task.lineIndex}`
-  let hash = 0
-  for (let i = 0; i < source.length; i += 1)
-    hash = ((hash << 5) - hash + source.charCodeAt(i)) | 0
-
-  return Math.abs(hash) || 1
-}
-
 function getReminderTime(task: QuickTaskItem): string {
   return reminderTimes.value[task.id] || ''
 }
@@ -404,87 +394,11 @@ function hasReminder(task: QuickTaskItem): boolean {
   return !!getReminderTime(task)
 }
 
-function reminderDateFromTask(task: QuickTaskItem, time: string): Date | null {
-  if (!task.dueDate || !time)
-    return null
-
-  const [hourRaw, minuteRaw] = time.split(':')
-  const hour = Number.parseInt(hourRaw || '', 10)
-  const minute = Number.parseInt(minuteRaw || '', 10)
-  if (!Number.isInteger(hour) || !Number.isInteger(minute))
-    return null
-
-  const date = new Date(`${task.dueDate}T00:00:00`)
-  if (Number.isNaN(date.getTime()))
-    return null
-
-  date.setHours(hour, minute, 0, 0)
-  if (date.getTime() <= Date.now())
-    return null
-
-  return date
-}
-
-async function ensureNotificationPermission(): Promise<boolean> {
-  if (!Capacitor.isNativePlatform())
-    return true
-
-  const status = await LocalNotifications.checkPermissions()
-  if (status.display === 'granted')
-    return true
-
-  const requested = await LocalNotifications.requestPermissions()
-  return requested.display === 'granted'
-}
-
-async function cancelReminderNotification(task: QuickTaskItem) {
-  if (!Capacitor.isNativePlatform())
-    return
-
-  try {
-    await LocalNotifications.cancel({
-      notifications: [{ id: notificationIdForTask(task) }],
-    })
-  }
-  catch {
-    // Ignore cleanup errors to avoid blocking task operations.
-  }
-}
-
-async function scheduleReminderNotification(task: QuickTaskItem, time: string) {
-  if (!Capacitor.isNativePlatform())
-    return
-
-  const at = reminderDateFromTask(task, time)
-  if (!at)
-    throw new Error('Reminder date/time must be in the future')
-
-  const hasPermission = await ensureNotificationPermission()
-  if (!hasPermission)
-    throw new Error('Notification permission not granted')
-
-  const id = notificationIdForTask(task)
-  await LocalNotifications.cancel({ notifications: [{ id }] })
-  await LocalNotifications.schedule({
-    notifications: [
-      {
-        id,
-        title: 'Task reminder',
-        body: displayTaskBody(task),
-        smallIcon: 'ic_stat_quick_capture',
-        iconColor: '#22c55e',
-        schedule: { at },
-        extra: { taskId: task.id },
-      },
-    ],
-  })
-}
-
 async function clearTaskReminder(task: QuickTaskItem) {
   delete reminderTimes.value[task.id]
   persistReminderTimes()
   editingAlarmTaskId.value = editingAlarmTaskId.value === task.id ? null : editingAlarmTaskId.value
-  await cancelReminderNotification(task)
+  await cancelTaskReminderNotification(task.fileName, task.lineIndex)
 }
 
 async function setTaskReminderTime(task: QuickTaskItem, time: string) {
@@ -494,7 +408,13 @@ async function setTaskReminderTime(task: QuickTaskItem, time: string) {
     return
   }
 
-  await scheduleReminderNotification(task, normalized)
+  await scheduleTaskReminderNotification({
+    fileName: task.fileName,
+    lineIndex: task.lineIndex,
+    dueDate: task.dueDate,
+    taskId: task.id,
+    body: displayTaskBody(task),
+  }, normalized)
   reminderTimes.value = {
     ...reminderTimes.value,
     [task.id]: normalized,
