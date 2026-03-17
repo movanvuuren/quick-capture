@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
@@ -21,6 +21,7 @@ interface ParsedTaskLine {
   body: string
   dueDate?: string
   isHighPriority?: boolean
+  repeat?: string
 }
 
 interface QuickTaskItem {
@@ -31,6 +32,7 @@ interface QuickTaskItem {
   body: string
   dueDate?: string
   isHighPriority?: boolean
+  repeat?: string
   presetId?: string
   presetLabel?: string
 }
@@ -41,6 +43,7 @@ interface ScannedQuickTaskLine {
   body: string
   dueDate?: string
   isHighPriority?: boolean
+  repeat?: string
 }
 
 interface CachedQuickTaskFile {
@@ -59,7 +62,7 @@ const quickTaskFileCache = new Map<string, CachedQuickTaskFile>()
 
 const router = useRouter()
 const route = useRoute()
-const settings = loadSettings()
+const settings = reactive(loadSettings())
 
 function isPinataPreset(preset: QuickTaskPreset): boolean {
   return preset.tag.includes('🪅') || preset.label.includes('🪅')
@@ -95,7 +98,6 @@ const editingDueDateTaskId = ref<string | null>(null)
 const editingAlarmTaskId = ref<string | null>(null)
 const reminderTimes = ref<Record<string, string>>({})
 const highlightedTaskId = ref<string | null>(null)
-const showTaskMeta = computed(() => settings.debugMode === true)
 let highlightClearTimer: ReturnType<typeof setTimeout> | null = null
 let sortDelayTimer: ReturnType<typeof setTimeout> | null = null
 const pullStartY = ref<number | null>(null)
@@ -561,6 +563,9 @@ function parseTaskLine(line: string): ParsedTaskLine | null {
   const dueMatch = body.match(/📅\s*(\d{4}-\d{2}-\d{2})/)
   const dueDate = dueMatch?.[1]
 
+  const repeatMatch = body.match(/🔁\s*(daily|weekly|weekdays|monthly)/i)
+  const repeat = repeatMatch?.[1]?.toLowerCase()
+
   let state: TaskState = 'pending'
   if (stateChar === 'x')
     state = 'done'
@@ -572,6 +577,7 @@ function parseTaskLine(line: string): ParsedTaskLine | null {
     body,
     dueDate,
     isHighPriority: isHighPriority || undefined,
+    repeat,
   }
 }
 
@@ -626,10 +632,35 @@ function scanQuickTaskLines(content: string): ScannedQuickTaskLine[] {
       body: parsed.body,
       dueDate: parsed.dueDate,
       isHighPriority: parsed.isHighPriority,
+      repeat: parsed.repeat,
     })
   }
 
   return scanned
+}
+
+function matchesScannedTask(task: QuickTaskItem, scanned: ParsedTaskLine): boolean {
+  return scanned.body === task.body
+    && scanned.state === task.state
+    && scanned.dueDate === task.dueDate
+    && Boolean(scanned.isHighPriority) === Boolean(task.isHighPriority)
+    && scanned.repeat === task.repeat
+}
+
+function resolveTaskLineIndex(lines: string[], task: QuickTaskItem): number {
+  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
+    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
+    if (parsedAtStoredIndex && matchesScannedTask(task, parsedAtStoredIndex))
+      return task.lineIndex
+  }
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const parsed = parseTaskLine(lines[lineIndex] || '')
+    if (parsed && matchesScannedTask(task, parsed))
+      return lineIndex
+  }
+
+  return -1
 }
 
 function invalidateQuickTaskCache(fileName?: string) {
@@ -643,7 +674,7 @@ function invalidateQuickTaskCache(fileName?: string) {
 
 function serializeTaskLine(state: TaskState, body: string, dueDate?: string, isHighPriority?: boolean): string {
   let marker = state === 'done' ? 'x' : state === 'cancelled' ? '-' : ' '
-  if (isHighPriority)
+  if (isHighPriority && state === 'pending')
     marker = `${marker}f`.trim() || 'f'
 
   let normalizedBody = body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, ' ').trim()
@@ -686,7 +717,8 @@ async function loadQuickTasks() {
     quickTaskCacheFolderUri = folderUri
   }
 
-  isLoading.value = true
+  if (tasks.value.length === 0)
+    isLoading.value = true
   error.value = ''
 
   try {
@@ -757,6 +789,7 @@ async function loadQuickTasks() {
           body: task.body,
           dueDate: task.dueDate,
           isHighPriority: task.isHighPriority,
+          repeat: task.repeat,
           presetId: preset.id,
           presetLabel: preset.label,
         })
@@ -803,10 +836,20 @@ async function updateTaskInFile(
   })
 
   const lines = read.content.split(/\r?\n/)
-  if (task.lineIndex < 0 || task.lineIndex >= lines.length)
+  let lineIndex = -1
+  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
+    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
+    if (parsedAtStoredIndex)
+      lineIndex = task.lineIndex
+  }
+
+  if (lineIndex < 0)
+    lineIndex = resolveTaskLineIndex(lines, task)
+
+  if (lineIndex < 0)
     return
 
-  lines[task.lineIndex] = serializeTaskLine(
+  lines[lineIndex] = serializeTaskLine(
     nextState,
     nextBody ?? task.body,
     nextDueDate,
@@ -822,13 +865,56 @@ async function updateTaskInFile(
   invalidateQuickTaskCache(task.fileName)
 }
 
+function advanceDueDate(dateIso: string, repeat: string): string {
+  const d = new Date(`${dateIso}T00:00:00`)
+  switch (repeat) {
+    case 'daily':
+      d.setDate(d.getDate() + 1)
+      break
+    case 'weekly':
+      d.setDate(d.getDate() + 7)
+      break
+    case 'weekdays':
+      d.setDate(d.getDate() + 1)
+      while (d.getDay() === 0 || d.getDay() === 6)
+        d.setDate(d.getDate() + 1)
+      break
+    case 'monthly':
+      d.setMonth(d.getMonth() + 1)
+      break
+    default:
+      d.setDate(d.getDate() + 1)
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 async function toggleTaskState(task: QuickTaskItem) {
   if (isSaving.value)
     return
 
   isSaving.value = true
   const previousState = task.state
+  const previousDue = task.dueDate
   const nextState = cycleState(previousState)
+
+  // Recurring tasks: advance due date instead of marking done
+  if (task.repeat && task.dueDate && previousState === 'pending' && nextState === 'done') {
+    const nextDue = advanceDueDate(task.dueDate, task.repeat)
+    task.dueDate = nextDue
+    try {
+      await updateTaskInFile(task, 'pending', nextDue, undefined, task.isHighPriority)
+    }
+    catch (err) {
+      task.dueDate = previousDue
+      console.error('Failed to advance recurring task', err)
+      error.value = 'Could not advance recurring task.'
+    }
+    finally {
+      isSaving.value = false
+    }
+    return
+  }
+
   task.state = nextState
 
   try {
@@ -925,19 +1011,25 @@ function escapeForRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-function getTaskTag(task: QuickTaskItem): string {
-  const preset = settings.quickTaskPresets.find(candidate => candidate.id === task.presetId)
-  return preset?.tag?.trim() || ''
+function stripKnownTaskTags(body: string): string {
+  let result = body
+
+  for (const preset of settings.quickTaskPresets) {
+    const tag = preset.tag?.trim()
+    if (!tag)
+      continue
+
+    const tagPattern = new RegExp(`(^|\\s)${escapeForRegex(tag)}(?=\\s|$)`, 'g')
+    result = result.replace(tagPattern, ' ')
+  }
+
+  return result.replace(/\s{2,}/g, ' ').trim()
 }
 
 function displayTaskBody(task: QuickTaskItem): string {
   const withoutDueDate = task.body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, '').trim()
-  const tag = getTaskTag(task)
-  if (!tag)
-    return withoutDueDate
-
-  const leadingTagPattern = new RegExp(`^${escapeForRegex(tag)}\\s+`)
-  return withoutDueDate.replace(leadingTagPattern, '').trim()
+  const withoutRepeat = withoutDueDate.replace(/\s*🔁\s*(daily|weekly|weekdays|monthly)\s*/gi, '').trim()
+  return stripKnownTaskTags(withoutRepeat)
 }
 
 function startEditTask(task: QuickTaskItem) {
@@ -997,8 +1089,11 @@ async function deleteTask(task: QuickTaskItem) {
     })
 
     const lines = read.content.split(/\r?\n/)
-    if (task.lineIndex >= 0 && task.lineIndex < lines.length)
-      lines.splice(task.lineIndex, 1)
+    const lineIndex = resolveTaskLineIndex(lines, task)
+    if (lineIndex < 0)
+      throw new Error('Could not locate task line in file')
+
+    lines.splice(lineIndex, 1)
 
     await FolderPicker.writeFile({
       folderUri: settings.baseFolderUri,
@@ -1030,7 +1125,7 @@ async function deleteTask(task: QuickTaskItem) {
 
 function getTargetFileName(preset: QuickTaskPreset): string {
   if (preset.saveMode === 'daily_note')
-    return `${todayIso()}.md`
+    return `task-${todayIso()}.md`
 
   return preset.fileName || settings.listFileName || 'tasks.md'
 }
@@ -1068,7 +1163,11 @@ async function addQuickTask() {
       const fm = parseFrontmatter(existingContent)
       if (!fm.type) {
         // Existing file without frontmatter — prepend type:task
-        newContent = `---\ntype: task\n---\n\n${existingContent.trimStart()}${line}\n`
+        const normalizedExisting = existingContent
+          .replace(/\r\n/g, '\n')
+          .trimStart()
+          .replace(/\n*$/, '\n')
+        newContent = `---\ntype: task\n---\n\n${normalizedExisting}${line}\n`
       }
       else {
         // File already has frontmatter — just append the task line
@@ -1130,6 +1229,8 @@ watch(
   },
 )
 
+let isFirstTasksActivation = true
+
 onMounted(async () => {
   loadReminderTimes()
 
@@ -1145,6 +1246,15 @@ onMounted(async () => {
   const highlightQuery = route.query.highlight
   if (typeof highlightQuery === 'string' && highlightQuery)
     applyHighlight(highlightQuery)
+})
+
+onActivated(async () => {
+  if (isFirstTasksActivation) {
+    isFirstTasksActivation = false
+    return
+  }
+  Object.assign(settings, loadSettings())
+  await loadQuickTasks()
 })
 </script>
 
@@ -1242,6 +1352,7 @@ onMounted(async () => {
                 @blur="saveTaskText(task)">
               <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
                 {{ displayTaskBody(task) }}
+                <span v-if="task.repeat" class="repeat-badge" :title="`Repeats ${task.repeat}`">🔁</span>
               </button>
 
               <div v-if="task.dueDate || editingDueDateTaskId === task.id" class="task-datetime-stack">
@@ -1274,12 +1385,6 @@ onMounted(async () => {
                 aria-label="Delete task" @click="deleteTask(task)">
                 <Trash2 :size="14" />
               </button>
-            </div>
-
-            <div class="task-meta" v-if="showTaskMeta">
-              <span v-if="getTaskTag(task)">{{ getTaskTag(task) }}</span>
-              <span>{{ task.presetLabel || 'Preset' }}</span>
-              <span>{{ task.fileName }}</span>
             </div>
           </div>
         </div>
@@ -1545,7 +1650,7 @@ h1 {
 
 .task-main-line {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) 130px 34px 34px;
   align-items: start;
   gap: 8px;
 }
@@ -1554,6 +1659,8 @@ h1 {
   display: grid;
   gap: 6px;
   align-content: start;
+  width: 130px;
+  min-width: 130px;
 }
 
 .task-main {
@@ -1637,6 +1744,7 @@ h1 {
 }
 
 .add-date-button {
+  width: 130px;
   min-height: 34px;
   padding: 6px 10px;
   border-radius: 12px;
@@ -1735,5 +1843,22 @@ h1 {
   .alarm-task-button {
     width: 124px;
   }
+
+  .task-main-line {
+    grid-template-columns: minmax(0, 1fr) 124px 34px 34px;
+  }
+
+  .task-datetime-stack,
+  .add-date-button {
+    width: 124px;
+    min-width: 124px;
+  }
 }
 </style>
+
+.repeat-badge {
+font-size: 0.75rem;
+margin-left: 4px;
+vertical-align: middle;
+opacity: 0.7;
+}

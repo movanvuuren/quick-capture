@@ -7,6 +7,8 @@ const NoteView = () => import('../views/NoteView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
 const TasksView = () => import('../views/TasksView.vue')
 const HabitsView = () => import('../views/HabitsView.vue')
+const SearchView = () => import('../views/SearchView.vue')
+const AgendaView = () => import('../views/AgendaView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -16,11 +18,13 @@ const router = createRouter({
 
     { path: '/lists', name: 'lists', component: ListView },
     { path: '/list/:id', name: 'list-detail', component: ListView },
-    { path: '/tasks', name: 'tasks', component: TasksView },
-    { path: '/habits', name: 'habits', component: HabitsView },
+    { path: '/tasks', name: 'tasks', component: TasksView, meta: { keepAlive: true } },
+    { path: '/habits', name: 'habits', component: HabitsView, meta: { keepAlive: true } },
     { path: '/task-list/:id', name: 'task-detail', component: ListView },
 
     { path: '/settings', component: SettingsView },
+    { path: '/search', name: 'search', component: SearchView },
+    { path: '/agenda', name: 'agenda', component: AgendaView },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

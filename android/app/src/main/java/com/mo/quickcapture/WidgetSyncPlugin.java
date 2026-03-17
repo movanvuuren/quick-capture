@@ -71,6 +71,7 @@ public class WidgetSyncPlugin extends Plugin {
                 JSONObject latest = habitsByFile.get(selectedFile);
                 if (latest != null) {
                     widgetEditor
+                        .putString("widget_" + widgetId + "_habit_id", latest.optString("id", ""))
                         .putString("widget_" + widgetId + "_name", latest.optString("name", "Habit"))
                         .putString("widget_" + widgetId + "_icon", latest.optString("icon", ""))
                         .putInt("widget_" + widgetId + "_target", Math.max(1, latest.optInt("target", 1)));

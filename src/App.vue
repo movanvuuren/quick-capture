@@ -6,6 +6,7 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
 const router = useRouter()
+const keepAliveViews = ['HomeView', 'TasksView', 'HabitsView']
 let backButtonListener: { remove: () => Promise<void> } | null = null
 let notificationTapListener: { remove: () => Promise<void> } | null = null
 const BLOCK_BACK_EDGE_PX = 28
@@ -88,10 +89,9 @@ onBeforeUnmount(async () => {
 </script>
 
 <template>
-  <router-view v-slot="{ Component, route }">
-    <keep-alive>
-      <component :is="Component" v-if="route.meta.keepAlive" />
+  <router-view v-slot="{ Component }">
+    <keep-alive :include="keepAliveViews">
+      <component :is="Component" />
     </keep-alive>
-    <component :is="Component" v-if="!route.meta.keepAlive" />
   </router-view>
 </template>

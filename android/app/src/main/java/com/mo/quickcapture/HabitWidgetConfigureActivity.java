@@ -22,6 +22,7 @@ public class HabitWidgetConfigureActivity extends AppCompatActivity {
     private int appWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
 
     static class HabitItem {
+        String id;
         String file;
         String name;
         String icon;
@@ -62,6 +63,7 @@ public class HabitWidgetConfigureActivity extends AppCompatActivity {
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject obj = arr.getJSONObject(i);
                 HabitItem item = new HabitItem();
+                item.id = obj.optString("id", "");
                 item.file = obj.optString("file", "");
                 item.name = obj.optString("name", "Habit");
                 item.icon = obj.optString("icon", "");
@@ -98,6 +100,7 @@ public class HabitWidgetConfigureActivity extends AppCompatActivity {
     private void saveAndFinish(HabitItem habit) {
         getSharedPreferences("quick_capture_widget", Context.MODE_PRIVATE)
             .edit()
+            .putString("widget_" + appWidgetId + "_habit_id", habit.id != null ? habit.id : "")
             .putString("widget_" + appWidgetId + "_file", habit.file)
             .putString("widget_" + appWidgetId + "_name", habit.name)
             .putString("widget_" + appWidgetId + "_icon", habit.icon != null ? habit.icon : "")

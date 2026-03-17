@@ -19,11 +19,7 @@
     "@capacitor/filesystem": "^8.1.2",
     "@capacitor/haptics": "^8.0.1",
     "@capacitor/local-notifications": "^8.0.2",
-    "@toast-ui/editor": "^3.2.2",
-    "@types/simplemde": "^1.11.11",
-    "codemirror": "^5.65.21",
     "lucide-vue-next": "^0.577.0",
-    "simplemde": "^1.11.2",
     "vue": "^3.5.25",
     "vue-router": "^5.0.3"
   },

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import type { CSSProperties } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
 import { loadSettings } from '../lib/settings'
@@ -67,7 +67,8 @@ let activeHabitsLoadPromise: Promise<void> | null = null
 const habitDefinitionCache = new Map<string, CachedHabitDefinition>()
 
 const router = useRouter()
-const settings = loadSettings()
+const route = useRoute()
+const settings = reactive(loadSettings())
 
 const isLoading = ref(true)
 const error = ref('')
@@ -96,10 +97,41 @@ const isPullRefreshing = ref(false)
 const pullReadyHapticPlayed = ref(false)
 const isPullReady = computed(() => pullDistance.value >= PULL_REFRESH_THRESHOLD)
 const showPullIndicator = computed(() => pullDistance.value > 0 || isPullRefreshing.value)
+let lastHandledRoutePulse = ''
 const pageContentStyle = computed<CSSProperties>(() => ({
   transform: `translateY(${pullDistance.value}px)`,
   transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
 }))
+
+function readQueryValue(value: unknown): string {
+  if (Array.isArray(value))
+    return typeof value[0] === 'string' ? value[0] : ''
+  return typeof value === 'string' ? value : ''
+}
+
+function applyRouteHabitSelection() {
+  const pulse = readQueryValue(route.query.pulse)
+  if (pulse && pulse === lastHandledRoutePulse)
+    return
+
+  const habitKey = readQueryValue(route.query.habit)
+  if (!habitKey)
+    return
+
+  const rawDate = readQueryValue(route.query.date)
+  const selectedDate = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayIso()
+  const targetHabit = habits.value.find(habit => habit.fileName === habitKey || habit.id === habitKey)
+  if (!targetHabit)
+    return
+
+  selectedDates.value = {
+    ...selectedDates.value,
+    [targetHabit.fileName]: selectedDate,
+  }
+
+  if (pulse)
+    lastHandledRoutePulse = pulse
+}
 
 function goBack() {
   router.push('/')
@@ -512,7 +544,7 @@ async function ensureHabitLogsLoadedForOffset(habit: HabitCard, monthOffset: num
   }
 }
 
-function getHeatmap(habit: HabitCard): HeatmapCell[] {
+function computeHeatmap(habit: HabitCard): HeatmapCell[] {
   const monthDate = getVisibleMonthDate(habit)
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
   const totalDays = daysInMonth(monthDate)
@@ -600,6 +632,17 @@ function getHeatmap(habit: HabitCard): HeatmapCell[] {
   }
 
   return cells
+}
+
+const heatmapMap = computed(() => {
+  const m = new Map<string, HeatmapCell[]>()
+  for (const habit of habits.value)
+    m.set(habit.fileName, computeHeatmap(habit))
+  return m
+})
+
+function getHeatmap(habit: HabitCard): HeatmapCell[] {
+  return heatmapMap.value.get(habit.fileName) ?? []
 }
 
 function getSelectedDate(habit: HabitCard): string {
@@ -737,6 +780,7 @@ async function syncHabitsToWidget() {
     return
 
   const habitsForWidget = habits.value.map(h => ({
+    id: h.id,
     file: h.fileName,
     name: h.name,
     icon: h.icon,
@@ -807,11 +851,28 @@ async function setLogValueForDate(habit: HabitCard, date: string, value: HabitLo
   }
 
   await writeHabitLogMonth(habit, date)
+  void syncHabitsToWidget().catch(() => { })
 }
 
 function getSelectedNumberInputValue(habit: HabitCard): string {
   const selected = getSelectedValue(habit)
   return typeof selected === 'number' ? String(selected) : ''
+}
+
+function getSelectedProgressRatio(habit: HabitCard): number {
+  const selected = getSelectedValue(habit)
+  if (typeof selected !== 'number')
+    return 0
+  if (habit.targetCount <= 0)
+    return 0
+  return Math.max(0, Math.min(1, selected / habit.targetCount))
+}
+
+function getCountInputStyle(habit: HabitCard): CSSProperties {
+  const percent = Math.round(getSelectedProgressRatio(habit) * 100)
+  return {
+    background: `linear-gradient(90deg, color-mix(in srgb, var(--primary) 24%, transparent) 0%, color-mix(in srgb, var(--primary) 30%, transparent) ${percent}%, color-mix(in srgb, var(--c-glass) 10%, transparent) ${percent}%, color-mix(in srgb, var(--c-glass) 10%, transparent) 100%)`,
+  }
 }
 
 async function handleSelectedNumberInput(habit: HabitCard, event: Event) {
@@ -1014,7 +1075,7 @@ function getBestStreak(habit: HabitCard): number {
   return best
 }
 
-function getStreakSummary(habit: HabitCard): string {
+function computeStreakSummary(habit: HabitCard): string {
   if (habit.period === 'week') {
     const { success, total } = getWeeklyScoreFromToday(habit)
     return `Streak: ${success}/${total} days`
@@ -1028,6 +1089,17 @@ function getStreakSummary(habit: HabitCard): string {
   const current = getCurrentStreak(habit)
   const best = getBestStreak(habit)
   return `Streak: ${current} days current, ${best} days best`
+}
+
+const streakSummaryMap = computed(() => {
+  const m = new Map<string, string>()
+  for (const habit of habits.value)
+    m.set(habit.fileName, computeStreakSummary(habit))
+  return m
+})
+
+function getStreakSummary(habit: HabitCard): string {
+  return streakSummaryMap.value.get(habit.fileName) ?? ''
 }
 
 async function loadHabits(options: { preferCache?: boolean, force?: boolean } = {}) {
@@ -1231,11 +1303,11 @@ async function refreshHabitsFromExternal(force = false) {
 
 function handleVisibilityChange() {
   if (document.visibilityState === 'visible')
-    void refreshHabitsFromExternal()
+    void refreshHabitsFromExternal(true)
 }
 
 function handleWindowFocus() {
-  void refreshHabitsFromExternal()
+  void refreshHabitsFromExternal(true)
 }
 
 function isPageScrolledToTop() {
@@ -1402,10 +1474,23 @@ async function createExampleHabit() {
   }
 }
 
+let isFirstHabitsActivation = true
+
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
   await loadHabits({ preferCache: true })
+  applyRouteHabitSelection()
+})
+
+onActivated(async () => {
+  if (isFirstHabitsActivation) {
+    isFirstHabitsActivation = false
+    return
+  }
+  Object.assign(settings, loadSettings())
+  await loadHabits({ preferCache: true })
+  applyRouteHabitSelection()
 })
 
 onBeforeUnmount(() => {
@@ -1541,6 +1626,7 @@ onBeforeUnmount(() => {
                   <span class="habit-action-skeleton skeleton-block" />
                   <span class="habit-action-skeleton skeleton-block" />
                   <span v-if="habit.allowSkip" class="habit-action-skeleton skeleton-block" />
+                  <span class="habit-action-skeleton skeleton-block" />
                 </div>
               </template>
               <template v-else>
@@ -1548,7 +1634,7 @@ onBeforeUnmount(() => {
                   <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
                   <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
                     :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
-                    @change="handleSelectedNumberInput(habit, $event)">
+                    :style="getCountInputStyle(habit)" @change="handleSelectedNumberInput(habit, $event)">
                 </label>
 
                 <div class="habit-actions">
@@ -1564,6 +1650,9 @@ onBeforeUnmount(() => {
                     @click="markSelectedSkip(habit)">
                     <SkipForward :size="14" />
 
+                  </button>
+                  <button class="glass-button glass-button--secondary" type="button" @click="clearSelectedValue(habit)">
+                    Clear
                   </button>
                 </div>
               </template>
@@ -1891,6 +1980,7 @@ h1 {
 
 .habit-count-input {
   width: 100%;
+  transition: background 0.2s ease;
 }
 
 .habit-action {
