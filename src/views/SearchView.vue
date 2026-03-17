@@ -11,6 +11,7 @@ const settings = loadSettings()
 
 const query = ref('')
 const allFiles = ref<AppFile[]>([])
+const indexedContentByFile = ref<Record<string, string>>({})
 const isLoading = ref(false)
 const error = ref('')
 const searchInputEl = ref<HTMLInputElement | null>(null)
@@ -27,6 +28,19 @@ onMounted(async () => {
   try {
     const dashboard = await loadDashboardData(settings.baseFolderUri)
     allFiles.value = dashboard.files
+
+    const nextIndex: Record<string, string> = {}
+    for (const list of [...dashboard.lists, ...dashboard.tasks]) {
+      const fileName = list.fileName
+      if (!fileName)
+        continue
+
+      nextIndex[fileName] = list.items
+        .map(item => item.text.trim())
+        .filter(text => text.length > 0)
+        .join(' ')
+    }
+    indexedContentByFile.value = nextIndex
   }
   catch (err) {
     console.error('Search: failed to load files', err)
@@ -47,7 +61,8 @@ const filteredResults = computed(() => {
   const notes: AppFile[] = []
 
   for (const file of allFiles.value) {
-    const searchable = `${file.title} ${file.name} ${file.preview}`.toLowerCase()
+    const indexedBody = indexedContentByFile.value[file.name] || ''
+    const searchable = `${file.title} ${file.name} ${file.preview} ${indexedBody}`.toLowerCase()
     if (!searchable.includes(q))
       continue
 

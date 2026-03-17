@@ -172,7 +172,7 @@ function setInputRef(
 
 function autoGrow(el: HTMLTextAreaElement) {
   el.style.height = 'auto'
-  el.style.height = `${el.scrollHeight}px`
+  el.style.height = `${Math.max(el.scrollHeight, 24)}px`
 }
 
 function finalizeLayout() {
@@ -741,6 +741,7 @@ function onDrop(e: DragEvent, idx: number) {
 .item-input {
   flex: 1;
   min-width: 0;
+  min-height: 24px;
   padding: 0px 8px;
   border-radius: 14px;
   font-size: 0.98rem;
