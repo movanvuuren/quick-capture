@@ -74,7 +74,7 @@ function goBack() {
 
 function openFile(file: AppFile) {
   if (file.type === 'task')
-    router.push(`/task-list/${encodeURIComponent(file.name)}`)
+    router.push('/tasks')
   else if (file.type === 'list')
     router.push(`/list/${encodeURIComponent(file.name)}`)
   else

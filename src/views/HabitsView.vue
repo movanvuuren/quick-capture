@@ -825,6 +825,22 @@ function getSelectedNumberInputValue(habit: HabitCard): string {
   return typeof selected === 'number' ? String(selected) : ''
 }
 
+function getSelectedProgressRatio(habit: HabitCard): number {
+  const selected = getSelectedValue(habit)
+  if (typeof selected !== 'number')
+    return 0
+  if (habit.targetCount <= 0)
+    return 0
+  return Math.max(0, Math.min(1, selected / habit.targetCount))
+}
+
+function getCountInputStyle(habit: HabitCard): CSSProperties {
+  const percent = Math.round(getSelectedProgressRatio(habit) * 100)
+  return {
+    background: `linear-gradient(90deg, color-mix(in srgb, var(--primary) 24%, transparent) 0%, color-mix(in srgb, var(--primary) 30%, transparent) ${percent}%, color-mix(in srgb, var(--c-glass) 10%, transparent) ${percent}%, color-mix(in srgb, var(--c-glass) 10%, transparent) 100%)`,
+  }
+}
+
 async function handleSelectedNumberInput(habit: HabitCard, event: Event) {
   const target = event.target
   if (!(target instanceof HTMLInputElement))
@@ -1574,6 +1590,7 @@ onBeforeUnmount(() => {
                   <span class="habit-action-skeleton skeleton-block" />
                   <span class="habit-action-skeleton skeleton-block" />
                   <span v-if="habit.allowSkip" class="habit-action-skeleton skeleton-block" />
+                  <span class="habit-action-skeleton skeleton-block" />
                 </div>
               </template>
               <template v-else>
@@ -1581,6 +1598,7 @@ onBeforeUnmount(() => {
                   <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
                   <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
                     :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
+                    :style="getCountInputStyle(habit)"
                     @change="handleSelectedNumberInput(habit, $event)">
                 </label>
 
@@ -1597,6 +1615,9 @@ onBeforeUnmount(() => {
                     @click="markSelectedSkip(habit)">
                     <SkipForward :size="14" />
 
+                  </button>
+                  <button class="glass-button glass-button--secondary" type="button" @click="clearSelectedValue(habit)">
+                    Clear
                   </button>
                 </div>
               </template>
@@ -1924,6 +1945,7 @@ h1 {
 
 .habit-count-input {
   width: 100%;
+  transition: background 0.2s ease;
 }
 
 .habit-action {
