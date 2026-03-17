@@ -492,6 +492,8 @@ async function scheduleReminderNotification(task: QuickTaskItem, time: string) {
         id,
         title: 'Task reminder',
         body: displayTaskBody(task),
+        smallIcon: 'ic_stat_quick_capture',
+        iconColor: '#22c55e',
         schedule: { at },
         extra: { taskId: task.id },
       },
