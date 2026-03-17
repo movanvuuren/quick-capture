@@ -1598,8 +1598,7 @@ onBeforeUnmount(() => {
                   <span class="habit-count-label">{{ getSelectedDateLabel(habit) }} {{ habit.unit }}</span>
                   <input class="glass-input habit-count-input" type="number" min="0" step="1" inputmode="numeric"
                     :value="getSelectedNumberInputValue(habit)" :placeholder="String(habit.targetCount)"
-                    :style="getCountInputStyle(habit)"
-                    @change="handleSelectedNumberInput(habit, $event)">
+                    :style="getCountInputStyle(habit)" @change="handleSelectedNumberInput(habit, $event)">
                 </label>
 
                 <div class="habit-actions">
