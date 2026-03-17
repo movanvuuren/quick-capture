@@ -836,7 +836,16 @@ async function updateTaskInFile(
   })
 
   const lines = read.content.split(/\r?\n/)
-  const lineIndex = resolveTaskLineIndex(lines, task)
+  let lineIndex = -1
+  if (task.lineIndex >= 0 && task.lineIndex < lines.length) {
+    const parsedAtStoredIndex = parseTaskLine(lines[task.lineIndex] || '')
+    if (parsedAtStoredIndex)
+      lineIndex = task.lineIndex
+  }
+
+  if (lineIndex < 0)
+    lineIndex = resolveTaskLineIndex(lines, task)
+
   if (lineIndex < 0)
     return
 
