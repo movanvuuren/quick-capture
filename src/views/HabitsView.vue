@@ -1441,9 +1441,8 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-else-if="isLoading && habits.length === 0" class="card glass-card empty-state">
-        <div class="loading-inline">
+        <div class="loading-inline" aria-label="Loading habits" role="status">
           <div class="loading-spinner" aria-hidden="true" />
-          <span>Loading habits...</span>
         </div>
       </div>
 
@@ -1485,7 +1484,7 @@ onBeforeUnmount(() => {
                 <div class="heatmap-skeleton-header skeleton-block" />
                 <div class="heatmap-days" aria-hidden="true">
                   <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
-                    }}</span>
+                  }}</span>
                 </div>
                 <div class="heatmap-grid heatmap-grid--skeleton" aria-hidden="true">
                   <div v-for="index in 35" :key="`${habit.fileName}-skeleton-${index}`"
@@ -1502,7 +1501,6 @@ onBeforeUnmount(() => {
                     <span class="heatmap-month-label">{{ getVisibleMonthLabel(habit) }}</span>
                     <span v-if="isLoadingOlderMonths(habit)" class="heatmap-month-loading">
                       <span class="mini-spinner" aria-hidden="true" />
-                      Loading older months...
                     </span>
                   </div>
                   <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show next month"
