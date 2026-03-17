@@ -232,7 +232,7 @@ public class FolderPickerPlugin extends Plugin {
                 return;
             }
 
-            String mode = append ? "wa" : "w";
+            String mode = append ? "wa" : "wt";
             ParcelFileDescriptor pfd = getContext().getContentResolver().openFileDescriptor(file.getUri(), mode);
             if (pfd == null) {
                 call.reject("Unable to open file descriptor");
