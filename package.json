@@ -9,7 +9,10 @@
     "build:pages": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@capacitor/android": "^8.2.0",
