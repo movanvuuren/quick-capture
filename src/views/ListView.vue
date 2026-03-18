@@ -442,7 +442,7 @@ function onDrop(e: DragEvent, idx: number) {
     <template v-else-if="currentList">
       <div class="detail-content" :class="{ 'is-layout-pending': !isLayoutReady }">
         <div class="detail-header glass-panel">
-          <input v-model="currentList.title" placeholder="Title" class="header-title"
+          <input data-testid="list-title-input" v-model="currentList.title" placeholder="Title" class="header-title"
             @input="currentList && queueSave(currentList)">
         </div>
 
