@@ -6,6 +6,7 @@ import { parseFrontmatter } from '../lib/lists'
 import { parseTaskLine as parseSharedTaskLine } from '../lib/taskLine'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
+import BottomActionNav from '../components/BottomActionNav.vue'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const HABIT_CONFIGS_DIR = 'habits'
@@ -680,8 +681,10 @@ function goBack() {
           <span class="habit-progress">{{ habit.currentValue }}/{{ habit.targetCount }}</span>
         </button>
       </div>
+
     </template>
   </div>
+  <BottomActionNav />
 </template>
 
 <style scoped>

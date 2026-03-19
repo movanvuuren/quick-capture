@@ -5,6 +5,7 @@ import { useRouter } from 'vue-router'
 import { loadDashboardData } from '../lib/listFiles'
 import type { AppFile } from '../lib/listFiles'
 import { loadSettings } from '../lib/settings'
+import BottomActionNav from '../components/BottomActionNav.vue'
 
 const router = useRouter()
 const settings = loadSettings()
@@ -176,6 +177,7 @@ function openFile(file: AppFile) {
       </section>
     </template>
   </div>
+  <BottomActionNav />
 </template>
 
 <style scoped>

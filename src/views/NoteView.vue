@@ -22,6 +22,7 @@ import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { parseFrontmatter, stripFrontmatter } from '../lib/lists'
 import { createNoteFile, saveNoteToFile, setFilePinned } from '../lib/listFiles'
+import BottomActionNav from '../components/BottomActionNav.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -929,8 +930,10 @@ async function saveNote() {
         <button class="glass-button glass-button--primary save-button" @click="saveNote">
           Save
         </button>
+
       </div>
     </div>
+    <BottomActionNav />
   </div>
 </template>
 

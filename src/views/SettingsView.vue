@@ -8,6 +8,7 @@ import { parseFrontmatter } from '../lib/lists'
 import { applyTheme, getThemeAccentColor, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { WidgetSync } from '../plugins/widget-sync'
+import BottomActionNav from '../components/BottomActionNav.vue'
 
 const router = useRouter()
 const MAX_QUICK_TASK_PRESETS = 3
@@ -843,6 +844,7 @@ function jumpToSection(value: string) {
       </button>
     </nav>
   </div>
+  <BottomActionNav />
 </template>
 
 <style scoped>

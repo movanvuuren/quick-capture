@@ -9,7 +9,7 @@ import PinToggleButton from '../components/PinToggleButton.vue'
 import { loadSettings } from '../lib/settings'
 import { deleteListFile, loadTodoFileByName, loadTodoFilesFromFolder, saveListToFile } from '../lib/listFiles'
 import type { StoredTodoList, TodoState, TodoList } from '../lib/lists'
-
+import BottomActionNav from '../components/BottomActionNav.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -519,6 +519,7 @@ function onDrop(e: DragEvent, idx: number) {
       <button class="glass-button glass-button--primary" @click="goBack">Back Home</button>
     </div>
   </div>
+  <BottomActionNav />
 </template>
 
 <style scoped>
