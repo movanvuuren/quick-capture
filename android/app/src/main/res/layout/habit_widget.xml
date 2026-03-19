@@ -5,8 +5,10 @@
     android:layout_height="match_parent"
     android:orientation="horizontal"
     android:gravity="center"
-    android:paddingStart="14dp"
-    android:paddingEnd="14dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp"
     android:background="@drawable/widget_pill_light">
 
     <TextView
