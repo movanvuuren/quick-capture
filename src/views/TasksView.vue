@@ -1173,7 +1173,7 @@ h1 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .quick-add-date-priority {
@@ -1185,8 +1185,8 @@ h1 {
 
 .date-input {
 
-  padding-left: 10px;
-  padding-right: 10px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 .quick-add-date {
@@ -1196,7 +1196,7 @@ h1 {
 .quick-add-submit {
   min-height: 40px;
   width: 100%;
-  padding: 0 14px;
+  padding: 0 12px;
 }
 
 .glass-input {
