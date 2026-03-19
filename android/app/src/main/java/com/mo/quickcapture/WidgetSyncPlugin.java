@@ -32,6 +32,8 @@ public class WidgetSyncPlugin extends Plugin {
     public void syncHabits(PluginCall call) {
         String folderUri = call.getString("folderUri");
         String habitsJson = call.getString("habitsJson");
+        String widgetTheme = call.getString("theme");
+        String widgetAccent = call.getString("accentColor");
 
         if (folderUri == null || habitsJson == null) {
             call.reject("Missing folderUri or habitsJson");
@@ -39,11 +41,22 @@ public class WidgetSyncPlugin extends Plugin {
         }
 
         Context ctx = getContext();
-        ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+        SharedPreferences.Editor prefsEditor = ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
             .edit()
             .putString("folder_uri", folderUri)
-            .putString("habits_json", habitsJson)
-            .apply();
+            .putString("habits_json", habitsJson);
+
+        if (widgetTheme != null && !widgetTheme.trim().isEmpty()) {
+            prefsEditor.putString("widget_theme", widgetTheme.trim());
+        }
+
+        if (widgetAccent != null && widgetAccent.trim().matches("^#[0-9a-fA-F]{6}$")) {
+            prefsEditor.putString("widget_accent", widgetAccent.trim().toLowerCase());
+        } else if (widgetAccent != null) {
+            prefsEditor.remove("widget_accent");
+        }
+
+        prefsEditor.apply();
 
         Map<String, JSONObject> habitsByFile = new HashMap<>();
         try {

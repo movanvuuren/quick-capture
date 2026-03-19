@@ -3,55 +3,26 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:gravity="center"
-    android:padding="8dp">
+    android:paddingStart="14dp"
+    android:paddingEnd="14dp"
+    android:background="@drawable/widget_pill_light">
 
-    <!-- Emoji icon on coloured circle -->
-    <FrameLayout
-        android:layout_width="64dp"
-        android:layout_height="64dp">
-
-        <ImageView
-            android:id="@+id/widget_icon_bg"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:src="@drawable/widget_circle"
-            android:scaleType="fitXY" />
-
-        <TextView
-            android:id="@+id/widget_icon"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:textSize="28sp"
-            android:includeFontPadding="false"
-            android:text="⭐" />
-    </FrameLayout>
-
-    <!-- Habit name -->
     <TextView
-        android:id="@+id/widget_name"
-        android:layout_width="match_parent"
+        android:id="@+id/widget_icon"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_weight="1"
         android:gravity="center"
-        android:textSize="11sp"
-        android:textColor="#FFFFFF"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:text="Habit" />
+        android:includeFontPadding="false"
+        android:text="⭐"
+        android:textSize="24sp" />
 
-    <!-- Current state label -->
-    <TextView
-        android:id="@+id/widget_status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:gravity="center"
-        android:textSize="10sp"
-        android:textStyle="bold"
-        android:textColor="#CCFFFFFF"
-        android:maxLines="1"
-        android:text="—" />
+    <ImageView
+        android:id="@+id/widget_status_ring"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:contentDescription="Habit status" />
+
 </LinearLayout>

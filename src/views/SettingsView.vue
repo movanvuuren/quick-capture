@@ -440,6 +440,8 @@ async function saveHabitConfig(draft: HabitDraft) {
     await WidgetSync.syncHabits({
       folderUri: settings.baseFolderUri,
       habitsJson: JSON.stringify(habitsForWidget),
+      theme: settings.theme,
+      accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
     })
   } catch (error) {
     console.error('Failed to save habit config', error)

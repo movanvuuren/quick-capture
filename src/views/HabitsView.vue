@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
 import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
-import { loadSettings } from '../lib/settings'
+import { getThemeAccentColor, loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { WidgetSync } from '../plugins/widget-sync'
 import BottomActionNav from '../components/BottomActionNav.vue'
@@ -716,6 +716,8 @@ async function syncHabitsToWidget() {
   await WidgetSync.syncHabits({
     folderUri: settings.baseFolderUri,
     habitsJson: JSON.stringify(habitsForWidget),
+    theme: settings.theme,
+    accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
   })
 }
 

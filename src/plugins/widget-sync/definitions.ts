@@ -6,5 +6,10 @@ export interface WidgetSyncPlugin {
    * @param options.folderUri  - The SAF tree URI for the habits folder.
    * @param options.habitsJson - JSON string: Array<{ id, file, name, icon, target }>
    */
-  syncHabits(options: { folderUri: string; habitsJson: string }): Promise<void>
+  syncHabits(options: {
+    folderUri: string
+    habitsJson: string
+    theme?: 'light' | 'dark' | 'dim'
+    accentColor?: string
+  }): Promise<void>
 }

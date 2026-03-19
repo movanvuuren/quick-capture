@@ -6,9 +6,20 @@ import android.appwidget.AppWidgetProvider;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
+import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
+import android.text.TextUtils;
+import android.util.DisplayMetrics;
+import android.util.TypedValue;
+import android.view.View;
 import android.widget.RemoteViews;
 
 import androidx.documentfile.provider.DocumentFile;
@@ -33,6 +44,27 @@ public class HabitWidgetProvider extends AppWidgetProvider {
     static final String ACTION_TOGGLE = "com.mo.quickcapture.HABIT_WIDGET_TOGGLE";
     static final String EXTRA_WIDGET_ID = "widgetId";
     static final String HABIT_LOGS_DIR = "habit-logs";
+    static final String STATE_SKIP = "*";
+    static final String STATE_FAIL = "!";
+
+    enum WidgetState {
+        BLANK,
+        PARTIAL,
+        SUCCESS,
+        SKIPPED,
+        FAIL
+    }
+
+    static class WidgetPalette {
+        int titleColor;
+        int subtextColor;
+        int heroColor;
+        int ringNeutralColor;
+        int ringFaintColor;
+        int ringCenterColor;
+        int failColor;
+        int backgroundRes;
+    }
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
@@ -84,6 +116,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         String fileName = prefs.getString("widget_" + widgetId + "_file", null);
         String habitId = prefs.getString("widget_" + widgetId + "_habit_id", null);
         int targetCount = Math.max(1, prefs.getInt("widget_" + widgetId + "_target", 1));
+        boolean advancedCycle = prefs.getBoolean("widget_cycle_all_states", false);
 
         if (folderUri == null || fileName == null) return;
 
@@ -91,22 +124,25 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             String today = getToday();
             String currentValue = getTodayValueForHabit(context, folderUri, fileName, habitId, today);
 
-            // Cycle: blank -> done -> skip -> fail -> blank.
-            // Partial numeric values (< target) advance to done first to match app semantics.
-            String newValue;
-            if (currentValue == null) {
-                newValue = String.valueOf(targetCount);
-            } else if (isNumeric(currentValue)) {
-                int numeric = parseIntOrDefault(currentValue, targetCount);
-                if (numeric < targetCount) {
-                    newValue = String.valueOf(targetCount); // complete from partial
-                } else {
-                    newValue = "*"; // skip
+            if (isNumeric(currentValue)) {
+                int existing = parseIntOrDefault(currentValue, 0);
+                if (existing > 0 && existing < targetCount) {
+                    prefs.edit().putInt("widget_" + widgetId + "_last_partial", existing).apply();
                 }
-            } else if ("*".equals(currentValue)) {
-                newValue = "!"; // fail
+            }
+
+            String newValue;
+            if (advancedCycle) {
+                newValue = getNextValueForAdvancedCycle(prefs, widgetId, currentValue, targetCount);
             } else {
-                newValue = null; // clear
+                newValue = getNextValueForDefaultCycle(prefs, widgetId, currentValue, targetCount);
+            }
+
+            if (isNumeric(newValue)) {
+                int nextNumeric = parseIntOrDefault(newValue, 0);
+                if (nextNumeric > 0 && nextNumeric < targetCount) {
+                    prefs.edit().putInt("widget_" + widgetId + "_last_partial", nextNumeric).apply();
+                }
             }
 
             writeTodayValueForHabit(context, folderUri, fileName, habitId, today, newValue);
@@ -126,10 +162,13 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         String habitName = prefs.getString("widget_" + widgetId + "_name", "Habit");
         String habitIcon = prefs.getString("widget_" + widgetId + "_icon", "");
         int targetCount = Math.max(1, prefs.getInt("widget_" + widgetId + "_target", 1));
+        String widgetTheme = getWidgetTheme(context);
+        String accentColor = getWidgetAccentColor(context);
+        WidgetPalette palette = buildPalette(context, widgetTheme, accentColor);
 
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.habit_widget);
+        views.setInt(R.id.widget_root, "setBackgroundResource", palette.backgroundRes);
         views.setTextViewText(R.id.widget_icon, habitIcon.isEmpty() ? "⭐" : habitIcon);
-        views.setTextViewText(R.id.widget_name, habitName);
 
         // Read today's log value
         String todayValue = null;
@@ -139,30 +178,11 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             } catch (Exception ignored) {}
         }
 
-        // Colour-tint the circle based on state
-        int stateColor;
-        String stateLabel;
-        if (todayValue != null && isNumeric(todayValue)) {
-            int numeric = parseIntOrDefault(todayValue, 0);
-            if (numeric >= targetCount) {
-                stateColor = Color.parseColor("#388E3C"); // green  – done
-                stateLabel = "✓ Done";
-            } else {
-                stateColor = Color.parseColor("#1976D2"); // blue   – partial
-                stateLabel = numeric + "/" + targetCount;
-            }
-        } else if ("*".equals(todayValue)) {
-            stateColor = Color.parseColor("#F57C00"); // amber  – skip
-            stateLabel = "→ Skip";
-        } else if ("!".equals(todayValue)) {
-            stateColor = Color.parseColor("#C62828"); // red    – fail
-            stateLabel = "✗ Fail";
-        } else {
-            stateColor = Color.parseColor("#546E7A"); // slate  – blank
-            stateLabel = "—";
-        }
-        views.setInt(R.id.widget_icon_bg, "setColorFilter", stateColor);
-        views.setTextViewText(R.id.widget_status, stateLabel);
+        WidgetState state = resolveWidgetState(todayValue, targetCount);
+        int numericValue = isNumeric(todayValue) ? parseIntOrDefault(todayValue, 0) : 0;
+
+        Bitmap ringBitmap = renderStatusRing(context, palette, state, numericValue, targetCount);
+        views.setImageViewBitmap(R.id.widget_status_ring, ringBitmap);
 
         // Click → cycle state
         Intent toggleIntent = new Intent(context, HabitWidgetProvider.class);
@@ -175,6 +195,238 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.widget_root, pendingIntent);
 
         manager.updateAppWidget(widgetId, views);
+    }
+
+    static String getNextValueForDefaultCycle(SharedPreferences prefs, int widgetId, String currentValue, int targetCount) {
+        WidgetState state = resolveWidgetState(currentValue, targetCount);
+        boolean isBooleanHabit = targetCount <= 1;
+
+        if (isBooleanHabit) {
+            if (state == WidgetState.SUCCESS) return null;
+            return String.valueOf(targetCount);
+        }
+
+        if (state == WidgetState.BLANK) {
+            int fallback = Math.max(1, targetCount - 1);
+            int lastPartial = prefs.getInt("widget_" + widgetId + "_last_partial", fallback);
+            int safePartial = clamp(lastPartial, 1, Math.max(1, targetCount - 1));
+            return String.valueOf(safePartial);
+        }
+
+        if (state == WidgetState.PARTIAL) return String.valueOf(targetCount);
+        if (state == WidgetState.SUCCESS) return null;
+        return null;
+    }
+
+    static String getNextValueForAdvancedCycle(SharedPreferences prefs, int widgetId, String currentValue, int targetCount) {
+        WidgetState state = resolveWidgetState(currentValue, targetCount);
+        boolean hasPartialState = targetCount > 1;
+
+        if (state == WidgetState.BLANK) {
+            if (!hasPartialState) return String.valueOf(targetCount);
+            int fallback = Math.max(1, targetCount - 1);
+            int lastPartial = prefs.getInt("widget_" + widgetId + "_last_partial", fallback);
+            int safePartial = clamp(lastPartial, 1, Math.max(1, targetCount - 1));
+            return String.valueOf(safePartial);
+        }
+
+        if (state == WidgetState.PARTIAL) return String.valueOf(targetCount);
+        if (state == WidgetState.SUCCESS) return STATE_SKIP;
+        if (state == WidgetState.SKIPPED) return STATE_FAIL;
+        return null;
+    }
+
+    static WidgetState resolveWidgetState(String todayValue, int targetCount) {
+        if (todayValue == null) return WidgetState.BLANK;
+        if (STATE_SKIP.equals(todayValue)) return WidgetState.SKIPPED;
+        if (STATE_FAIL.equals(todayValue)) return WidgetState.FAIL;
+        if (!isNumeric(todayValue)) return WidgetState.BLANK;
+
+        int numeric = parseIntOrDefault(todayValue, 0);
+        if (numeric <= 0) return WidgetState.BLANK;
+        if (numeric >= targetCount) return WidgetState.SUCCESS;
+        return WidgetState.PARTIAL;
+    }
+
+    static String buildSubtext(WidgetState state, int numericValue, int targetCount) {
+        if (state == WidgetState.PARTIAL) return numericValue + "/" + targetCount;
+        if (state == WidgetState.SKIPPED) return "Skipped";
+        if (state == WidgetState.FAIL) return "Missed";
+        return "";
+    }
+
+    static Bitmap renderStatusRing(Context context, WidgetPalette palette, WidgetState state, int numericValue, int targetCount) {
+        float sizeDp = 34f;
+        int sizePx = Math.max(1, dpToPx(context, sizeDp));
+
+        Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+
+        float stroke = dpToPx(context, 2.4f);
+        float inset = stroke / 2f + 1f;
+        RectF arcBounds = new RectF(inset, inset, sizePx - inset, sizePx - inset);
+
+        Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        ringPaint.setStyle(Paint.Style.STROKE);
+        ringPaint.setStrokeWidth(stroke);
+        ringPaint.setStrokeCap(Paint.Cap.ROUND);
+
+        Paint centerPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        centerPaint.setTextAlign(Paint.Align.CENTER);
+        centerPaint.setTypeface(Typeface.create(Typeface.DEFAULT, Typeface.BOLD));
+        centerPaint.setColor(palette.ringCenterColor);
+
+        if (state == WidgetState.BLANK) {
+            ringPaint.setColor(palette.ringFaintColor);
+            canvas.drawArc(arcBounds, -90f, 360f, false, ringPaint);
+
+            Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            dotPaint.setColor(adjustAlpha(palette.ringCenterColor, 0.45f));
+            float dotRadius = dpToPx(context, 1.8f);
+            canvas.drawCircle(sizePx / 2f, sizePx / 2f, dotRadius, dotPaint);
+            return bitmap;
+        }
+
+        if (state == WidgetState.PARTIAL) {
+            ringPaint.setColor(palette.ringNeutralColor);
+            canvas.drawArc(arcBounds, -90f, 360f, false, ringPaint);
+
+            float progress = targetCount <= 0 ? 0f : (float) numericValue / (float) targetCount;
+            progress = Math.max(0f, Math.min(1f, progress));
+            ringPaint.setColor(palette.heroColor);
+            canvas.drawArc(arcBounds, -90f, progress * 360f, false, ringPaint);
+
+            String value = numericValue + "/" + targetCount;
+            centerPaint.setTextSize(spToPx(context, 8f));
+            Paint.FontMetrics fm = centerPaint.getFontMetrics();
+            float y = (sizePx / 2f) - ((fm.ascent + fm.descent) / 2f);
+            canvas.drawText(value, sizePx / 2f, y, centerPaint);
+            return bitmap;
+        }
+
+        if (state == WidgetState.SUCCESS) {
+            ringPaint.setColor(palette.heroColor);
+            canvas.drawArc(arcBounds, -90f, 360f, false, ringPaint);
+
+            centerPaint.setTextSize(spToPx(context, 12f));
+            Paint.FontMetrics fm = centerPaint.getFontMetrics();
+            float y = (sizePx / 2f) - ((fm.ascent + fm.descent) / 2f);
+            canvas.drawText("✓", sizePx / 2f, y, centerPaint);
+            return bitmap;
+        }
+
+        if (state == WidgetState.SKIPPED) {
+            ringPaint.setColor(palette.ringNeutralColor);
+            ringPaint.setPathEffect(new DashPathEffect(new float[] { dpToPx(context, 4f), dpToPx(context, 3f) }, 0f));
+            canvas.drawArc(arcBounds, -90f, 360f, false, ringPaint);
+
+            centerPaint.setTextSize(spToPx(context, 11f));
+            Paint.FontMetrics fm = centerPaint.getFontMetrics();
+            float y = (sizePx / 2f) - ((fm.ascent + fm.descent) / 2f);
+            canvas.drawText("»", sizePx / 2f, y, centerPaint);
+            return bitmap;
+        }
+
+        ringPaint.setColor(palette.ringNeutralColor);
+        canvas.drawArc(arcBounds, -90f, 360f, false, ringPaint);
+
+        centerPaint.setColor(palette.failColor);
+        centerPaint.setTextSize(spToPx(context, 12f));
+        Paint.FontMetrics fm = centerPaint.getFontMetrics();
+        float y = (sizePx / 2f) - ((fm.ascent + fm.descent) / 2f);
+        canvas.drawText("✕", sizePx / 2f, y, centerPaint);
+        return bitmap;
+    }
+
+    static WidgetPalette buildPalette(Context context, String widgetTheme, String accentColor) {
+        WidgetPalette palette = new WidgetPalette();
+
+        boolean isDarkSystem = (context.getResources().getConfiguration().uiMode
+            & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+
+        String resolvedTheme = widgetTheme;
+        if (resolvedTheme == null || resolvedTheme.trim().isEmpty()) {
+            resolvedTheme = isDarkSystem ? "dark" : "light";
+        }
+
+        int hero = parseColorOrFallback(accentColor, "light".equals(resolvedTheme) ? "#2563ff" : "#ce43b7");
+        if ("dim".equals(resolvedTheme) && (accentColor == null || accentColor.trim().isEmpty())) {
+            hero = Color.parseColor("#ff53b3");
+        }
+
+        palette.heroColor = hero;
+
+        if ("dark".equals(resolvedTheme)) {
+            palette.titleColor = Color.parseColor("#F3F4F6");
+            palette.subtextColor = Color.parseColor("#B8BBC2");
+            palette.ringNeutralColor = Color.parseColor("#5D6169");
+            palette.ringFaintColor = Color.parseColor("#4A4D54");
+            palette.ringCenterColor = Color.parseColor("#E7E8EC");
+            palette.failColor = Color.parseColor("#EF4444");
+            palette.backgroundRes = R.drawable.widget_pill_dark;
+        } else if ("dim".equals(resolvedTheme)) {
+            palette.titleColor = Color.parseColor("#E8EDF7");
+            palette.subtextColor = Color.parseColor("#A7B2C4");
+            palette.ringNeutralColor = Color.parseColor("#6E7280");
+            palette.ringFaintColor = Color.parseColor("#5D6170");
+            palette.ringCenterColor = Color.parseColor("#F3F4F8");
+            palette.failColor = Color.parseColor("#F87171");
+            palette.backgroundRes = R.drawable.widget_pill_dim;
+        } else {
+            palette.titleColor = Color.parseColor("#111827");
+            palette.subtextColor = Color.parseColor("#6B7280");
+            palette.ringNeutralColor = Color.parseColor("#A5ACB8");
+            palette.ringFaintColor = Color.parseColor("#C3C8D2");
+            palette.ringCenterColor = Color.parseColor("#1F2937");
+            palette.failColor = Color.parseColor("#DC2626");
+            palette.backgroundRes = R.drawable.widget_pill_light;
+        }
+
+        return palette;
+    }
+
+    static String getWidgetTheme(Context context) {
+        return context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+            .getString("widget_theme", null);
+    }
+
+    static String getWidgetAccentColor(Context context) {
+        return context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+            .getString("widget_accent", null);
+    }
+
+    static int parseColorOrFallback(String candidate, String fallback) {
+        if (candidate != null) {
+            String trimmed = candidate.trim();
+            if (trimmed.matches("^#[0-9a-fA-F]{6}$")) {
+                try {
+                    return Color.parseColor(trimmed);
+                } catch (IllegalArgumentException ignored) {
+                }
+            }
+        }
+        return Color.parseColor(fallback);
+    }
+
+    static int clamp(int value, int min, int max) {
+        if (value < min) return min;
+        if (value > max) return max;
+        return value;
+    }
+
+    static int dpToPx(Context context, float dp) {
+        DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, metrics));
+    }
+
+    static float spToPx(Context context, float sp) {
+        DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, metrics);
+    }
+
+    static int adjustAlpha(int color, float factor) {
+        int alpha = Math.round(Color.alpha(color) * factor);
+        return Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color));
     }
 
     // ── Shared helpers ──────────────────────────────────────────────
@@ -348,8 +600,8 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         if (value == null) return null;
         String trimmed = value.trim();
         if (trimmed.isEmpty()) return null;
-        if ("skip".equals(trimmed) || "*".equals(trimmed)) return "*";
-        if ("fail".equals(trimmed) || "!".equals(trimmed)) return "!";
+        if ("skip".equals(trimmed) || STATE_SKIP.equals(trimmed)) return STATE_SKIP;
+        if ("fail".equals(trimmed) || STATE_FAIL.equals(trimmed)) return STATE_FAIL;
         if (isNumeric(trimmed)) return trimmed;
         return null;
     }
@@ -409,8 +661,8 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         fields.put("month", month);
 
         if (newValue == null) fields.remove(dayKey);
-        else if ("*".equals(newValue)) fields.put(dayKey, "skip");
-        else if ("!".equals(newValue)) fields.put(dayKey, "fail");
+        else if (STATE_SKIP.equals(newValue)) fields.put(dayKey, "skip");
+        else if (STATE_FAIL.equals(newValue)) fields.put(dayKey, "fail");
         else fields.put(dayKey, newValue);
 
         fields.put("updated", today);

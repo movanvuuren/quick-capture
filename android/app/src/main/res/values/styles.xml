@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
+    <color name="colorPrimary">#007AFF</color>
+    <color name="colorPrimaryDark">#0056B3</color>
+    <color name="colorAccent">#FF4081</color>
+    <color name="widget_background">#1A1A1A</color>
+
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
         <!-- Customize your theme here. -->
