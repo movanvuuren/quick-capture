@@ -34,7 +34,7 @@ vi.mock('@capacitor/haptics', () => ({
 }))
 
 const routes = [
-  // { path: '/', name: 'home', component: HomeView },
+  { path: '/', name: 'home', component: HomeView },
   { path: '/search', name: 'search', component: { template: '<div>Search</div>' } },
   { path: '/agenda', name: 'agenda', component: { template: '<div>Agenda</div>' } },
   { path: '/settings', name: 'settings', component: { template: '<div>Settings</div>' } },

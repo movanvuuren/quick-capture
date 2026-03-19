@@ -1480,6 +1480,13 @@ h1 {
   border-color: color-mix(in srgb, #ef4444 35%, var(--border));
 }
 
+.repeat-badge {
+  font-size: 0.75rem;
+  margin-left: 4px;
+  vertical-align: middle;
+  opacity: 0.7;
+}
+
 @media (max-width: 860px) {
   .stats-row {
     grid-template-columns: 1fr;
