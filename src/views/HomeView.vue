@@ -1,23 +1,24 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import type { CSSProperties } from 'vue'
-import { CalendarDays, CheckSquare, FileText, Flame, List, Plus, Search, Settings, Trash2 } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
-import PinToggleButton from '../components/PinToggleButton.vue'
-import { FolderPicker } from '../plugins/folder-picker'
-import { useDashboardData } from '../lib/useDashboardData'
-import { escapeHtml, renderNotePreviewMarkdown } from '../lib/notePreviewRenderer'
-import { getActiveItems, getCompletedCount, getPreviewItems, getPreviewOverflowCount, getProgressPercent } from '../lib/todoSelectors'
 import type { AppFile } from '../lib/listFiles'
+import type { StoredTodoList } from '../lib/lists'
+import { CheckSquare, FileText, Flame, List, Search, Settings, Trash2 } from 'lucide-vue-next'
+import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import BottomActionNav from '../components/BottomActionNav.vue'
+import PinToggleButton from '../components/PinToggleButton.vue'
 import {
   createListFile,
   saveListToFile,
   setFilePinned,
 } from '../lib/listFiles'
-import type { StoredTodoList } from '../lib/lists'
+import { escapeHtml, renderNotePreviewMarkdown } from '../lib/notePreviewRenderer'
+import { getActiveItems, getCompletedCount, getPreviewItems, getPreviewOverflowCount, getProgressPercent } from '../lib/todoSelectors'
+import { useDashboardData } from '../lib/useDashboardData'
+import { FolderPicker } from '../plugins/folder-picker'
 
-type DashboardCard =
-  | { kind: 'list', item: StoredTodoList }
+type DashboardCard
+  = | { kind: 'list', item: StoredTodoList }
   | { kind: 'task', item: StoredTodoList }
   | { kind: 'note', item: AppFile }
 
@@ -494,7 +495,6 @@ async function triggerHaptic(kind: 'light' | 'medium' = 'light') {
     const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
     const style = kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light
     await Haptics.impact({ style })
-    return
   }
   catch {
     if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
@@ -666,9 +666,6 @@ async function toggleNotePin(note: AppFile) {
           <button class="glass-icon-button" aria-label="Search" @click="go('/search')">
             <Search :size="20" />
           </button>
-          <button class="glass-icon-button" aria-label="Agenda" @click="go('/agenda')">
-            <CalendarDays :size="20" />
-          </button>
           <button class="glass-icon-button" aria-label="Go to settings" @click="go('/settings')">
             <Settings :size="20" />
           </button>
@@ -680,24 +677,46 @@ async function toggleNotePin(note: AppFile) {
       </div>
 
       <div v-else-if="error" class="empty-state card">
-        <p class="error-text">{{ error }}</p>
+        <p class="error-text">
+          {{ error }}
+        </p>
       </div>
 
       <div v-else-if="!baseFolderUri" class="empty-state card">
-        <div class="empty-icon">#</div>
-        <p class="empty-title">No Folder Selected</p>
-        <p class="empty-text">Please select a folder in settings to begin.</p>
-        <button class="glass-button glass-button--primary" @click="go('/settings')">Go to Settings</button>
+        <div class="empty-icon">
+          #
+        </div>
+        <p class="empty-title">
+          No Folder Selected
+        </p>
+        <p class="empty-text">
+          Please select a folder in settings to begin.
+        </p>
+        <button class="glass-button glass-button--primary" @click="go('/settings')">
+          Go to Settings
+        </button>
       </div>
 
       <div v-else-if="isEmpty" class="empty-state card">
-        <div class="empty-icon">*</div>
-        <p class="empty-title">Folder is Empty</p>
-        <p class="empty-text">Create a new list, task file, or note to get started.</p>
+        <div class="empty-icon">
+          *
+        </div>
+        <p class="empty-title">
+          Folder is Empty
+        </p>
+        <p class="empty-text">
+          Create a new list, task file, or note to get started.
+        </p>
         <div class="button-group">
-          <button class="glass-button glass-button--primary" @click="createTodoFile('list')">New List</button>
-          <button class="glass-button glass-button--primary" @click="go('/tasks')">Quick Tasks</button>
-          <button class="glass-button glass-button--primary" @click="go('/note')">New Note</button>
+          <button class="glass-button glass-button--primary" @click="createTodoFile('list')">
+            New List
+          </button>
+          <button class="glass-button glass-button--primary" @click="go('/tasks')">
+            Quick Tasks
+          </button>
+          <button class="glass-button glass-button--primary" @click="go('/note')">
+            New Note
+          </button>
         </div>
       </div>
 
@@ -809,43 +828,14 @@ async function toggleNotePin(note: AppFile) {
       </template>
     </div>
 
-    <div class="quick-add-bar">
-      <div class="quick-add-shell">
-        <div class="quick-add-heading">
-          <Plus :size="14" />
-          <span>Quick Add</span>
-        </div>
-
-        <div class="quick-add-actions">
-          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Quick tasks"
-            aria-label="Quick tasks" @click="go('/tasks')">
-            <CheckSquare :size="16" />
-          </button>
-
-          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create list"
-            aria-label="Create list" @click="createTodoFile('list')">
-            <List :size="16" />
-          </button>
-
-          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Create note"
-            aria-label="Create note" @click="go('/note')">
-            <FileText :size="16" />
-          </button>
-
-          <button class="glass-icon-button quick-add-button quick-add-button--icon" title="Habits" aria-label="Habits"
-            @click="go('/habits')">
-            <Flame :size="16" />
-          </button>
-        </div>
-      </div>
-    </div>
+    <BottomActionNav @create-list="createTodoFile('list')" />
   </div>
 </template>
 
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: var(--page-top-padding) 20px calc(176px + env(safe-area-inset-bottom, 0px));
+  padding: var(--page-top-padding) 20px calc(92px + env(safe-area-inset-bottom, 0px));
   color: var(--text);
   overscroll-behavior-y: contain;
 }
@@ -1340,61 +1330,6 @@ h1 {
   gap: 12px;
   justify-content: center;
   flex-wrap: wrap;
-}
-
-.quick-add-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 50;
-  display: flex;
-  justify-content: center;
-  padding: 14px 20px calc(14px + env(safe-area-inset-bottom, 0px));
-  background: color-mix(in srgb, var(--bg) 80%, transparent);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid var(--border);
-}
-
-.quick-add-shell {
-  width: min(780px, 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-.quick-add-heading {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--text-soft);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.quick-add-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-}
-
-.quick-add-button {
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.quick-add-button--icon {
-  border-radius: 14px;
 }
 
 @media (max-width: 560px) {

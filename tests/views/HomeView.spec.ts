@@ -6,6 +6,7 @@ import HomeView from '../../src/views/HomeView.vue'
 import { FolderPicker } from '../../src/plugins/folder-picker'
 import * as listFiles from '../../src/lib/listFiles'
 import { useDashboardData } from '../../src/lib/useDashboardData'
+import { defaultSettings, saveSettings } from '../../src/lib/settings'
 
 vi.mock('../../src/lib/useDashboardData')
 vi.mock('../../src/plugins/folder-picker', () => ({
@@ -33,7 +34,7 @@ vi.mock('@capacitor/haptics', () => ({
 }))
 
 const routes = [
-  { path: '/', name: 'home', component: HomeView },
+  // { path: '/', name: 'home', component: HomeView },
   { path: '/search', name: 'search', component: { template: '<div>Search</div>' } },
   { path: '/agenda', name: 'agenda', component: { template: '<div>Agenda</div>' } },
   { path: '/settings', name: 'settings', component: { template: '<div>Settings</div>' } },
@@ -157,6 +158,7 @@ describe('HomeView.vue', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    localStorage.clear()
   })
 
   async function mountComponent() {
@@ -173,7 +175,7 @@ describe('HomeView.vue', () => {
           FileText: true,
           Flame: true,
           List: true,
-          Plus: true,
+          Plus: false,
           Search: true,
           Settings: true,
           Trash2: true,
@@ -280,7 +282,7 @@ describe('HomeView.vue', () => {
     expect(wrapper.text()).toContain('Meeting Notes')
   })
 
-  it('navigates to search, agenda, and settings from top actions', async () => {
+  it('navigates to search and settings from top actions', async () => {
     const { wrapper, router } = await mountComponent()
     const pushSpy = vi.spyOn(router, 'push')
 
@@ -290,10 +292,19 @@ describe('HomeView.vue', () => {
     expect(pushSpy).toHaveBeenCalledWith('/search')
 
     await buttons[1].trigger('click')
-    expect(pushSpy).toHaveBeenCalledWith('/agenda')
-
-    await buttons[2].trigger('click')
     expect(pushSpy).toHaveBeenCalledWith('/settings')
+  })
+
+  it('navigates to agenda when agenda button is clicked', async () => {
+    const { wrapper, router } = await mountComponent()
+    const pushSpy = vi.spyOn(router, 'push')
+
+    const calendarButton = wrapper.find('button[aria-label="Agenda"]')
+
+    expect(calendarButton.exists()).toBeTruthy()
+    await calendarButton.trigger('click')
+
+    expect(pushSpy).toHaveBeenCalledWith('/agenda')
   })
 
   it('navigates to a list when list card is clicked', async () => {
@@ -339,11 +350,11 @@ describe('HomeView.vue', () => {
   })
 
   it('creates a new list from quick add', async () => {
+    saveSettings({ ...defaultSettings, baseFolderUri: 'file:///mock/folder/' })
     const { wrapper, router } = await mountComponent()
     const pushSpy = vi.spyOn(router, 'push')
 
-    const buttons = wrapper.findAll('.quick-add-button')
-    const createListButton = buttons[1]
+    const createListButton = wrapper.find('button[aria-label="Create list"]')
 
     await createListButton.trigger('click')
 
@@ -361,15 +372,13 @@ describe('HomeView.vue', () => {
     const { wrapper, router } = await mountComponent()
     const pushSpy = vi.spyOn(router, 'push')
 
-    const buttons = wrapper.findAll('.quick-add-button')
-
-    await buttons[0].trigger('click')
+    await wrapper.find('button[aria-label="Quick tasks"]').trigger('click')
     expect(pushSpy).toHaveBeenCalledWith('/tasks')
 
-    await buttons[2].trigger('click')
+    await wrapper.find('button[aria-label="Create note"]').trigger('click')
     expect(pushSpy).toHaveBeenCalledWith('/note')
 
-    await buttons[3].trigger('click')
+    await wrapper.find('button[aria-label="Habits"]').trigger('click')
     expect(pushSpy).toHaveBeenCalledWith('/habits')
   })
 
@@ -430,14 +439,13 @@ describe('HomeView.vue', () => {
   })
 
   it('goes to settings when trying to create list without base folder', async () => {
+    saveSettings({ ...defaultSettings, baseFolderUri: '' })
     dashboardMock.baseFolderUri.value = ''
 
     const { wrapper, router } = await mountComponent()
     const pushSpy = vi.spyOn(router, 'push')
 
-    const quickAddButtons = wrapper.findAll('.quick-add-button')
-    const createListButton = quickAddButtons[1]
-
+    const createListButton = wrapper.find('button[aria-label="Create list"]')
     expect(createListButton.exists()).toBe(true)
 
     await createListButton.trigger('click')

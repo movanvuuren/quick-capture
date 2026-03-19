@@ -8,6 +8,7 @@ import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
 import { loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { WidgetSync } from '../plugins/widget-sync'
+import BottomActionNav from '../components/BottomActionNav.vue'
 
 interface HabitCard {
   id: string
@@ -1619,6 +1620,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+  <BottomActionNav />
 </template>
 
 <style scoped>

@@ -12,6 +12,7 @@ import { loadSettings } from '../lib/settings'
 import type { QuickTaskPreset } from '../lib/settings'
 import { parseFrontmatter } from '../lib/lists'
 import type { TaskRepeat } from '../lib/taskLine'
+import BottomActionNav from '../components/BottomActionNav.vue'
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 type TaskFilter = 'all' | TaskState | 'overdue' | 'closed'
@@ -245,7 +246,7 @@ watch(taskFilterOptions, (options) => {
 })
 
 function goBack() {
-  router.push('/')
+  router.replace('/')
 }
 
 function isPageScrolledToTop() {
@@ -1049,7 +1050,9 @@ onActivated(async () => {
         </div>
       </div>
     </div>
+
   </div>
+  <BottomActionNav />
 </template>
 
 <style scoped>
