@@ -3,6 +3,7 @@ package com.mo.quickcapture.widget
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -11,20 +12,20 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
-import androidx.glance.action.clickable
 import androidx.glance.action.actionParametersOf
-import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
+import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.*
-import androidx.glance.text.TextAlign
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
+import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,10 +35,10 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
 import java.util.Locale
-import java.util.regex.Pattern
 
 private const val PREFS_NAME = "quick_capture_prefs"
 private const val FOLDER_URI_KEY = "folder_uri"
@@ -82,8 +83,7 @@ class AgendaTodayGlanceWidgetReceiver : GlanceAppWidgetReceiver() {
 
 class AgendaTodayGlanceWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val tasks = loadPendingDueTodayTasks(context).take(MAX_WIDGET_ITEMS)
-
+        val (tasks, error) = loadPendingDueTodayTasksWithError(context)
         provideContent {
             Column(
                 modifier = GlanceModifier
@@ -102,7 +102,15 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
 
                 Spacer(modifier = GlanceModifier.height(8.dp))
 
-                if (tasks.isEmpty()) {
+                if (error != null) {
+                    Text(
+                        text = error,
+                        style = TextStyle(
+                            color = ColorProvider(day = Color(0xFFB91C1C), night = Color(0xFFFCA5A5)),
+                            fontSize = 13.sp,
+                        ),
+                    )
+                } else if (tasks.isEmpty()) {
                     Text(
                         text = "🎉 All done!",
                         style = TextStyle(
@@ -111,7 +119,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                         ),
                     )
                 } else {
-                    tasks.forEach { task ->
+                    tasks.take(MAX_WIDGET_ITEMS).forEach { task ->
                         TaskRow(task = task)
                         Spacer(modifier = GlanceModifier.height(6.dp))
                     }
@@ -122,23 +130,26 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
 }
 
 private fun todayIso(): String {
-    return LocalDate.now().format(DateTimeFormatter.ISO_DATE)
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    return sdf.format(Date())
 }
 
 private fun tomorrowIso(): String {
-    return LocalDate.now().plusDays(1).format(DateTimeFormatter.ISO_DATE)
+    val cal = Calendar.getInstance()
+    cal.add(Calendar.DAY_OF_YEAR, 1)
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    return sdf.format(cal.time)
 }
 
-private val taskLineRegex = Pattern.compile("^\\s*-\\s\\[([fFxX-\\s]*?)\\](?:\\s+(.*))?$")
-private val dueDateRegex = Pattern.compile("📅\\s*(\\d{4}-\\d{2}-\\d{2})")
+// Use lazy to avoid ExceptionInInitializerError during class loading
+private val taskLineRegex by lazy { Regex("""^\s*-\s\[([fFxX\s-]*?)\](?:\s+(.*))?$""") }
+private val dueDateRegex by lazy { Regex("""\uD83D\uDCC5\s*(\d{4}-\d{2}-\d{2})""") } // \uD83D\uDCC5 is 📅
 
 private fun parseTaskLine(line: String): AgendaTask? {
-    val match = taskLineRegex.matcher(line)
-    if (!match.find())
-        return null
+    val match = taskLineRegex.find(line) ?: return null
 
-    val markerRaw = (match.group(1) ?: "").lowercase(Locale.US)
-    val body = (match.group(2) ?: "").trim()
+    val markerRaw = (match.groupValues.getOrNull(1) ?: "").lowercase(Locale.US)
+    val body = (match.groupValues.getOrNull(2) ?: "").trim()
     if (body.isEmpty())
         return null
 
@@ -150,11 +161,8 @@ private fun parseTaskLine(line: String): AgendaTask? {
         else -> "pending"
     }
 
-    val dueMatcher = dueDateRegex.matcher(body)
-    if (!dueMatcher.find())
-        return null
-
-    val dueDate = dueMatcher.group(1) ?: return null
+    val dueMatch = dueDateRegex.find(body) ?: return null
+    val dueDate = dueMatch.groupValues.getOrNull(1) ?: return null
 
     return AgendaTask(
         fileName = "",
@@ -177,7 +185,7 @@ private fun serializeTaskLine(state: String, body: String, dueDate: String?, isH
         marker = (marker + "f").trim().ifEmpty { "f" }
     }
 
-    var normalizedBody = body.replace(Regex("\\s*📅\\s*\\d{4}-\\d{2}-\\d{2}\\s*"), " ").trim()
+    var normalizedBody = body.replace(Regex("""\s*\uD83D\uDCC5\s*\d{4}-\d{2}-\d{2}\s*"""), " ").trim()
     if (!dueDate.isNullOrBlank()) {
         normalizedBody = "$normalizedBody 📅 $dueDate".trim()
     }
@@ -187,9 +195,9 @@ private fun serializeTaskLine(state: String, body: String, dueDate: String?, isH
 
 private fun displayBody(body: String): String {
     return body
-        .replace(Regex("\\s*📅\\s*\\d{4}-\\d{2}-\\d{2}\\s*"), " ")
-        .replace(Regex("\\s*🔁\\s*(daily|weekly|weekdays|monthly)\\s*", RegexOption.IGNORE_CASE), " ")
-        .replace(Regex("\\s{2,}"), " ")
+        .replace(Regex("""\s*\uD83D\uDCC5\s*\d{4}-\d{2}-\d{2}\s*"""), " ")
+        .replace(Regex("""\s*🔁\s*(daily|weekly|weekdays|monthly)\s*""", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("""\s{2,}"""), " ")
         .trim()
 }
 
@@ -202,7 +210,6 @@ private fun TaskRow(task: AgendaTask) {
         AgendaActionKeys.due to task.dueDate,
         AgendaActionKeys.urgent to task.isHighPriority,
     )
-
     val nextParams = actionParametersOf(
         AgendaActionKeys.file to task.fileName,
         AgendaActionKeys.line to task.lineIndex,
@@ -210,7 +217,13 @@ private fun TaskRow(task: AgendaTask) {
         AgendaActionKeys.due to task.dueDate,
         AgendaActionKeys.urgent to task.isHighPriority,
     )
-
+    val skipParams = actionParametersOf(
+        AgendaActionKeys.file to task.fileName,
+        AgendaActionKeys.line to task.lineIndex,
+        AgendaActionKeys.body to task.body,
+        AgendaActionKeys.due to task.dueDate,
+        AgendaActionKeys.urgent to task.isHighPriority,
+    )
     Row(
         modifier = GlanceModifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -232,13 +245,7 @@ private fun TaskRow(task: AgendaTask) {
                 ),
             )
         }
-
         Spacer(modifier = GlanceModifier.width(8.dp))
-
-        // In Glance, if defaultWeight() is not found, it is likely that the 
-        // weight modifier is provided via ColumnScope or RowScope.
-        // However, Glance usually uses GlanceModifier.defaultWeight() or GlanceModifier.weight(float).
-        // If both are unresolved, we'll use fillMaxWidth() as a fallback for the text container.
         Column(modifier = GlanceModifier.defaultWeight()) {
             Text(
                 text = if (task.isHighPriority) "[f] ${displayBody(task.body)}" else displayBody(task.body),
@@ -261,9 +268,18 @@ private fun TaskRow(task: AgendaTask) {
                 ),
             )
         }
-
         Spacer(modifier = GlanceModifier.width(8.dp))
-
+        Text(
+            text = "Skip",
+            style = TextStyle(
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = ColorProvider(day = Color(0xFFF59E42), night = Color(0xFFFBBF24)),
+                textAlign = TextAlign.End,
+            ),
+            modifier = GlanceModifier.clickable(actionRunCallback<SkipTaskAction>(skipParams)),
+        )
+        Spacer(modifier = GlanceModifier.width(8.dp))
         Text(
             text = "Next",
             style = TextStyle(
@@ -326,31 +342,82 @@ class MoveTaskToTomorrowAction : ActionCallback {
     }
 }
 
-private fun loadPendingDueTodayTasks(context: Context): List<AgendaTask> {
-    return try {
+class SkipTaskAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val fileName = parameters[AgendaActionKeys.file] ?: return
+        val lineIndex = parameters[AgendaActionKeys.line] ?: return
+        val body = parameters[AgendaActionKeys.body] ?: return
+        val dueDate = parameters[AgendaActionKeys.due] ?: return
+        val urgent = parameters[AgendaActionKeys.urgent] ?: false
+
+        // Move due date forward by one day, keep state as pending
+        val nextDue = try {
+            val cal = Calendar.getInstance()
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val date = sdf.parse(dueDate)
+            if (date != null) {
+                cal.time = date
+                cal.add(Calendar.DAY_OF_YEAR, 1)
+                sdf.format(cal.time)
+            } else {
+                tomorrowIso()
+            }
+        } catch (e: Exception) {
+            Log.e("AgendaWidget", "Failed to parse due date: $dueDate", e)
+            return
+        }
+
+        updateTaskLine(
+            context = context,
+            fileName = fileName,
+            lineIndex = lineIndex,
+            body = body,
+            dueDate = dueDate,
+            urgent = urgent,
+            nextState = "pending",
+            nextDueDate = nextDue,
+        )
+
+        AgendaTodayGlanceWidget().updateAll(context)
+    }
+}
+
+private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<AgendaTask>, String?> {
+    try {
         val folderUri = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(FOLDER_URI_KEY, null)
-            ?: return emptyList()
-
-        val root = DocumentFile.fromTreeUri(context, Uri.parse(folderUri)) ?: return emptyList()
+        if (folderUri.isNullOrBlank()) {
+            Log.e("AgendaWidget", "No folder URI set in prefs")
+            return emptyList<AgendaTask>() to "No folder selected. Open the app and pick a folder."
+        }
+        val root = DocumentFile.fromTreeUri(context, Uri.parse(folderUri))
+        if (root == null) {
+            Log.e("AgendaWidget", "DocumentFile.fromTreeUri returned null for $folderUri")
+            return emptyList<AgendaTask>() to "Can't access folder. Try re-picking it in the app."
+        }
         val today = todayIso()
         val tasks = mutableListOf<AgendaTask>()
-
         val files = root.listFiles().filter { it.isFile && it.name?.lowercase(Locale.US)?.endsWith(".md") == true }
+        if (files.isEmpty()) {
+            Log.w("AgendaWidget", "No .md files found in folder $folderUri")
+        }
         for (file in files) {
             val fileName = file.name ?: continue
             val content = readFile(context, file.uri)
             content.lines().forEachIndexed { index, line ->
-                val task = parseTaskLine(line)
+                val task = try { parseTaskLine(line) } catch (e: Exception) {
+                    Log.e("AgendaWidget", "Failed to parse line: $line", e)
+                    null
+                }
                 if (task != null && task.state == "pending" && task.dueDate == today) {
                     tasks.add(task.copy(fileName = fileName, lineIndex = index))
                 }
             }
         }
-        tasks
+        return tasks to null
     } catch (e: Exception) {
-        e.printStackTrace()
-        return emptyList()
+        Log.e("AgendaWidget", "Exception loading tasks", e)
+        return emptyList<AgendaTask>() to "Error loading tasks. See logcat for details."
     }
 }
 
