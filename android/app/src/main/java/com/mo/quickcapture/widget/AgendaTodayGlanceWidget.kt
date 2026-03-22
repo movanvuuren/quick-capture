@@ -73,15 +73,22 @@ class AgendaTodayGlanceWidgetReceiver : GlanceAppWidgetReceiver() {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED,
             -> {
-                CoroutineScope(Dispatchers.Default).launch {
-                    AgendaTodayGlanceWidget().updateAll(context)
-                }
+                AgendaTodayGlanceWidget.update(context)
             }
         }
     }
 }
 
 class AgendaTodayGlanceWidget : GlanceAppWidget() {
+    companion object {
+        @JvmStatic
+        fun update(context: Context) {
+            CoroutineScope(Dispatchers.Default).launch {
+                AgendaTodayGlanceWidget().updateAll(context)
+            }
+        }
+    }
+
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val (tasks, error) = loadPendingDueTodayTasksWithError(context)
         provideContent {
@@ -306,7 +313,7 @@ class CheckOffTaskAction : ActionCallback {
             nextDueDate = dueDate,
         )
 
-        AgendaTodayGlanceWidget().updateAll(context)
+        AgendaTodayGlanceWidget.update(context)
     }
 }
 
@@ -332,7 +339,7 @@ class MoveTaskToTomorrowAction : ActionCallback {
             nextDueDate = tomorrowIso(),
         )
 
-        AgendaTodayGlanceWidget().updateAll(context)
+        AgendaTodayGlanceWidget.update(context)
     }
 }
 
@@ -372,7 +379,7 @@ class SkipTaskAction : ActionCallback {
             nextDueDate = nextDue,
         )
 
-        AgendaTodayGlanceWidget().updateAll(context)
+        AgendaTodayGlanceWidget.update(context)
     }
 }
 
