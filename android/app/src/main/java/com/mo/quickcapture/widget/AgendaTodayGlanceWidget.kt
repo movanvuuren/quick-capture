@@ -237,13 +237,7 @@ private fun TaskRow(task: AgendaTask) {
                 .clickable(actionRunCallback<CheckOffTaskAction>(checkParams)),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "✓",
-                style = TextStyle(
-                    fontSize = 12.sp,
-                    color = ColorProvider(day = Color(0xFF374151), night = Color(0xFFE5E7EB)),
-                ),
-            )
+            // The checkmark was removed from here. The box is now empty for pending tasks.
         }
         Spacer(modifier = GlanceModifier.width(8.dp))
         Column(modifier = GlanceModifier.defaultWeight()) {
@@ -281,7 +275,7 @@ private fun TaskRow(task: AgendaTask) {
         )
         Spacer(modifier = GlanceModifier.width(8.dp))
         Text(
-            text = "Next",
+            text = "Skip",
             style = TextStyle(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
