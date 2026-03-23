@@ -115,7 +115,6 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         String fileName = prefs.getString("widget_" + widgetId + "_file", null);
         String habitId = prefs.getString("widget_" + widgetId + "_habit_id", null);
         int targetCount = Math.max(1, prefs.getInt("widget_" + widgetId + "_target", 1));
-        boolean advancedCycle = prefs.getBoolean("widget_cycle_all_states", false);
 
         if (folderUri == null || fileName == null) return;
 
@@ -130,12 +129,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
                 }
             }
 
-            String newValue;
-            if (advancedCycle) {
-                newValue = getNextValueForAdvancedCycle(prefs, widgetId, currentValue, targetCount);
-            } else {
-                newValue = getNextValueForDefaultCycle(prefs, widgetId, currentValue, targetCount);
-            }
+            String newValue = getNextValueForAdvancedCycle(prefs, widgetId, currentValue, targetCount);
 
             if (isNumeric(newValue)) {
                 int nextNumeric = parseIntOrDefault(newValue, 0);
@@ -194,27 +188,6 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         views.setOnClickPendingIntent(R.id.widget_root, pendingIntent);
 
         manager.updateAppWidget(widgetId, views);
-    }
-
-    static String getNextValueForDefaultCycle(SharedPreferences prefs, int widgetId, String currentValue, int targetCount) {
-        WidgetState state = resolveWidgetState(currentValue, targetCount);
-        boolean isBooleanHabit = targetCount <= 1;
-
-        if (isBooleanHabit) {
-            if (state == WidgetState.SUCCESS) return null;
-            return String.valueOf(targetCount);
-        }
-
-        if (state == WidgetState.BLANK) {
-            int fallback = Math.max(1, targetCount - 1);
-            int lastPartial = prefs.getInt("widget_" + widgetId + "_last_partial", fallback);
-            int safePartial = clamp(lastPartial, 1, Math.max(1, targetCount - 1));
-            return String.valueOf(safePartial);
-        }
-
-        if (state == WidgetState.PARTIAL) return String.valueOf(targetCount);
-        if (state == WidgetState.SUCCESS) return null;
-        return null;
     }
 
     static String getNextValueForAdvancedCycle(SharedPreferences prefs, int widgetId, String currentValue, int targetCount) {
