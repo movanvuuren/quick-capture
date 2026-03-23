@@ -22,7 +22,7 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
-import androidx.glance.unit.ColorProvider
+import androidx.glance.color.ColorProvider
 import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
@@ -129,7 +129,7 @@ private fun buildPalette(context: Context): WidgetPalette {
             titleColor = Color(0xFFF3F4F6),
             subtextColor = Color(0xFFB8BBC2),
             heroColor = hero,
-            backgroundColor = Color(0xFF1C222B), // from existing night theme
+            backgroundColor = Color(android.graphics.Color.parseColor("#CC18191D")),
             failColor = Color(0xFFEF4444),
             ringNeutralColor = Color(0xFF5D6169)
         )
@@ -137,7 +137,7 @@ private fun buildPalette(context: Context): WidgetPalette {
             titleColor = Color(0xFFE8EDF7),
             subtextColor = Color(0xFFA7B2C4),
             heroColor = hero,
-            backgroundColor = Color(0xFF2A303C), // educated guess
+            backgroundColor = Color(android.graphics.Color.parseColor("#CC132435")),
             failColor = Color(0xFFF87171),
             ringNeutralColor = Color(0xFF6E7280)
         )
@@ -145,7 +145,7 @@ private fun buildPalette(context: Context): WidgetPalette {
             titleColor = Color(0xFF111827),
             subtextColor = Color(0xFF6B7280),
             heroColor = hero,
-            backgroundColor = Color(0xFFF5F7FA), // from existing day theme
+            backgroundColor = Color(android.graphics.Color.parseColor("#D8ECECEF")),
             failColor = Color(0xFFDC2626),
             ringNeutralColor = Color(0xFFA5ACB8)
         )
@@ -175,7 +175,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                 Text(
                     text = "Agenda Today",
                     style = TextStyle(
-                        color = ColorProvider(palette.titleColor),
+                        color = ColorProvider(day = palette.titleColor, night = palette.titleColor),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                     ),
@@ -187,7 +187,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                     Text(
                         text = error,
                         style = TextStyle(
-                            color = ColorProvider(palette.failColor),
+                            color = ColorProvider(day = palette.failColor, night = palette.failColor),
                             fontSize = 13.sp,
                         ),
                     )
@@ -195,7 +195,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                     Text(
                         text = "🎉 All done!",
                         style = TextStyle(
-                            color = ColorProvider(palette.subtextColor),
+                            color = ColorProvider(day = palette.subtextColor, night = palette.subtextColor),
                             fontSize = 13.sp,
                         ),
                     )
@@ -313,7 +313,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
             modifier = GlanceModifier
                 .width(22.dp)
                 .height(22.dp)
-                .background(ColorProvider(palette.ringNeutralColor))
+                .background(palette.ringNeutralColor)
                 .padding(2.dp)
                 .clickable(actionRunCallback<CheckOffTaskAction>(checkParams)),
             contentAlignment = Alignment.Center,
@@ -328,9 +328,9 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                 style = TextStyle(
                     fontSize = 13.sp,
                     color = if (task.isHighPriority) {
-                        ColorProvider(palette.failColor)
+                        ColorProvider(day = palette.failColor, night = palette.failColor)
                     } else {
-                        ColorProvider(palette.titleColor)
+                        ColorProvider(day = palette.titleColor, night = palette.titleColor)
                     },
                 ),
             )
@@ -339,7 +339,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                 maxLines = 1,
                 style = TextStyle(
                     fontSize = 10.sp,
-                    color = ColorProvider(palette.subtextColor),
+                    color = ColorProvider(day = palette.subtextColor, night = palette.subtextColor),
                 ),
             )
         }
@@ -348,6 +348,9 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
             text = "⏩",
             style = TextStyle(
                 fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = ColorProvider(day = palette.heroColor, night = palette.heroColor),
+                textAlign = TextAlign.End,
             ),
             modifier = GlanceModifier.clickable(actionRunCallback<RescheduleTaskAction>(nextParams))
         )
@@ -422,8 +425,6 @@ class RescheduleTaskAction : ActionCallback {
         updateTaskInFile(context, fileName, lineIndex, "pending", body, tomorrowIso(), urgent)
         AgendaTodayGlanceWidget.update(context)
     }
-}
-
 }
 
 private fun updateTaskInFile(
