@@ -2,7 +2,7 @@
 import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
+import { SquareArrowRightEnter, AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
@@ -949,18 +949,20 @@ onActivated(async () => {
           <div class="quick-add-actions">
             <div class="quick-add-date-priority">
               <input v-model="newDueDate" class="glass-input date-input quick-add-date" type="date">
+
+            </div>
+            <div class="quick-add-actions">
               <button class="glass-icon-button priority-toggle-button" :class="{ 'is-active': newTaskIsHighPriority }"
                 :aria-label="newTaskIsHighPriority ? 'High priority (click to remove)' : 'Not high priority (click to set)'"
                 @click="newTaskIsHighPriority = !newTaskIsHighPriority">
                 <Flame :size="14" />
               </button>
-            </div>
+              <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
+                @click="addQuickTask">
+                <SquareArrowRightEnter class="add-icon" />
 
-            <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
-              @click="addQuickTask">
-              <Plus size="16" />
-              <span>Add</span>
-            </button>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1124,6 +1126,10 @@ onActivated(async () => {
   transform: scale(0.86);
 }
 
+.add-icon {
+  color: var(--soft-text);
+}
+
 @keyframes pull-refresh-spin {
   from {
     transform: rotate(0deg);
@@ -1186,7 +1192,7 @@ h1 {
 
 .quick-add-actions {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: auto 1fr;
   gap: 8px;
   align-items: center;
 }

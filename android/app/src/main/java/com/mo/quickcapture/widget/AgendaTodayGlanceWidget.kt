@@ -374,7 +374,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
 
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        AgendaTodayGlanceWidget.update(context)
+        AgendaTodayGlanceWidget().update(context, glanceId)
     }
 }
 
@@ -430,7 +430,7 @@ class CheckOffTaskAction : ActionCallback {
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
         updateTaskInFile(context, fileName, lineIndex, "done", body, due, urgent)
-        AgendaTodayGlanceWidget.update(context)
+        AgendaTodayGlanceWidget().update(context, glanceId)
     }
 }
 
@@ -443,7 +443,7 @@ class RescheduleTaskAction : ActionCallback {
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
         updateTaskInFile(context, fileName, lineIndex, "pending", body, tomorrowIso(), urgent)
-        AgendaTodayGlanceWidget.update(context)
+        AgendaTodayGlanceWidget().update(context, glanceId)
     }
 }
 
