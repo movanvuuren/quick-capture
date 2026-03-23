@@ -2,6 +2,7 @@ package com.mo.quickcapture.widget
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.util.Log
 import androidx.compose.runtime.Composable
@@ -21,7 +22,7 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
-import androidx.glance.color.ColorProvider
+import androidx.glance.unit.ColorProvider
 import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
@@ -53,6 +54,15 @@ private data class AgendaTask(
     val isHighPriority: Boolean,
 )
 
+private data class WidgetPalette(
+    val titleColor: Color,
+    val subtextColor: Color,
+    val heroColor: Color,
+    val backgroundColor: Color,
+    val failColor: Color,
+    val ringNeutralColor: Color
+)
+
 private object AgendaActionKeys {
     val file = ActionParameters.Key<String>("file")
     val line = ActionParameters.Key<Int>("line")
@@ -79,6 +89,69 @@ class AgendaTodayGlanceWidgetReceiver : GlanceAppWidgetReceiver() {
     }
 }
 
+private fun parseColorOrFallback(candidate: String?, fallback: String): Color {
+    if (candidate != null) {
+        val trimmed = candidate.trim()
+        if (trimmed.matches("^#[0-9a-fA-F]{6}$".toRegex())) {
+            try {
+                return Color(android.graphics.Color.parseColor(trimmed))
+            } catch (ignored: IllegalArgumentException) {
+            }
+        }
+    }
+    return Color(android.graphics.Color.parseColor(fallback))
+}
+
+private fun getWidgetTheme(context: Context): String? {
+    val prefs = context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+    return prefs.getString("widget_theme", null)
+}
+
+private fun getWidgetAccentColor(context: Context): String? {
+    val prefs = context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+    return prefs.getString("widget_accent", null)
+}
+
+private fun buildPalette(context: Context): WidgetPalette {
+    val widgetTheme = getWidgetTheme(context)
+    val accentColor = getWidgetAccentColor(context)
+
+    val isDarkSystem = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    val resolvedTheme = if (widgetTheme.isNullOrEmpty()) (if (isDarkSystem) "dark" else "light") else widgetTheme
+
+    var hero = parseColorOrFallback(accentColor, if (resolvedTheme == "light") "#2563ff" else "#ce43b7")
+    if (resolvedTheme == "dim" && (accentColor == null || accentColor.trim().isEmpty())) {
+        hero = Color(android.graphics.Color.parseColor("#ff53b3"))
+    }
+
+    return when (resolvedTheme) {
+        "dark" -> WidgetPalette(
+            titleColor = Color(0xFFF3F4F6),
+            subtextColor = Color(0xFFB8BBC2),
+            heroColor = hero,
+            backgroundColor = Color(0xFF1C222B), // from existing night theme
+            failColor = Color(0xFFEF4444),
+            ringNeutralColor = Color(0xFF5D6169)
+        )
+        "dim" -> WidgetPalette(
+            titleColor = Color(0xFFE8EDF7),
+            subtextColor = Color(0xFFA7B2C4),
+            heroColor = hero,
+            backgroundColor = Color(0xFF2A303C), // educated guess
+            failColor = Color(0xFFF87171),
+            ringNeutralColor = Color(0xFF6E7280)
+        )
+        else -> WidgetPalette( // light
+            titleColor = Color(0xFF111827),
+            subtextColor = Color(0xFF6B7280),
+            heroColor = hero,
+            backgroundColor = Color(0xFFF5F7FA), // from existing day theme
+            failColor = Color(0xFFDC2626),
+            ringNeutralColor = Color(0xFFA5ACB8)
+        )
+    }
+}
+
 class AgendaTodayGlanceWidget : GlanceAppWidget() {
     companion object {
         @JvmStatic
@@ -91,17 +164,18 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val (tasks, error) = loadPendingDueTodayTasksWithError(context)
+        val palette = buildPalette(context)
         provideContent {
             Column(
                 modifier = GlanceModifier
                     .fillMaxSize()
-                    .background(ColorProvider(day = Color(0xFFF5F7FA), night = Color(0xFF1C222B)))
+                    .background(palette.backgroundColor)
                     .padding(12.dp),
             ) {
                 Text(
                     text = "Agenda Today",
                     style = TextStyle(
-                        color = ColorProvider(day = Color(0xFF111827), night = Color(0xFFE5E7EB)),
+                        color = ColorProvider(palette.titleColor),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium,
                     ),
@@ -113,7 +187,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                     Text(
                         text = error,
                         style = TextStyle(
-                            color = ColorProvider(day = Color(0xFFB91C1C), night = Color(0xFFFCA5A5)),
+                            color = ColorProvider(palette.failColor),
                             fontSize = 13.sp,
                         ),
                     )
@@ -121,13 +195,13 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                     Text(
                         text = "🎉 All done!",
                         style = TextStyle(
-                            color = ColorProvider(day = Color(0xFF6B7280), night = Color(0xFF9CA3AF)),
+                            color = ColorProvider(palette.subtextColor),
                             fontSize = 13.sp,
                         ),
                     )
                 } else {
                     tasks.take(MAX_WIDGET_ITEMS).forEach { task ->
-                        TaskRow(task = task)
+                        TaskRow(task = task, palette = palette)
                         Spacer(modifier = GlanceModifier.height(6.dp))
                     }
                 }
@@ -209,7 +283,7 @@ private fun displayBody(body: String): String {
 }
 
 @Composable
-private fun TaskRow(task: AgendaTask) {
+private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
     val checkParams = actionParametersOf(
         AgendaActionKeys.file to task.fileName,
         AgendaActionKeys.line to task.lineIndex,
@@ -239,7 +313,7 @@ private fun TaskRow(task: AgendaTask) {
             modifier = GlanceModifier
                 .width(22.dp)
                 .height(22.dp)
-                .background(ColorProvider(day = Color(0xFFD1D5DB), night = Color(0xFF4B5563)))
+                .background(ColorProvider(palette.ringNeutralColor))
                 .padding(2.dp)
                 .clickable(actionRunCallback<CheckOffTaskAction>(checkParams)),
             contentAlignment = Alignment.Center,
@@ -254,9 +328,9 @@ private fun TaskRow(task: AgendaTask) {
                 style = TextStyle(
                     fontSize = 13.sp,
                     color = if (task.isHighPriority) {
-                        ColorProvider(day = Color(0xFFB91C1C), night = Color(0xFFFCA5A5))
+                        ColorProvider(palette.failColor)
                     } else {
-                        ColorProvider(day = Color(0xFF111827), night = Color(0xFFF3F4F6))
+                        ColorProvider(palette.titleColor)
                     },
                 ),
             )
@@ -265,21 +339,62 @@ private fun TaskRow(task: AgendaTask) {
                 maxLines = 1,
                 style = TextStyle(
                     fontSize = 10.sp,
-                    color = ColorProvider(day = Color(0xFF6B7280), night = Color(0xFF9CA3AF)),
+                    color = ColorProvider(palette.subtextColor),
                 ),
             )
         }
         Spacer(modifier = GlanceModifier.width(8.dp))
         Text(
-            text = "Skip",
+            text = "⏩",
             style = TextStyle(
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = ColorProvider(day = Color(0xFF1D4ED8), night = Color(0xFF93C5FD)),
-                textAlign = TextAlign.End,
             ),
-            modifier = GlanceModifier.clickable(actionRunCallback<MoveTaskToTomorrowAction>(nextParams)),
+            modifier = GlanceModifier.clickable(actionRunCallback<RescheduleTaskAction>(nextParams))
         )
+        
+    }
+}
+
+private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<AgendaTask>, String?> {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val folderUriStr = prefs.getString(FOLDER_URI_KEY, null)
+    if (folderUriStr == null) {
+        return emptyList<AgendaTask>() to "No folder selected in app"
+    }
+
+    try {
+        val folderUri = Uri.parse(folderUriStr)
+        val rootDoc = DocumentFile.fromTreeUri(context, folderUri)
+        if (rootDoc == null || !rootDoc.exists()) {
+            return emptyList<AgendaTask>() to "Folder no longer exists"
+        }
+
+        val allTasks = mutableListOf<AgendaTask>()
+        val today = todayIso()
+
+        rootDoc.listFiles().forEach { file ->
+            if (file.isFile && file.name?.endsWith(".md") == true) {
+                context.contentResolver.openInputStream(file.uri)?.use { inputStream ->
+                    BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8)).use { reader ->
+                        var lineIndex = 0
+                        var line = reader.readLine()
+                        while (line != null) {
+                            val task = parseTaskLine(line)
+                            if (task != null && task.state == "pending" && task.dueDate == today) {
+                                allTasks.add(task.copy(fileName = file.name ?: "unknown", lineIndex = lineIndex))
+                            }
+                            line = reader.readLine()
+                            lineIndex++
+                        }
+                    }
+                }
+            }
+        }
+
+        return allTasks.sortedByDescending { it.isHighPriority } to null
+    } catch (e: Exception) {
+        Log.e("AgendaTodayWidget", "Error loading tasks", e)
+        return emptyList<AgendaTask>() to "Error: ${e.message}"
     }
 }
 
@@ -288,137 +403,62 @@ class CheckOffTaskAction : ActionCallback {
         val fileName = parameters[AgendaActionKeys.file] ?: return
         val lineIndex = parameters[AgendaActionKeys.line] ?: return
         val body = parameters[AgendaActionKeys.body] ?: return
-        val dueDate = parameters[AgendaActionKeys.due] ?: return
+        val due = parameters[AgendaActionKeys.due] ?: return
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
-        updateTaskLine(
-            context = context,
-            fileName = fileName,
-            lineIndex = lineIndex,
-            body = body,
-            dueDate = dueDate,
-            urgent = urgent,
-            nextState = "done",
-            nextDueDate = dueDate,
-        )
-
+        updateTaskInFile(context, fileName, lineIndex, "done", body, due, urgent)
         AgendaTodayGlanceWidget.update(context)
     }
 }
 
-class MoveTaskToTomorrowAction : ActionCallback {
+class RescheduleTaskAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         val fileName = parameters[AgendaActionKeys.file] ?: return
         val lineIndex = parameters[AgendaActionKeys.line] ?: return
         val body = parameters[AgendaActionKeys.body] ?: return
-        val dueDate = parameters[AgendaActionKeys.due] ?: return
+        val due = parameters[AgendaActionKeys.due] ?: return
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
-        if (dueDate != todayIso())
-            return
-
-        updateTaskLine(
-            context = context,
-            fileName = fileName,
-            lineIndex = lineIndex,
-            body = body,
-            dueDate = dueDate,
-            urgent = urgent,
-            nextState = "pending",
-            nextDueDate = tomorrowIso(),
-        )
-
+        updateTaskInFile(context, fileName, lineIndex, "pending", body, tomorrowIso(), urgent)
         AgendaTodayGlanceWidget.update(context)
     }
 }
 
-private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<AgendaTask>, String?> {
-    try {
-        val folderUri = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getString(FOLDER_URI_KEY, null)
-        if (folderUri.isNullOrBlank()) {
-            Log.e("AgendaWidget", "No folder URI set in prefs")
-            return emptyList<AgendaTask>() to "No folder selected. Open the app and pick a folder."
-        }
-        val root = DocumentFile.fromTreeUri(context, Uri.parse(folderUri))
-        if (root == null) {
-            Log.e("AgendaWidget", "DocumentFile.fromTreeUri returned null for $folderUri")
-            return emptyList<AgendaTask>() to "Can't access folder. Try re-picking it in the app."
-        }
-        val today = todayIso()
-        val tasks = mutableListOf<AgendaTask>()
-        val files = root.listFiles().filter { it.isFile && it.name?.lowercase(Locale.US)?.endsWith(".md") == true }
-        if (files.isEmpty()) {
-            Log.w("AgendaWidget", "No .md files found in folder $folderUri")
-        }
-        for (file in files) {
-            val fileName = file.name ?: continue
-            val content = readFile(context, file.uri)
-            content.lines().forEachIndexed { index, line ->
-                val task = try { parseTaskLine(line) } catch (e: Exception) {
-                    Log.e("AgendaWidget", "Failed to parse line: $line", e)
-                    null
-                }
-                if (task != null && task.state == "pending" && task.dueDate == today) {
-                    tasks.add(task.copy(fileName = fileName, lineIndex = index))
-                }
-            }
-        }
-        return tasks to null
-    } catch (e: Exception) {
-        Log.e("AgendaWidget", "Exception loading tasks", e)
-        return emptyList<AgendaTask>() to "Error loading tasks. See logcat for details."
-    }
 }
 
-private fun readFile(context: Context, uri: Uri): String {
-    val stringBuilder = StringBuilder()
-    try {
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8)).use { reader ->
-                var line: String? = reader.readLine()
-                while (line != null) {
-                    stringBuilder.append(line).append('\n')
-                    line = reader.readLine()
-                }
-            }
-        }
-    } catch (e: IOException) {
-        e.printStackTrace()
-    }
-    return stringBuilder.toString()
-}
-
-private fun updateTaskLine(
+private fun updateTaskInFile(
     context: Context,
     fileName: String,
     lineIndex: Int,
+    newState: String,
     body: String,
-    dueDate: String,
-    urgent: Boolean,
-    nextState: String,
-    nextDueDate: String?,
+    dueDate: String?,
+    isHighPriority: Boolean
 ) {
-    val folderUri = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        .getString(FOLDER_URI_KEY, null)
-        ?: return
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val folderUriStr = prefs.getString(FOLDER_URI_KEY, null) ?: return
+    val folderUri = Uri.parse(folderUriStr)
+    val rootDoc = DocumentFile.fromTreeUri(context, folderUri) ?: return
+    val file = rootDoc.findFile(fileName) ?: return
 
-    val root = DocumentFile.fromTreeUri(context, Uri.parse(folderUri)) ?: return
-    val file = root.findFile(fileName) ?: return
-
-    try {
-        val content = readFile(context, file.uri)
-        val lines = content.lines().toMutableList()
-        if (lineIndex >= 0 && lineIndex < lines.size) {
-            lines[lineIndex] = serializeTaskLine(nextState, body, nextDueDate, urgent)
-            val newContent = lines.joinToString("\n")
-            context.contentResolver.openFileDescriptor(file.uri, "w")?.use { pfd ->
-                FileOutputStream(pfd.fileDescriptor).use { fos ->
-                    fos.write(newContent.toByteArray(StandardCharsets.UTF_8))
-                }
+    val lines = mutableListOf<String>()
+    context.contentResolver.openInputStream(file.uri)?.use { inputStream ->
+        BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8)).use { reader ->
+            var line = reader.readLine()
+            while (line != null) {
+                lines.add(line)
+                line = reader.readLine()
             }
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
+    }
+
+    if (lineIndex >= 0 && lineIndex < lines.size) {
+        lines[lineIndex] = serializeTaskLine(newState, body, dueDate, isHighPriority)
+        val content = lines.joinToString("\n")
+        context.contentResolver.openFileDescriptor(file.uri, "wt")?.use { pfd ->
+            FileOutputStream(pfd.fileDescriptor).use { outputStream ->
+                outputStream.write(content.toByteArray(StandardCharsets.UTF_8))
+            }
+        }
     }
 }
