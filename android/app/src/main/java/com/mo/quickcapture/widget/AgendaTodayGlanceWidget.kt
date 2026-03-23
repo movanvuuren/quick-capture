@@ -275,17 +275,6 @@ private fun TaskRow(task: AgendaTask) {
             style = TextStyle(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium,
-                color = ColorProvider(day = Color(0xFFF59E42), night = Color(0xFFFBBF24)),
-                textAlign = TextAlign.End,
-            ),
-            modifier = GlanceModifier.clickable(actionRunCallback<SkipTaskAction>(skipParams)),
-        )
-        Spacer(modifier = GlanceModifier.width(8.dp))
-        Text(
-            text = "Skip",
-            style = TextStyle(
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
                 color = ColorProvider(day = Color(0xFF1D4ED8), night = Color(0xFF93C5FD)),
                 textAlign = TextAlign.End,
             ),
@@ -337,46 +326,6 @@ class MoveTaskToTomorrowAction : ActionCallback {
             urgent = urgent,
             nextState = "pending",
             nextDueDate = tomorrowIso(),
-        )
-
-        AgendaTodayGlanceWidget.update(context)
-    }
-}
-
-class SkipTaskAction : ActionCallback {
-    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        val fileName = parameters[AgendaActionKeys.file] ?: return
-        val lineIndex = parameters[AgendaActionKeys.line] ?: return
-        val body = parameters[AgendaActionKeys.body] ?: return
-        val dueDate = parameters[AgendaActionKeys.due] ?: return
-        val urgent = parameters[AgendaActionKeys.urgent] ?: false
-
-        // Move due date forward by one day, keep state as pending
-        val nextDue = try {
-            val cal = Calendar.getInstance()
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-            val date = sdf.parse(dueDate)
-            if (date != null) {
-                cal.time = date
-                cal.add(Calendar.DAY_OF_YEAR, 1)
-                sdf.format(cal.time)
-            } else {
-                tomorrowIso()
-            }
-        } catch (e: Exception) {
-            Log.e("AgendaWidget", "Failed to parse due date: $dueDate", e)
-            return
-        }
-
-        updateTaskLine(
-            context = context,
-            fileName = fileName,
-            lineIndex = lineIndex,
-            body = body,
-            dueDate = dueDate,
-            urgent = urgent,
-            nextState = "pending",
-            nextDueDate = nextDue,
         )
 
         AgendaTodayGlanceWidget.update(context)
