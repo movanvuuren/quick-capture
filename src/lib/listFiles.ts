@@ -54,6 +54,104 @@ function toAppFileType(value: unknown): AppFile['type'] {
   return 'note'
 }
 
+function insertTagIntoFrontmatter(markdown: string, tag: string): string {
+  const frontmatterMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
+  const tagLine = `  - ${tag}`
+
+  if (!frontmatterMatch) {
+    return `---\ntags:\n${tagLine}\n---\n\n${markdown.trimStart()}`
+  }
+
+  const frontmatterBlock = frontmatterMatch[0]
+  const frontmatterContent = frontmatterMatch[1] ?? ''
+  const body = markdown.slice(frontmatterBlock.length).replace(/^\r?\n/, '')
+
+  const lines = frontmatterContent.split(/\r?\n/)
+
+  let tagsStart = -1
+  let tagsEnd = -1
+
+  for (let i = 0; i < lines.length; i += 1) {
+    if (/^tags:\s*$/.test(lines[i] ?? '')) {
+      tagsStart = i
+      tagsEnd = i + 1
+
+      while (tagsEnd < lines.length && /^\s*-\s+/.test(lines[tagsEnd] ?? ''))
+        tagsEnd += 1
+
+      break
+    }
+  }
+
+  if (tagsStart !== -1) {
+    const existingTags = lines
+      .slice(tagsStart + 1, tagsEnd)
+      .map(line => line.match(/^\s*-\s+(.*)$/)?.[1]?.trim())
+      .filter((value): value is string => !!value)
+
+    if (existingTags.includes(tag))
+      return markdown
+
+    const updatedLines = [...lines]
+    updatedLines.splice(tagsEnd, 0, tagLine)
+
+    return `---\n${updatedLines.join('\n')}\n---\n\n${body}`
+  }
+
+  const inlineMatch = frontmatterContent.match(/^tags:\s*\[(.*?)\]\s*$/m)
+  if (inlineMatch) {
+    const inlineValue = inlineMatch[1] ?? ''
+    const values = inlineValue
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean)
+
+    if (!values.includes(tag))
+      values.push(tag)
+
+    const multiline = `tags:\n${values.map(v => `  - ${v}`).join('\n')}`
+    const updatedFrontmatter = frontmatterContent.replace(inlineMatch[0], multiline)
+
+    return `---\n${updatedFrontmatter}\n---\n\n${body}`
+  }
+
+  const singleMatch = frontmatterContent.match(/^tags:\s*(.+)\s*$/m)
+  if (singleMatch) {
+    const rawValue = singleMatch[1] ?? ''
+    const values = rawValue
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean)
+
+    if (!values.includes(tag))
+      values.push(tag)
+
+    const multiline = `tags:\n${values.map(v => `  - ${v}`).join('\n')}`
+    const updatedFrontmatter = frontmatterContent.replace(singleMatch[0], multiline)
+
+    return `---\n${updatedFrontmatter}\n---\n\n${body}`
+  }
+
+  const updatedFrontmatter = `${frontmatterContent}\ntags:\n${tagLine}`.trim()
+
+  return `---\n${updatedFrontmatter}\n---\n\n${body}`
+}
+
+export async function addTagToFrontmatter(folderUri: string, fileName: string, tag: string) {
+  const read = await FolderPicker.readFile({
+    folderUri,
+    fileName,
+  })
+
+  const nextContent = insertTagIntoFrontmatter(read.content, tag)
+
+  await FolderPicker.writeFile({
+    folderUri,
+    fileName,
+    content: nextContent,
+  })
+}
+
 function setPinnedInMarkdown(markdown: string, pinned: boolean): string {
   const frontmatterMatch = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/)
 
