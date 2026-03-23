@@ -172,14 +172,28 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                     .background(palette.backgroundColor)
                     .padding(12.dp),
             ) {
-                Text(
-                    text = "Agenda Today",
-                    style = TextStyle(
-                        color = ColorProvider(day = palette.titleColor, night = palette.titleColor),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    ),
-                )
+                Row(
+                    modifier = GlanceModifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Agenda Today",
+                        style = TextStyle(
+                            color = ColorProvider(day = palette.titleColor, night = palette.titleColor),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                        ),
+                        modifier = GlanceModifier.defaultWeight()
+                    )
+                    Text(
+                        text = "🔄",
+                        style = TextStyle(
+                            fontSize = 15.sp,
+                            color = ColorProvider(day = palette.subtextColor, night = palette.subtextColor)
+                        ),
+                        modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>())
+                    )
+                }
 
                 Spacer(modifier = GlanceModifier.height(8.dp))
 
@@ -355,6 +369,12 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
             modifier = GlanceModifier.clickable(actionRunCallback<RescheduleTaskAction>(nextParams))
         )
         
+    }
+}
+
+class RefreshAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        AgendaTodayGlanceWidget.update(context)
     }
 }
 
