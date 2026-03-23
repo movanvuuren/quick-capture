@@ -255,7 +255,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
     }
 
     static Bitmap renderStatusRing(Context context, WidgetPalette palette, WidgetState state, int numericValue, int targetCount) {
-        float sizeDp = 34f;
+        float sizeDp = 32f;
         int sizePx = Math.max(1, dpToPx(context, sizeDp));
 
         Bitmap bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
