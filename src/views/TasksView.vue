@@ -958,7 +958,8 @@ onActivated(async () => {
 
             <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
               @click="addQuickTask">
-              Add
+              <Plus size="16" />
+              <span>Add</span>
             </button>
           </div>
         </div>
@@ -1058,11 +1059,12 @@ onActivated(async () => {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: var(--page-top-padding) 20px 40px;
+  padding: var(--page-top-padding) 20px calc(40px + 72px + env(safe-area-inset-bottom));
   color: var(--text);
   overflow-x: hidden;
   touch-action: pan-y;
   overscroll-behavior-x: contain;
+  box-sizing: border-box;
 }
 
 .page-content {
@@ -1171,9 +1173,9 @@ h1 {
 
 .quick-add-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr auto;
+  gap: 8px;
   align-items: center;
-  gap: 6px;
 }
 
 .quick-add-date-priority {
@@ -1194,9 +1196,12 @@ h1 {
 }
 
 .quick-add-submit {
-  min-height: 40px;
-  width: 100%;
-  padding: 0 12px;
+  min-height: 34px;
+  height: 34px;
+  padding: 0 10px;
+  font-size: 14px;
+  border-radius: 10px;
+  white-space: nowrap;
 }
 
 .glass-input {
