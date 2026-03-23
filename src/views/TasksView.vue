@@ -1007,45 +1007,58 @@ onActivated(async () => {
           </button>
 
           <div class="task-content">
-            <div class="task-main-line">
-              <input v-if="editingTaskId === task.id" v-model="editingTaskText" class="glass-input task-main-edit"
-                type="text" @keydown.enter.prevent="saveTaskText(task)" @keydown.esc.prevent="cancelEditTask"
-                @blur="saveTaskText(task)">
-              <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
-                {{ displayTaskBody(task) }}
-                <span v-if="task.repeat" class="repeat-badge" :title="`Repeats ${task.repeat}`">🔁</span>
-              </button>
+            <div class="task-main-layout">
+              <div class="task-main-area">
+                <textarea v-if="editingTaskId === task.id" v-model="editingTaskText" class="glass-input task-main-edit"
+                  rows="3" @keydown.enter.ctrl.prevent="saveTaskText(task)" @keydown.esc.prevent="cancelEditTask"
+                  @blur="saveTaskText(task)" />
 
-              <div v-if="task.dueDate || editingDueDateTaskId === task.id" class="task-datetime-stack">
-                <input class="glass-input inline-date" type="date" :value="task.dueDate || ''"
-                  @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
-                  @blur="hideDueDateEditor(task)">
-
-                <input v-if="task.dueDate && (hasReminder(task) || editingAlarmTaskId === task.id)"
-                  class="glass-input inline-time" type="time" :value="getReminderTime(task)"
-                  @change="changeReminderTime(task, ($event.target as HTMLInputElement).value)"
-                  @blur="hideAlarmEditor(task)">
-                <button v-else-if="task.dueDate" class="glass-icon-button alarm-task-button" type="button"
-                  aria-label="Set reminder" @click="showAlarmEditor(task)">
-                  <AlarmClock :size="14" />
+                <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
+                  <span class="task-main-text">
+                    {{ displayTaskBody(task) }}
+                  </span>
+                  <span v-if="task.repeat" class="repeat-badge" :title="`Repeats ${task.repeat}`">🔁</span>
                 </button>
               </div>
-              <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
-                @click="showDueDateEditor(task)">
-                Add date
-              </button>
 
-              <button class="glass-icon-button priority-task-button" :class="{ 'is-active': task.isHighPriority }"
-                type="button" :disabled="isSaving"
-                :aria-label="task.isHighPriority ? 'High priority (click to remove)' : 'Set as high priority'"
-                @click="toggleTaskPriority(task)">
-                <Flame :size="14" />
-              </button>
+              <div class="task-side-column">
+                <div class="task-side-actions">
+                  <button class="glass-icon-button priority-task-button" :class="{ 'is-active': task.isHighPriority }"
+                    type="button" :disabled="isSaving"
+                    :aria-label="task.isHighPriority ? 'High priority (click to remove)' : 'Set as high priority'"
+                    @click="toggleTaskPriority(task)">
+                    <Flame :size="14" />
+                  </button>
 
-              <button class="glass-icon-button delete-task-button" type="button" :disabled="isSaving"
-                aria-label="Delete task" @click="deleteTask(task)">
-                <Trash2 :size="14" />
-              </button>
+                  <button class="glass-icon-button delete-task-button" type="button" :disabled="isSaving"
+                    aria-label="Delete task" @click="deleteTask(task)">
+                    <Trash2 :size="14" />
+                  </button>
+                </div>
+
+                <div class="task-meta-row">
+                  <div v-if="task.dueDate || editingDueDateTaskId === task.id" class="task-datetime-stack">
+                    <input class="glass-input inline-date" type="date" :value="task.dueDate || ''"
+                      @change="changeDueDate(task, ($event.target as HTMLInputElement).value)"
+                      @blur="hideDueDateEditor(task)">
+
+                    <input v-if="task.dueDate && (hasReminder(task) || editingAlarmTaskId === task.id)"
+                      class="glass-input inline-time" type="time" :value="getReminderTime(task)"
+                      @change="changeReminderTime(task, ($event.target as HTMLInputElement).value)"
+                      @blur="hideAlarmEditor(task)">
+
+                    <button v-else-if="task.dueDate" class="glass-icon-button alarm-task-button" type="button"
+                      aria-label="Set reminder" @click="showAlarmEditor(task)">
+                      <AlarmClock :size="14" />
+                    </button>
+                  </div>
+
+                  <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
+                    @click="showDueDateEditor(task)">
+                    Add date
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1255,9 +1268,9 @@ h1 {
 
 .task-row {
   display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 8px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
   transition: transform 0.2s ease;
   touch-action: pan-y;
 }
@@ -1276,6 +1289,8 @@ h1 {
   font-weight: 700;
   position: relative;
   gap: 2px;
+  align-self: start;
+  margin-top: 2px;
 }
 
 .state-icon {
@@ -1332,8 +1347,21 @@ h1 {
 
 .task-main {
   font-size: 0.95rem;
-  line-height: 1.25;
+  line-height: 1.35;
   word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.task-main-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+}
+
+.task-main-area {
+  min-width: 0;
+
 }
 
 .task-main-button {
@@ -1346,15 +1374,79 @@ h1 {
   cursor: text;
 }
 
+.task-main-text {
+  display: inline;
+}
+
 .task-main-edit {
   width: 100%;
-  min-height: 34px;
-  padding: 7px 10px;
+  min-height: 72px;
+  padding: 10px 12px;
+  line-height: 1.4;
+  resize: vertical;
+  box-sizing: border-box;
 }
 
 .task-row.done .task-main {
   text-decoration: line-through;
   opacity: 0.8;
+}
+
+.task-meta-row {
+  display: flex;
+  justify-content: flex-end;
+  width: 100%;
+}
+
+.task-side-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.task-datetime-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.task-side-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.inline-date,
+.inline-time,
+.add-date-button,
+.alarm-task-button {
+  width: 130px;
+  min-height: 34px;
+}
+
+.inline-date,
+.inline-time {
+  width: auto;
+  min-width: 118px;
+  max-width: 132px;
+  padding: 7px 9px;
+  font-size: 0.82rem;
+}
+
+.alarm-task-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-date-button {
+  min-width: 110px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 .task-row.cancelled .task-main {
@@ -1401,6 +1493,7 @@ h1 {
   gap: 6px;
   font-size: 0.72rem;
   color: var(--text-soft);
+  justify-content: flex-end;
 }
 
 .inline-date {
@@ -1522,10 +1615,20 @@ h1 {
     grid-template-columns: minmax(0, 1fr) 124px 34px 34px;
   }
 
-  .task-datetime-stack,
-  .add-date-button {
-    width: 124px;
-    min-width: 124px;
+  .task-main-layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .task-datetime-stack {
+    flex-direction: column;
+    align-items: flex-end;
+  }
+
+  .inline-date,
+  .inline-time {
+    min-width: 112px;
+    max-width: 124px;
   }
 }
 </style>
