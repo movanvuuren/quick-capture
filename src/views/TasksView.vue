@@ -412,7 +412,6 @@ async function setTaskReminderTime(task: QuickTaskItem, time: string) {
   // Validate: don't allow reminders in the past
   if (task.dueDate) {
     const now = new Date()
-    const dueDate = new Date(`${task.dueDate}T${normalized}`)
     if (
       (task.dueDate < todayIso() ||
         (task.dueDate === todayIso() && normalized < now.toTimeString().slice(0, 5)))
@@ -998,7 +997,7 @@ onActivated(async () => {
         <AlertTriangle :size="16" style="margin-right:6px;vertical-align:middle;" />
         <span>{{ error }}</span>
         <button class="glass-button glass-button--secondary" style="margin-left:auto;"
-          @click="() => { if (editingAlarmTaskId) { const task = tasks.value.find(t => t.id === editingAlarmTaskId); if (task) clearTaskReminder(task); } error = '' }">Clear
+          @click="() => { if (editingAlarmTaskId) { const task = tasks.find((t: QuickTaskItem) => t.id === editingAlarmTaskId); if (task) clearTaskReminder(task); } error = '' }">Clear
           reminder</button>
       </div>
 
