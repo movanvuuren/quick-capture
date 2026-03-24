@@ -409,6 +409,19 @@ async function setTaskReminderTime(task: QuickTaskItem, time: string) {
     return
   }
 
+  // Validate: don't allow reminders in the past
+  if (task.dueDate) {
+    const now = new Date()
+    const dueDate = new Date(`${task.dueDate}T${normalized}`)
+    if (
+      (task.dueDate < todayIso() ||
+        (task.dueDate === todayIso() && normalized < now.toTimeString().slice(0, 5)))
+    ) {
+      error.value = 'Cannot set a reminder in the past.'
+      return
+    }
+  }
+
   await scheduleTaskReminderNotification({
     fileName: task.fileName,
     lineIndex: task.lineIndex,
@@ -627,22 +640,15 @@ async function changeDueDate(task: QuickTaskItem, dueDate: string) {
   isSaving.value = true
   const previousDue = task.dueDate
   const normalized = dueDate || undefined
-  const previousReminder = getReminderTime(task)
   task.dueDate = normalized
 
   try {
     await updateTaskInFile(task, task.state, normalized)
 
-    if (!normalized)
+    if (!normalized) {
       await clearTaskReminder(task)
-    else if (previousReminder) {
-      try {
-        await setTaskReminderTime(task, previousReminder)
-      }
-      catch {
-        await clearTaskReminder(task)
-      }
     }
+    // Do NOT restore previous reminder time when changing due date
   }
   catch (err) {
     task.dueDate = previousDue
@@ -986,6 +992,14 @@ onActivated(async () => {
 
       <div v-else-if="error" class="card glass-card empty-state error-text">
         {{ error }}
+      </div>
+      <div v-if="error && error.includes('reminder in the past')" class="card glass-card warning-state"
+        style="display:flex;align-items:center;gap:10px;">
+        <AlertTriangle :size="16" style="margin-right:6px;vertical-align:middle;" />
+        <span>{{ error }}</span>
+        <button class="glass-button glass-button--secondary" style="margin-left:auto;"
+          @click="() => { if (editingAlarmTaskId) { const task = tasks.value.find(t => t.id === editingAlarmTaskId); if (task) clearTaskReminder(task); } error = '' }">Clear
+          reminder</button>
       </div>
 
       <div v-else-if="visibleTasks.length === 0" class="card glass-card empty-state">
