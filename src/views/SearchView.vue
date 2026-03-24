@@ -85,7 +85,7 @@ const hasResults = computed(() => {
 })
 
 function goBack() {
-  router.back()
+  router.replace('/')
 }
 
 function openFile(file: AppFile) {

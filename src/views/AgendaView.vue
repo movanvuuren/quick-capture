@@ -500,9 +500,19 @@ const incompleteHabitsForSelectedDate = computed(() => {
     .filter(habit => habit.scheduledDays.includes(weekday))
     .filter((habit) => {
       const value = habitLogValues.value[habit.fileName]?.[selectedDate.value]
-      if (typeof value !== 'number')
+      // Only show if value is undefined, 'pending', or 'in progress', or a number less than targetCount
+      if (value === undefined || value === 'pending' || value === 'in progress') {
         return true
-      return value < habit.targetCount
+      }
+      // Exclude 'fail' and 'skip'
+      if (value === 'fail' || value === 'skip') {
+        return false
+      }
+      // If value is a number, only show if less than targetCount
+      if (typeof value === 'number') {
+        return value < habit.targetCount
+      }
+      return false
     })
     .map((habit) => {
       const value = habitLogValues.value[habit.fileName]?.[selectedDate.value]
@@ -690,8 +700,11 @@ function goBack() {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: var(--page-top-padding) 20px 36px;
+  padding: var(--page-top-padding) 20px calc(40px + 72px + env(safe-area-inset-bottom));
   color: var(--text);
+  overflow-x: hidden;
+  overscroll-behavior-x: contain;
+  box-sizing: border-box;
 }
 
 .header {

@@ -851,7 +851,7 @@ watch(() => noteTitle.value, () => {
 function goBack() {
   void (async () => {
     await flushPendingAutosave()
-    router.back()
+    router.replace('/')
   })()
 }
 
@@ -940,9 +940,12 @@ async function saveNote() {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: var(--page-top-padding) 20px 36px;
+  padding: var(--page-top-padding) 20px calc(40px + 72px + env(safe-area-inset-bottom));
   background: var(--bg);
   color: var(--text);
+  overflow-x: hidden;
+  overscroll-behavior-x: contain;
+  box-sizing: border-box;
 }
 
 .glass-panel {
