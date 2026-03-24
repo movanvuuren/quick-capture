@@ -6,6 +6,7 @@ import { SquareArrowRightEnter, AlarmClock, AlertTriangle, ArrowUpDown, Calendar
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
+import PageHeader from '../components/PageHeader.vue'
 import { invalidateQuickTaskCache, loadQuickTasksFromFolder, updateTaskInFolder } from '../lib/quickTasksData'
 import { cancelTaskReminderNotification, scheduleTaskReminderNotification } from '../lib/taskReminderService'
 import { loadSettings } from '../lib/settings'
@@ -934,13 +935,9 @@ onActivated(async () => {
     </div>
 
     <div class="page-content" :style="pageContentStyle">
-      <div class="header">
-        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
-          ←
-        </button>
 
-        <h1>Quick Tasks</h1>
-      </div>
+      <PageHeader title="Tasks" />
+
 
       <div class="card glass-card quick-add-card">
         <div class="quick-add-row">
