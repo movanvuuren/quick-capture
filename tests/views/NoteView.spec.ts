@@ -279,7 +279,6 @@ This is **note** body.`,
 
   it('back button flushes pending autosave before navigating', async () => {
     const { wrapper, router } = await mountComponent()
-    const backSpy = vi.spyOn(router, 'back')
 
     const titleInput = wrapper.find('.title-input')
     await titleInput.setValue('Needs flush')
@@ -288,7 +287,8 @@ This is **note** body.`,
     await flushPromises()
 
     expect(listFiles.saveNoteToFile).toHaveBeenCalled()
-    expect(backSpy).toHaveBeenCalled()
+    // Check that the route is now '/'
+    expect(router.currentRoute.value.fullPath).toBe('/')
   })
 
   it('executes formatting command from toolbar', async () => {

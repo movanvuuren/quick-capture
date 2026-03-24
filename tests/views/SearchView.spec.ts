@@ -265,11 +265,11 @@ describe('SearchView.vue', () => {
 
   it('goes back when back button is clicked', async () => {
     const { wrapper, router } = await mountComponent()
-    const backSpy = vi.spyOn(router, 'back')
 
     await wrapper.find('.back-button').trigger('click')
+    await flushPromises()
 
-    expect(backSpy).toHaveBeenCalled()
+    expect(router.currentRoute.value.fullPath).toBe('/')
   })
 
   it('focuses the search input on mount', async () => {
