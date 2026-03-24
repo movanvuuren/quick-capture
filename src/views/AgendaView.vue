@@ -500,8 +500,8 @@ const incompleteHabitsForSelectedDate = computed(() => {
     .filter(habit => habit.scheduledDays.includes(weekday))
     .filter((habit) => {
       const value = habitLogValues.value[habit.fileName]?.[selectedDate.value]
-      // Only show if value is undefined, 'pending', or 'in progress', or a number less than targetCount
-      if (value === undefined || value === 'pending' || value === 'in progress') {
+      // Only show if value is undefined, or a number less than targetCount
+      if (value === undefined) {
         return true
       }
       // Exclude 'fail' and 'skip'

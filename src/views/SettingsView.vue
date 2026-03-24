@@ -416,7 +416,12 @@ async function saveHabitConfig(draft: HabitDraft) {
   draft.savedFileName = ''
   try {
     if (!draft.currentFileName) {
-      const fileStem = derivedHabitId(draft) || 'habit'
+      let fileStem = derivedHabitId(draft)
+      // If the slug is empty (e.g., emoji-only), use a UUID
+      if (!fileStem || /^habit-\d+$/.test(fileStem)) {
+        // Use crypto.randomUUID if available, else fallback to Date.now
+        fileStem = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `uuid-${Date.now()}`
+      }
       const uniqueFileName = await uniqueHabitFileName(`habit-${fileStem}.md`)
       draft.currentFileName = toHabitConfigPath(uniqueFileName)
     }
