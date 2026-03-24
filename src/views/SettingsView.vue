@@ -37,6 +37,7 @@ watch(
   () => [settings.theme, settings.accentColor],
   ([newTheme, newAccent]) => {
     applyTheme(newTheme as any, (newAccent as string | undefined))
+    void syncWidgetAppearance()
   },
 )
 
@@ -451,6 +452,32 @@ async function saveHabitConfig(draft: HabitDraft) {
   }
 }
 
+async function syncWidgetAppearance() {
+  if (!settings.baseFolderUri)
+    return
+
+  const habitsForWidget = habitDrafts.value
+    .filter(current => current.currentFileName && current.name.trim())
+    .map(current => ({
+      file: current.currentFileName,
+      name: current.name.trim(),
+      icon: current.icon.trim(),
+      target: Math.max(1, Math.floor(current.targetCount || 1)),
+    }))
+
+  try {
+    await WidgetSync.syncHabits({
+      folderUri: settings.baseFolderUri,
+      habitsJson: JSON.stringify(habitsForWidget),
+      theme: settings.theme,
+      accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+    })
+  }
+  catch (error) {
+    console.error('Failed to sync widget appearance', error)
+  }
+}
+
 function addHabitDraft() {
   if (habitDrafts.value.length >= MAX_HABITS) return
   habitDrafts.value.push(createDefaultHabitDraft())
@@ -491,6 +518,7 @@ watch(
 
 onMounted(() => {
   void loadHabitDrafts()
+  void syncWidgetAppearance()
 })
 
 function isPageScrolledToTop() {

@@ -2,12 +2,13 @@
 import type { CSSProperties } from 'vue'
 import type { AppFile } from '../lib/listFiles'
 import type { StoredTodoList } from '../lib/lists'
-import { CheckSquare, FileText, Flame, List, Search, Settings, Trash2 } from 'lucide-vue-next'
+import { Archive, CheckSquare, FileText, Flame, List, Search, Settings, Trash2 } from 'lucide-vue-next'
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BottomActionNav from '../components/BottomActionNav.vue'
 import PinToggleButton from '../components/PinToggleButton.vue'
 import {
+  addTagToFrontmatter,
   createListFile,
   saveListToFile,
   setFilePinned,
@@ -126,6 +127,30 @@ const filteredDashboardCards = computed(() => {
 
   return dashboardCards.value.filter(card => selectedKinds.value.includes(card.kind))
 })
+
+async function archiveCard(card: DashboardCard) {
+  if (!baseFolderUri.value)
+    return
+
+  try {
+    const fileName = card.kind === 'note' ? card.item.name : card.item.fileName
+
+    await addTagToFrontmatter(baseFolderUri.value, fileName, 'qcdone')
+
+    if (card.kind === 'list')
+      lists.value = lists.value.filter(list => list.fileName !== card.item.fileName)
+    else if (card.kind === 'task')
+      tasks.value = tasks.value.filter(task => task.fileName !== card.item.fileName)
+    else
+      notes.value = notes.value.filter(note => note.name !== card.item.name)
+
+    buildSortedDashboardCards()
+    syncDashboardCache()
+  }
+  catch (err) {
+    console.error('Failed to archive card item', err)
+  }
+}
 
 async function syncDashboard(options: { preferCache?: boolean, force?: boolean } = {}) {
   await syncSettingsAndRefresh(options)
@@ -798,6 +823,11 @@ async function toggleNotePin(note: AppFile) {
                   <PinToggleButton class="home-card-action-button" :pinned="card.item.pinned" :size="16"
                     :item-label="getCardTypeLabel(card.kind).toLowerCase()"
                     @toggle="card.kind === 'note' ? toggleNotePin(card.item) : toggleTodoPin(card.item, card.kind)" />
+                  <button class="glass-icon-button home-card-action-button archive-icon-button" type="button"
+                    :aria-label="`Archive ${getCardTypeLabel(card.kind).toLowerCase()}`"
+                    @click.stop="archiveCard(card)">
+                    <Archive :size="16" />
+                  </button>
                   <button class="glass-icon-button home-card-action-button delete-icon-button" type="button"
                     :aria-label="`Delete ${getCardTypeLabel(card.kind).toLowerCase()}`" @click.stop="deleteCard(card)">
                     <Trash2 :size="16" />
@@ -1296,6 +1326,8 @@ h1 {
   border: 1px solid var(--border);
   border-radius: 24px;
 }
+
+
 
 .empty-icon {
   width: 56px;

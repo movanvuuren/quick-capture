@@ -1628,10 +1628,11 @@ onBeforeUnmount(() => {
 <style scoped>
 .page {
   min-height: 100vh;
-  padding: var(--page-top-padding) 20px 36px;
+  padding: var(--page-top-padding) 20px calc(40px + 72px + env(safe-area-inset-bottom));
   color: var(--text);
   overflow-x: hidden;
   touch-action: pan-x pan-y;
+
 }
 
 .page-content {

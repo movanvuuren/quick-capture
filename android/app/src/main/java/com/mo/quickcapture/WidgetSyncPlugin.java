@@ -9,6 +9,7 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.mo.quickcapture.widget.AgendaTodayGlanceWidget;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -106,6 +107,9 @@ public class WidgetSyncPlugin extends Plugin {
         for (int widgetId : widgetIds) {
             HabitWidgetProvider.updateWidget(ctx, manager, widgetId);
         }
+
+        // Also, refresh the Agenda Today widget via its helper method
+        AgendaTodayGlanceWidget.update(ctx);
 
         call.resolve();
     }
