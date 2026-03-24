@@ -246,10 +246,6 @@ watch(taskFilterOptions, (options) => {
     selectedTaskFilter.value = 'pending'
 })
 
-function goBack() {
-  router.replace('/')
-}
-
 function isPageScrolledToTop() {
   return window.scrollY <= 0
 }
