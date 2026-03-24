@@ -22,12 +22,16 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.provideContent
 import androidx.glance.appwidget.updateAll
 import androidx.glance.background
+import androidx.glance.Image
+import androidx.glance.ImageProvider
+import androidx.glance.color.ColorFilter
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
+import com.mo.quickcapture.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -336,18 +340,25 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
         }
         Spacer(modifier = GlanceModifier.width(8.dp))
         Column(modifier = GlanceModifier.defaultWeight()) {
-            Text(
-                text = if (task.isHighPriority) "[f] ${displayBody(task.body)}" else displayBody(task.body),
-                maxLines = 1,
-                style = TextStyle(
-                    fontSize = 13.sp,
-                    color = if (task.isHighPriority) {
-                        ColorProvider(day = palette.failColor, night = palette.failColor)
-                    } else {
-                        ColorProvider(day = palette.titleColor, night = palette.titleColor)
-                    },
-                ),
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (task.isHighPriority) {
+                    Image(
+                        provider = ImageProvider(R.drawable.ic_flame),
+                        contentDescription = "High Priority",
+                        modifier = GlanceModifier.width(14.dp).height(14.dp),
+                        colorFilter = ColorFilter.tint(ColorProvider(palette.failColor))
+                    )
+                    Spacer(modifier = GlanceModifier.width(4.dp))
+                }
+                Text(
+                    text = displayBody(task.body),
+                    maxLines = 1,
+                    style = TextStyle(
+                        fontSize = 13.sp,
+                        color = ColorProvider(day = palette.titleColor, night = palette.titleColor)
+                    ),
+                )
+            }
             Text(
                 text = task.fileName,
                 maxLines = 1,
