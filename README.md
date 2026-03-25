@@ -82,6 +82,6 @@ Isn’t:
 - Cloud-based
 
 ![Settings](images/SettingsSystemLight.png)
-![Habits](images/HabitsSystemLight.png)
+![Habits](images/SettingsHabitLight.png)
 
 
