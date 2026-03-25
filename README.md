@@ -58,7 +58,7 @@ Habits → simple tracking
 
 Quick glance at today’s tasks without opening the app.
 
-[Image: Screenshot of the Android home screen widget.](images/WidgetSpark.png)
+![Image: Screenshot of the Android home screen widget.](images/WidgetSpark.png)
 
 ## Setup
 Install the app
