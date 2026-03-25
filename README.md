@@ -44,7 +44,7 @@ Notes = .md files
 Lists = structured markdown with simple tracking
 Everything editable outside the app
 
-[Image: Screenshot of the note-taking view, showing a note being edited with Markdown syntax.](images/NoteViewDark.png)
+![Image: Screenshot of the note-taking view, showing a note being edited with Markdown syntax.](images/NoteViewDark.png)
 
 ## Views
 Agenda → what’s due today
@@ -52,7 +52,7 @@ Tasks → everything in one place
 Notes → browse files
 Habits → simple tracking
 
-[Image: Screenshot of the Agenda view, showing today's tasks with priority icons.](images/AgendaViewDark.png)
+![Image: Screenshot of the Agenda view, showing today's tasks with priority icons.](images/AgendaViewDark.png)
 
 ## Widget
 
@@ -81,7 +81,7 @@ Isn’t:
 - A replacement for Obsidian
 - Cloud-based
 
-[Settings](images/SettingsSystemLight.png)
-[Habits](images/HabitsSystemLight.png)
+![Settings](images/SettingsSystemLight.png)
+![Habits](images/HabitsSystemLight.png)
 
 
