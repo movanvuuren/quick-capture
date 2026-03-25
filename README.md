@@ -2,7 +2,7 @@
 
 Quick Capture is a simple yet powerful application designed to help you quickly jot down and organize your thoughts, tasks, and notes. It's built for those who appreciate simplicity, data ownership, and the power of plain text.
 
-[Image: A screenshot of the main dashboard of the app, showing a summary of tasks and notes.](images/HomeViewSpark.png)
+![Image: A screenshot of the main dashboard of the app, showing a summary of tasks and notes.](images/HomeViewSpark.png)
 
 ## Core Philosophy: Your Data is Yours
 
