@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
@@ -24,7 +25,6 @@ import androidx.glance.appwidget.updateAll
 import androidx.glance.background
 import androidx.glance.Image
 import androidx.glance.ImageProvider
-import androidx.glance.color.ColorFilter
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
@@ -346,7 +346,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                         provider = ImageProvider(R.drawable.ic_flame),
                         contentDescription = "High Priority",
                         modifier = GlanceModifier.width(14.dp).height(14.dp),
-                        colorFilter = ColorFilter.tint(ColorProvider(palette.failColor))
+                        colorFilter = ColorFilter.tint(ColorProvider(day = palette.failColor, night = palette.failColor))
                     )
                     Spacer(modifier = GlanceModifier.width(4.dp))
                 }

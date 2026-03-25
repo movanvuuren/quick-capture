@@ -2,7 +2,7 @@
 
 Quick Capture is a simple yet powerful application designed to help you quickly jot down and organize your thoughts, tasks, and notes. It's built for those who appreciate simplicity, data ownership, and the power of plain text.
 
-[Image: A screenshot of the main dashboard of the app, showing a summary of tasks and notes.]
+[Image: A screenshot of the main dashboard of the app, showing a summary of tasks and notes.](images/HomeViewSpark.png)
 
 ## Core Philosophy: Your Data is Yours
 
@@ -23,7 +23,7 @@ When you first start Quick Capture, it will ask you to pick a folder on your dev
 - **Creating Notes**: You can create a new note on any topic. Each note is saved as a separate `.md` file in your chosen folder.
 - **Markdown Formatting**: You can use standard Markdown syntax to format your notes, creating headers, lists, bold/italic text, and more.
 
-[Image: Screenshot of the note-taking view, showing a note being edited with Markdown syntax.]
+[Image: Screenshot of the note-taking view, showing a note being edited with Markdown syntax.](images/NoteViewDark.png)
 
 ### Task Management
 
@@ -47,17 +47,21 @@ The app provides several ways to look at your data:
 - **Notes View**: A list of all your notes for easy browsing and opening.
 - **Habits View**: A dedicated space for tracking recurring habits.
 
-[Image: Screenshot of the Agenda view, showing today's tasks with priority icons.]
+[Image: Screenshot of the Agenda view, showing today's tasks with priority icons.](images/AgendaViewDark.png)
 
 ### Android Home Screen Widget
 
 Stay on top of your day without even opening the app. Quick Capture provides a home screen widget that displays your tasks due today, keeping your agenda just a glance away.
 
-[Image: Screenshot of the Android home screen widget.]
+[Image: Screenshot of the Android home screen widget.](images/WidgetSpark.png)
 
 ## Getting Started
 
 1.  Download and install the app.
 2.  Open it and grant permission to access your file system.
 3.  Choose or create a folder where you want to store your data.
-4.  Start capturing!
+4.  Set up your theme, quick tasks, and habits
+[Settings](images/SettingsSystemLight.png)
+[Habits](images/HabitsSystemLight.png)
+
+
