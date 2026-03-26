@@ -21,14 +21,17 @@ import java.util.Map;
 
 @CapacitorPlugin(name = "WidgetSync")
 public class WidgetSyncPlugin extends Plugin {
-    private static final long FOLLOW_UP_REFRESH_DELAY_MS = 250L;
+    private static final long[] FOLLOW_UP_REFRESH_DELAYS_MS = new long[] { 250L, 1000L };
 
     private void refreshWidgetsWithFollowUp(Context ctx) {
         WidgetRefreshScheduler.refreshAllWidgets(ctx);
-        new Handler(Looper.getMainLooper()).postDelayed(
-            () -> WidgetRefreshScheduler.refreshAllWidgets(ctx),
-            FOLLOW_UP_REFRESH_DELAY_MS
-        );
+        Handler handler = new Handler(Looper.getMainLooper());
+        for (long delayMs : FOLLOW_UP_REFRESH_DELAYS_MS) {
+            handler.postDelayed(
+                () -> WidgetRefreshScheduler.refreshAllWidgets(ctx),
+                delayMs
+            );
+        }
         WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
     }
 

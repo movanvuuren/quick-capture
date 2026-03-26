@@ -54,6 +54,7 @@ private const val FOLDER_URI_KEY = "folder_uri"
 private const val MAX_WIDGET_ITEMS = 6
 private const val RECENT_DONE_WINDOW_MS = 1800L
 private const val RECENT_RESCHEDULED_WINDOW_MS = 1800L
+private val ACTION_REFRESH_DELAYS_MS = longArrayOf(250L, 1000L)
 
 private data class AgendaTask(
     val fileName: String,
@@ -345,14 +346,14 @@ private fun markTaskRecentlyDone(context: Context, fileName: String, lineIndex: 
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
         .putLong(recentDoneKey(fileName, lineIndex), System.currentTimeMillis())
-        .apply()
+        .commit()
 }
 
 private fun markTaskRecentlyRescheduled(context: Context, fileName: String, lineIndex: Int) {
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
         .putLong(recentRescheduledKey(fileName, lineIndex), System.currentTimeMillis())
-        .apply()
+        .commit()
 }
 
 private fun wasTaskRecentlyDone(context: Context, fileName: String, lineIndex: Int): Boolean {
@@ -385,6 +386,17 @@ private fun wasTaskRecentlyRescheduled(context: Context, fileName: String, lineI
     return isRecent
 }
 
+private fun refreshAgendaWidgetWithFollowUps(context: Context) {
+    WidgetRefreshScheduler.refreshAllWidgets(context)
+    CoroutineScope(Dispatchers.Default).launch {
+        ACTION_REFRESH_DELAYS_MS.forEach { delayMs ->
+            delay(delayMs)
+            WidgetRefreshScheduler.refreshAllWidgets(context)
+        }
+    }
+    WidgetRefreshScheduler.scheduleNextMidnightRefresh(context)
+}
+
 @Composable
 private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
     val checkParams = actionParametersOf(
@@ -395,13 +407,6 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
         AgendaActionKeys.urgent to task.isHighPriority,
     )
     val nextParams = actionParametersOf(
-        AgendaActionKeys.file to task.fileName,
-        AgendaActionKeys.line to task.lineIndex,
-        AgendaActionKeys.body to task.body,
-        AgendaActionKeys.due to task.dueDate,
-        AgendaActionKeys.urgent to task.isHighPriority,
-    )
-    val skipParams = actionParametersOf(
         AgendaActionKeys.file to task.fileName,
         AgendaActionKeys.line to task.lineIndex,
         AgendaActionKeys.body to task.body,
@@ -483,14 +488,6 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                     }
                 }
             }
-            Text(
-                text = task.fileName,
-                maxLines = 1,
-                style = TextStyle(
-                    fontSize = 10.sp,
-                    color = ColorProvider(day = palette.subtextColor, night = palette.subtextColor),
-                ),
-            )
         }
         Spacer(modifier = GlanceModifier.width(8.dp))
         Text(
@@ -509,8 +506,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
 
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        WidgetRefreshScheduler.refreshAllWidgets(context)
-        WidgetRefreshScheduler.scheduleNextMidnightRefresh(context)
+        refreshAgendaWidgetWithFollowUps(context)
     }
 }
 
@@ -577,7 +573,7 @@ class CheckOffTaskAction : ActionCallback {
 
         updateTaskInFile(context, fileName, lineIndex, "done", body, due, urgent)
         markTaskRecentlyDone(context, fileName, lineIndex)
-        WidgetRefreshScheduler.refreshAllWidgets(context)
+        refreshAgendaWidgetWithFollowUps(context)
         CoroutineScope(Dispatchers.Default).launch {
             delay(RECENT_DONE_WINDOW_MS)
             WidgetRefreshScheduler.refreshAllWidgets(context)
@@ -595,7 +591,7 @@ class RescheduleTaskAction : ActionCallback {
 
         updateTaskInFile(context, fileName, lineIndex, "pending", body, tomorrowIso(), urgent)
         markTaskRecentlyRescheduled(context, fileName, lineIndex)
-        WidgetRefreshScheduler.refreshAllWidgets(context)
+        refreshAgendaWidgetWithFollowUps(context)
         CoroutineScope(Dispatchers.Default).launch {
             delay(RECENT_RESCHEDULED_WINDOW_MS)
             WidgetRefreshScheduler.refreshAllWidgets(context)
