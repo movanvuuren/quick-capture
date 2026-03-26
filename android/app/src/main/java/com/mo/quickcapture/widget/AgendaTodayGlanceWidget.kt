@@ -51,6 +51,7 @@ private const val PREFS_NAME = "quick_capture_prefs"
 private const val FOLDER_URI_KEY = "folder_uri"
 private const val MAX_WIDGET_ITEMS = 6
 private const val RECENT_DONE_WINDOW_MS = 1800L
+private const val RECENT_RESCHEDULED_WINDOW_MS = 1800L
 
 private data class AgendaTask(
     val fileName: String,
@@ -59,6 +60,7 @@ private data class AgendaTask(
     val body: String,
     val dueDate: String,
     val isHighPriority: Boolean,
+    val isRecentlyCompleted: Boolean = false,
 )
 
 private data class WidgetPalette(
@@ -179,7 +181,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Agenda Today",
+                        text = "Today",
                         style = TextStyle(
                             color = ColorProvider(day = palette.titleColor, night = palette.titleColor),
                             fontSize = 18.sp,
@@ -304,10 +306,21 @@ private fun recentDoneKey(fileName: String, lineIndex: Int): String {
     return "agenda_recent_done_${fileName}_${lineIndex}"
 }
 
+private fun recentRescheduledKey(fileName: String, lineIndex: Int): String {
+    return "agenda_recent_rescheduled_${fileName}_${lineIndex}"
+}
+
 private fun markTaskRecentlyDone(context: Context, fileName: String, lineIndex: Int) {
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
         .putLong(recentDoneKey(fileName, lineIndex), System.currentTimeMillis())
+        .apply()
+}
+
+private fun markTaskRecentlyRescheduled(context: Context, fileName: String, lineIndex: Int) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putLong(recentRescheduledKey(fileName, lineIndex), System.currentTimeMillis())
         .apply()
 }
 
@@ -320,6 +333,21 @@ private fun wasTaskRecentlyDone(context: Context, fileName: String, lineIndex: I
     }
 
     val isRecent = System.currentTimeMillis() - timestamp <= RECENT_DONE_WINDOW_MS
+    if (!isRecent) {
+        prefs.edit().remove(key).apply()
+    }
+    return isRecent
+}
+
+private fun wasTaskRecentlyRescheduled(context: Context, fileName: String, lineIndex: Int): Boolean {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val key = recentRescheduledKey(fileName, lineIndex)
+    val timestamp = prefs.getLong(key, 0L)
+    if (timestamp <= 0L) {
+        return false
+    }
+
+    val isRecent = System.currentTimeMillis() - timestamp <= RECENT_RESCHEDULED_WINDOW_MS
     if (!isRecent) {
         prefs.edit().remove(key).apply()
     }
@@ -353,11 +381,13 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
         modifier = GlanceModifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val showCompleted = task.isRecentlyCompleted || task.state == "done"
+
         Box(
             modifier = GlanceModifier
                 .width(22.dp)
                 .height(22.dp)
-                .background(if (task.state == "done") palette.successColor else palette.ringNeutralColor)
+                .background(if (showCompleted) palette.successColor else palette.ringNeutralColor)
                 .padding(2.dp)
                 .clickable(actionRunCallback<CheckOffTaskAction>(checkParams)),
             contentAlignment = Alignment.Center,
@@ -368,8 +398,8 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = ColorProvider(
-                        day = if (task.state == "done") Color(0xFFFFFFFF) else palette.backgroundColor,
-                        night = if (task.state == "done") Color(0xFFFFFFFF) else palette.backgroundColor
+                        day = if (showCompleted) Color(0xFFFFFFFF) else palette.backgroundColor,
+                        night = if (showCompleted) Color(0xFFFFFFFF) else palette.backgroundColor
                     )
                 ),
             )
@@ -451,12 +481,18 @@ private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<Agend
                         var line = reader.readLine()
                         while (line != null) {
                             val task = parseTaskLine(line)
+                            val recentlyCompleted = task != null && wasTaskRecentlyDone(context, file.name ?: "unknown", lineIndex)
+                            val recentlyRescheduled = task != null && wasTaskRecentlyRescheduled(context, file.name ?: "unknown", lineIndex)
                             if (task != null && task.dueDate == today && (
-                                task.state == "pending" || (
-                                    task.state == "done" && wasTaskRecentlyDone(context, file.name ?: "unknown", lineIndex)
-                                )
+                                (task.state == "pending" && !recentlyRescheduled) || recentlyCompleted
                             )) {
-                                allTasks.add(task.copy(fileName = file.name ?: "unknown", lineIndex = lineIndex))
+                                allTasks.add(
+                                    task.copy(
+                                        fileName = file.name ?: "unknown",
+                                        lineIndex = lineIndex,
+                                        isRecentlyCompleted = recentlyCompleted,
+                                    )
+                                )
                             }
                             line = reader.readLine()
                             lineIndex++
@@ -500,7 +536,12 @@ class RescheduleTaskAction : ActionCallback {
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
         updateTaskInFile(context, fileName, lineIndex, "pending", body, tomorrowIso(), urgent)
+        markTaskRecentlyRescheduled(context, fileName, lineIndex)
         WidgetRefreshScheduler.refreshAllWidgets(context)
+        CoroutineScope(Dispatchers.Default).launch {
+            delay(RECENT_RESCHEDULED_WINDOW_MS)
+            WidgetRefreshScheduler.refreshAllWidgets(context)
+        }
     }
 }
 
