@@ -186,8 +186,11 @@ public class HabitWidgetProvider extends AppWidgetProvider {
 
         if (state == WidgetState.BLANK) {
             if (!hasPartialState) return String.valueOf(targetCount);
-            int fallback = Math.max(1, targetCount - 1);
-            int lastPartial = prefs.getInt("widget_" + widgetId + "_last_partial", fallback);
+
+            String lastPartialKey = "widget_" + widgetId + "_last_partial";
+            if (!prefs.contains(lastPartialKey)) return String.valueOf(targetCount);
+
+            int lastPartial = prefs.getInt(lastPartialKey, targetCount);
             int safePartial = clamp(lastPartial, 1, Math.max(1, targetCount - 1));
             return String.valueOf(safePartial);
         }
