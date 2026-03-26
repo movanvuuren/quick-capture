@@ -16,6 +16,7 @@ import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
@@ -31,6 +32,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
+import com.mo.quickcapture.MainActivity
 import com.mo.quickcapture.R
 import com.mo.quickcapture.WidgetRefreshScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -190,6 +192,17 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                         modifier = GlanceModifier.defaultWeight()
                     )
                     Text(
+                        text = "+",
+                        style = TextStyle(
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = ColorProvider(day = palette.heroColor, night = palette.heroColor)
+                        ),
+                        modifier = GlanceModifier
+                            .padding(end = 4.dp)
+                            .clickable(actionStartActivity(buildAddTaskIntent(context)))
+                    )
+                    Text(
                         text = "🔄",
                         style = TextStyle(
                             fontSize = 15.sp,
@@ -227,6 +240,14 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                 }
             }
         }
+    }
+}
+
+private fun buildAddTaskIntent(context: Context): Intent {
+    val today = todayIso()
+    return Intent(context, MainActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        putExtra(MainActivity.EXTRA_OPEN_PATH, "/tasks?date=$today&pulse=${System.currentTimeMillis()}")
     }
 }
 
