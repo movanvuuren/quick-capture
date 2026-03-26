@@ -67,6 +67,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
 
     @Override
     public void onUpdate(Context context, AppWidgetManager appWidgetManager, int[] appWidgetIds) {
+        WidgetRefreshScheduler.scheduleNextMidnightRefresh(context);
         for (int widgetId : appWidgetIds) {
             updateWidget(context, appWidgetManager, widgetId);
         }
@@ -88,6 +89,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             || Intent.ACTION_TIME_CHANGED.equals(action)
             || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
             || Intent.ACTION_BOOT_COMPLETED.equals(action)) {
+            WidgetRefreshScheduler.scheduleNextMidnightRefresh(context);
             AppWidgetManager manager = AppWidgetManager.getInstance(context);
             int[] widgetIds = manager.getAppWidgetIds(
                 new android.content.ComponentName(context, HabitWidgetProvider.class)

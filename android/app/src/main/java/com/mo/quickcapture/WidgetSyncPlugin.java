@@ -110,6 +110,7 @@ public class WidgetSyncPlugin extends Plugin {
 
         // Also, refresh the Agenda Today widget via its helper method
         AgendaTodayGlanceWidget.update(ctx);
+        WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
 
         call.resolve();
     }

@@ -59,6 +59,7 @@ const error = ref('')
 let activeAgendaLoadPromise: Promise<void> | null = null
 const AGENDA_REFRESH_COOLDOWN_MS = 1000
 let lastAgendaRefreshAt = 0
+let midnightRefreshTimer: ReturnType<typeof window.setTimeout> | null = null
 
 function todayIso(): string {
   const now = new Date()
@@ -355,6 +356,30 @@ async function refreshAgendaFromExternal(force = false) {
   await loadAgendaData()
 }
 
+function clearMidnightRefreshTimer() {
+  if (midnightRefreshTimer !== null) {
+    window.clearTimeout(midnightRefreshTimer)
+    midnightRefreshTimer = null
+  }
+}
+
+function scheduleMidnightRefresh() {
+  clearMidnightRefreshTimer()
+
+  const next = new Date()
+  next.setHours(24, 1, 0, 0)
+  const delay = Math.max(1000, next.getTime() - Date.now())
+
+  midnightRefreshTimer = window.setTimeout(() => {
+    midnightRefreshTimer = null
+    void (async () => {
+      await refreshAgendaFromExternal(true)
+      await loadHabitLogsForMonth(selectedDate.value.slice(0, 7))
+      scheduleMidnightRefresh()
+    })()
+  }, delay)
+}
+
 function handleVisibilityChange() {
   if (document.visibilityState === 'visible')
     void refreshAgendaFromExternal()
@@ -367,6 +392,7 @@ function handleWindowFocus() {
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
+  scheduleMidnightRefresh()
   await loadAgendaData()
   await loadHabitLogsForMonth(selectedDate.value.slice(0, 7))
 })
@@ -381,6 +407,7 @@ onActivated(() => {
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('focus', handleWindowFocus)
+  clearMidnightRefreshTimer()
 })
 
 watch(selectedDate, (value) => {

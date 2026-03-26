@@ -67,6 +67,19 @@
                 android:resource="@xml/agenda_today_widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".WidgetRefreshReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.mo.quickcapture.action.REFRESH_WIDGETS" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <activity
             android:name=".HabitWidgetConfigureActivity"
             android:exported="true"

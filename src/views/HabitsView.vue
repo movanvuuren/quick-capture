@@ -88,6 +88,7 @@ const isHabitCardHydrating = ref<Record<string, boolean>>({})
 const hasBaseFolder = computed(() => Boolean(settings.baseFolderUri))
 const EXTERNAL_REFRESH_COOLDOWN_MS = 1000
 let lastExternalRefreshAt = 0
+let midnightRefreshTimer: ReturnType<typeof window.setTimeout> | null = null
 let habitsLoadToken = 0
 
 const pullStartY = ref<number | null>(null)
@@ -1233,6 +1234,28 @@ async function refreshHabitsFromExternal(force = false) {
   await loadHabits({ force })
 }
 
+function clearMidnightRefreshTimer() {
+  if (midnightRefreshTimer !== null) {
+    window.clearTimeout(midnightRefreshTimer)
+    midnightRefreshTimer = null
+  }
+}
+
+function scheduleMidnightRefresh() {
+  clearMidnightRefreshTimer()
+
+  const next = new Date()
+  next.setHours(24, 1, 0, 0)
+  const delay = Math.max(1000, next.getTime() - Date.now())
+
+  midnightRefreshTimer = window.setTimeout(() => {
+    midnightRefreshTimer = null
+    void refreshHabitsFromExternal(true).finally(() => {
+      scheduleMidnightRefresh()
+    })
+  }, delay)
+}
+
 function handleVisibilityChange() {
   if (document.visibilityState === 'visible')
     void refreshHabitsFromExternal(true)
@@ -1411,6 +1434,7 @@ let isFirstHabitsActivation = true
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('focus', handleWindowFocus)
+  scheduleMidnightRefresh()
   await loadHabits({ preferCache: true })
   applyRouteHabitSelection()
 })
@@ -1428,6 +1452,7 @@ onActivated(async () => {
 onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('focus', handleWindowFocus)
+  clearMidnightRefreshTimer()
 })
 </script>
 
