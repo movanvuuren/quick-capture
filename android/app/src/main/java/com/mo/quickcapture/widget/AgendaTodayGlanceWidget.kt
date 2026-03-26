@@ -298,8 +298,18 @@ private fun displayBody(body: String): String {
     return body
         .replace(Regex("""\s*\uD83D\uDCC5\s*\d{4}-\d{2}-\d{2}\s*"""), " ")
         .replace(Regex("""\s*🔁\s*(daily|weekly|weekdays|monthly)\s*""", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("""(?<!\S)#[^\s#]+"""), " ")
         .replace(Regex("""\s{2,}"""), " ")
         .trim()
+}
+
+private fun displayTags(body: String): List<String> {
+    return Regex("""(?<!\S)#[^\s#]+""")
+        .findAll(body)
+        .map { it.value.trim() }
+        .filter { it.length > 1 }
+        .take(2)
+        .toList()
 }
 
 private fun recentDoneKey(fileName: String, lineIndex: Int): String {
@@ -406,6 +416,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
         }
         Spacer(modifier = GlanceModifier.width(8.dp))
         Column(modifier = GlanceModifier.defaultWeight()) {
+            val tags = displayTags(task.body)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (task.isHighPriority) {
                     Image(
@@ -424,6 +435,32 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                         color = ColorProvider(day = palette.titleColor, night = palette.titleColor)
                     ),
                 )
+            }
+            if (tags.isNotEmpty()) {
+                Spacer(modifier = GlanceModifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    tags.forEachIndexed { index, tag ->
+                        Box(
+                            modifier = GlanceModifier
+                                .background(palette.heroColor)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = tag,
+                                maxLines = 1,
+                                style = TextStyle(
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = ColorProvider(day = Color(0xFFFFFFFF), night = Color(0xFFFFFFFF))
+                                ),
+                            )
+                        }
+                        if (index < tags.lastIndex) {
+                            Spacer(modifier = GlanceModifier.width(4.dp))
+                        }
+                    }
+                }
             }
             Text(
                 text = task.fileName,
