@@ -900,6 +900,12 @@ function applyHighlight(taskId: string) {
   }, 3000)
 }
 
+function applyQuickAddDateFromRoute() {
+  const dateFromQuery = route.query.date
+  if (typeof dateFromQuery === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateFromQuery))
+    newDueDate.value = dateFromQuery
+}
+
 watch(
   () => [route.query.highlight, route.query.pulse],
   ([taskId]) => {
@@ -920,6 +926,8 @@ onMounted(async () => {
       selectedPresetId.value = presetFromQuery
   }
 
+  applyQuickAddDateFromRoute()
+
   await loadQuickTasks()
 
   const highlightQuery = route.query.highlight
@@ -937,6 +945,7 @@ onActivated(async () => {
     return
   }
   Object.assign(settings, loadSettings())
+  applyQuickAddDateFromRoute()
   await loadQuickTasks()
 })
 </script>

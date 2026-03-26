@@ -590,6 +590,19 @@ function selectedDateLabel() {
     .format(new Date(`${selectedDate.value}T00:00:00`))
 }
 
+function addTaskForSelectedDate() {
+  if (!selectedDate.value)
+    return
+
+  router.push({
+    name: 'tasks',
+    query: {
+      date: selectedDate.value,
+      pulse: String(Date.now()),
+    },
+  })
+}
+
 function openTaskFile(task: AgendaTask) {
   router.push({
     name: 'tasks',
@@ -692,10 +705,16 @@ function goBack() {
 
       <!-- Selected day tasks -->
       <div class="card glass-card day-tasks-card">
-        <h2 class="section-header">
-          <CalendarDays :size="14" class="section-icon" />
-          {{ selectedDateLabel() }}
-        </h2>
+        <div class="section-header section-header--actions">
+          <h2 class="section-header-title">
+            <CalendarDays :size="14" class="section-icon" />
+            {{ selectedDateLabel() }}
+          </h2>
+          <button class="glass-icon-button add-task-button" type="button" aria-label="Add task for selected date"
+            @click="addTaskForSelectedDate">
+            +
+          </button>
+        </div>
         <div v-if="tasksForSelectedDate.length === 0" class="empty-day">
           <p class="empty-text">No pending tasks due.</p>
         </div>
@@ -941,8 +960,34 @@ h1 {
   gap: 6px;
 }
 
+.section-header--actions {
+  justify-content: space-between;
+}
+
+.section-header-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+
 .section-icon {
   opacity: 0.7;
+}
+
+.add-task-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--text-soft);
 }
 
 .overdue-header {
