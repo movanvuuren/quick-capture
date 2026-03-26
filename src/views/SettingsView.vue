@@ -492,6 +492,7 @@ async function syncWidgetTheme() {
       theme: settings.theme,
       accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
     })
+    await WidgetSync.refreshWidgets()
   }
   catch (error) {
     console.error('Failed to sync widget theme', error)

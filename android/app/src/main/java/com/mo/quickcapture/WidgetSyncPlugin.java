@@ -1,5 +1,7 @@
 package com.mo.quickcapture;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
 import android.content.Context;
@@ -19,6 +21,16 @@ import java.util.Map;
 
 @CapacitorPlugin(name = "WidgetSync")
 public class WidgetSyncPlugin extends Plugin {
+    private static final long FOLLOW_UP_REFRESH_DELAY_MS = 250L;
+
+    private void refreshWidgetsWithFollowUp(Context ctx) {
+        WidgetRefreshScheduler.refreshAllWidgets(ctx);
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> WidgetRefreshScheduler.refreshAllWidgets(ctx),
+            FOLLOW_UP_REFRESH_DELAY_MS
+        );
+        WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
+    }
 
     /**
      * Called from JavaScript after habits are loaded.
@@ -116,7 +128,7 @@ public class WidgetSyncPlugin extends Plugin {
 
         // Also, refresh the Agenda Today widget via its helper method
         AgendaTodayGlanceWidget.update(ctx);
-        WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
+        refreshWidgetsWithFollowUp(ctx);
 
         call.resolve();
     }
@@ -145,16 +157,14 @@ public class WidgetSyncPlugin extends Plugin {
             return;
         }
 
-        WidgetRefreshScheduler.refreshAllWidgets(ctx);
-        WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
+        refreshWidgetsWithFollowUp(ctx);
         call.resolve();
     }
 
     @PluginMethod
     public void refreshWidgets(PluginCall call) {
         Context ctx = getContext();
-        WidgetRefreshScheduler.refreshAllWidgets(ctx);
-        WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
+        refreshWidgetsWithFollowUp(ctx);
         call.resolve();
     }
 }
