@@ -20,6 +20,7 @@ type SettingsSection = 'system' | 'appearance' | 'tasks' | 'habits'
 
 // A single reactive object for all settings, loaded from storage.
 const settings = reactive(loadSettings())
+const appVersion = __APP_VERSION__
 
 // Watch for any deep change in the settings object and save automatically.
 watch(
@@ -693,6 +694,9 @@ function jumpToSection(value: string) {
           <p v-else class="hint">
             No folder selected
           </p>
+          <p class="hint version-text">
+            Version {{ appVersion }}
+          </p>
         </div>
       </div>
 
@@ -1238,6 +1242,10 @@ h1 {
   margin: 2px 0 0;
   font-size: 0.9rem;
   color: var(--text-soft);
+}
+
+.version-text {
+  margin-top: 10px;
 }
 
 .add-button {
