@@ -459,7 +459,7 @@ async function saveHabitConfig(draft: HabitDraft) {
 }
 
 async function syncWidgetAppearance() {
-  if (!settings.baseFolderUri)
+  if (!settings.baseFolderUri || isHydratingHabitDrafts.value)
     return
 
   const habitsForWidget = habitDrafts.value
@@ -518,13 +518,18 @@ watch(
 watch(
   () => settings.baseFolderUri,
   () => {
-    void loadHabitDrafts()
+    void (async () => {
+      await loadHabitDrafts()
+      await syncWidgetAppearance()
+    })()
   },
 )
 
 onMounted(() => {
-  void loadHabitDrafts()
-  void syncWidgetAppearance()
+  void (async () => {
+    await loadHabitDrafts()
+    await syncWidgetAppearance()
+  })()
 })
 
 function isPageScrolledToTop() {

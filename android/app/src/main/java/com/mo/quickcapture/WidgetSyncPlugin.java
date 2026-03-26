@@ -114,4 +114,12 @@ public class WidgetSyncPlugin extends Plugin {
 
         call.resolve();
     }
+
+    @PluginMethod
+    public void refreshWidgets(PluginCall call) {
+        Context ctx = getContext();
+        WidgetRefreshScheduler.refreshAllWidgets(ctx);
+        WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
+        call.resolve();
+    }
 }

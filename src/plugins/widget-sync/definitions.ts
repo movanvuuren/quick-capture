@@ -12,4 +12,6 @@ export interface WidgetSyncPlugin {
     theme?: 'light' | 'dark' | 'dim'
     accentColor?: string
   }): Promise<void>
+
+  refreshWidgets(): Promise<void>
 }
