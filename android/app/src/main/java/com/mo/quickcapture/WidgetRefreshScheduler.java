@@ -2,8 +2,12 @@ package com.mo.quickcapture;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.appwidget.AppWidgetManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+
+import com.mo.quickcapture.widget.AgendaTodayGlanceWidget;
 
 import java.util.Calendar;
 
@@ -36,6 +40,24 @@ public final class WidgetRefreshScheduler {
             nextRun.getTimeInMillis(),
             buildRefreshPendingIntent(context)
         );
+    }
+
+    public static boolean isSystemRefreshAction(String action) {
+        return Intent.ACTION_BOOT_COMPLETED.equals(action)
+            || Intent.ACTION_DATE_CHANGED.equals(action)
+            || Intent.ACTION_TIME_CHANGED.equals(action)
+            || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
+            || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action);
+    }
+
+    public static void refreshAllWidgets(Context context) {
+        AppWidgetManager manager = AppWidgetManager.getInstance(context);
+        int[] widgetIds = manager.getAppWidgetIds(new ComponentName(context, HabitWidgetProvider.class));
+        for (int widgetId : widgetIds) {
+            HabitWidgetProvider.updateWidget(context, manager, widgetId);
+        }
+
+        AgendaTodayGlanceWidget.update(context);
     }
 
     public static PendingIntent buildRefreshPendingIntent(Context context) {

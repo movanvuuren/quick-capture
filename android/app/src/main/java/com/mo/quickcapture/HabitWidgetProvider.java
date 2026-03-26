@@ -84,18 +84,6 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             }
             return;
         }
-
-        if (Intent.ACTION_DATE_CHANGED.equals(action)
-            || Intent.ACTION_TIME_CHANGED.equals(action)
-            || Intent.ACTION_TIMEZONE_CHANGED.equals(action)
-            || Intent.ACTION_BOOT_COMPLETED.equals(action)) {
-            WidgetRefreshScheduler.scheduleNextMidnightRefresh(context);
-            AppWidgetManager manager = AppWidgetManager.getInstance(context);
-            int[] widgetIds = manager.getAppWidgetIds(
-                new android.content.ComponentName(context, HabitWidgetProvider.class)
-            );
-            onUpdate(context, manager, widgetIds);
-        }
     }
 
     @Override
