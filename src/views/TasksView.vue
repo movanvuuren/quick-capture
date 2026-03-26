@@ -2,7 +2,7 @@
 import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { SquareArrowRightEnter, AlarmClock, AlertTriangle, ArrowUpDown, CalendarDays, Check, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
+import { SquareArrowRightEnter, AlarmClock, AlertTriangle, CalendarDays, Check, ChevronDown, ChevronUp, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
@@ -19,6 +19,7 @@ import BottomActionNav from '../components/BottomActionNav.vue'
 type TaskState = 'pending' | 'done' | 'cancelled'
 type TaskFilter = 'all' | TaskState | 'overdue' | 'closed'
 type TaskSortMode = 'status' | 'due'
+type TaskSortDirection = 'asc' | 'desc'
 
 interface QuickTaskItem {
   id: string
@@ -71,6 +72,7 @@ const newTaskIsHighPriority = ref(false)
 const selectedPresetId = ref(getDefaultPresetId())
 const selectedTaskFilter = ref<TaskFilter>('pending')
 const selectedSortMode = ref<TaskSortMode>('status')
+const selectedSortDirection = ref<TaskSortDirection>('asc')
 const editingTaskId = ref<string | null>(null)
 const editingTaskText = ref('')
 const editingDueDateTaskId = ref<string | null>(null)
@@ -141,6 +143,8 @@ const visibleTasks = computed(() => {
   else
     filteredTasks = presetTasks.value.filter(task => task.state === selectedTaskFilter.value)
 
+  const directionMultiplier = selectedSortDirection.value === 'asc' ? 1 : -1
+
   return filteredTasks.sort((a, b) => {
     // High priority tasks first
     if (!!a.isHighPriority !== !!b.isHighPriority)
@@ -151,23 +155,23 @@ const visibleTasks = computed(() => {
       const bDue = b.dueDate || '9999-99-99'
 
       if (aDue !== bDue)
-        return aDue.localeCompare(bDue)
+        return aDue.localeCompare(bDue) * directionMultiplier
 
       if (taskStateOrder[a.state] !== taskStateOrder[b.state])
-        return taskStateOrder[a.state] - taskStateOrder[b.state]
+        return (taskStateOrder[a.state] - taskStateOrder[b.state]) * directionMultiplier
 
-      return a.fileName.localeCompare(b.fileName)
+      return a.fileName.localeCompare(b.fileName) * directionMultiplier
     }
 
     if (taskStateOrder[a.state] !== taskStateOrder[b.state])
-      return taskStateOrder[a.state] - taskStateOrder[b.state]
+      return (taskStateOrder[a.state] - taskStateOrder[b.state]) * directionMultiplier
 
     const aDue = a.dueDate || '9999-99-99'
     const bDue = b.dueDate || '9999-99-99'
     if (aDue !== bDue)
-      return aDue.localeCompare(bDue)
+      return aDue.localeCompare(bDue) * directionMultiplier
 
-    return a.fileName.localeCompare(b.fileName)
+    return a.fileName.localeCompare(b.fileName) * directionMultiplier
   })
 })
 
@@ -239,6 +243,10 @@ function onTaskFilterChange(value: string) {
 function onTaskSortChange(value: string) {
   if (value === 'status' || value === 'due')
     selectedSortMode.value = value
+}
+
+function toggleTaskSortDirection() {
+  selectedSortDirection.value = selectedSortDirection.value === 'asc' ? 'desc' : 'asc'
 }
 
 watch(taskFilterOptions, (options) => {
@@ -1002,7 +1010,14 @@ onActivated(async () => {
             @update:model-value="onTaskFilterChange" />
         </div>
         <div class="sort-switcher-row">
-          <ArrowUpDown :size="16" class="switcher-icon" />
+          <button class="glass-icon-button sort-direction-button" type="button"
+            :aria-label="selectedSortDirection === 'asc' ? 'Sort ascending. Click to reverse.' : 'Sort descending. Click to reverse.'"
+            @click="toggleTaskSortDirection">
+            <ChevronUp :size="14" class="sort-direction-icon"
+              :class="{ 'is-active': selectedSortDirection === 'asc' }" />
+            <ChevronDown :size="14" class="sort-direction-icon"
+              :class="{ 'is-active': selectedSortDirection === 'desc' }" />
+          </button>
           <OptionSwitcher :model-value="selectedSortMode" :options="taskSortOptions" aria-label="Task sort mode"
             @update:model-value="onTaskSortChange" />
         </div>
@@ -1291,6 +1306,34 @@ h1 {
 
 .switcher-icon {
   color: var(--text-soft);
+}
+
+.sort-direction-button {
+  width: 38px;
+  height: 34px;
+  border-radius: 12px;
+  display: inline-grid;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  padding: 4px 6px 5px;
+  overflow: hidden;
+  color: var(--text-soft);
+}
+
+.sort-direction-button:hover {
+  color: color-mix(in srgb, var(--primary) 78%, var(--text));
+}
+
+.sort-direction-icon {
+  color: var(--text-soft);
+  align-self: center;
+  justify-self: center;
+}
+
+.sort-direction-icon.is-active {
+  color: var(--primary);
 }
 
 .empty-state {
