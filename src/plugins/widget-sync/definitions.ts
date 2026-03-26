@@ -13,5 +13,10 @@ export interface WidgetSyncPlugin {
     accentColor?: string
   }): Promise<void>
 
+  syncAppearance(options: {
+    theme?: 'light' | 'dark' | 'dim'
+    accentColor?: string
+  }): Promise<void>
+
   refreshWidgets(): Promise<void>
 }

@@ -29,6 +29,9 @@ export interface AppSettings {
   noteSaveMode: SaveMode
   noteFileName?: string
 
+  /** frontmatter tag applied when archiving items from Home */
+  archiveTag: string
+
   quickTaskPresets: QuickTaskPreset[]
 
   /** show extra task metadata for troubleshooting */
@@ -47,6 +50,7 @@ export const defaultSettings: AppSettings = {
   listFileName: 'tasks.md',
   noteSaveMode: 'single_file',
   noteFileName: 'notes.md',
+  archiveTag: 'qcArchive',
   quickTaskPresets: [
     {
       id: crypto.randomUUID(),
@@ -101,6 +105,14 @@ function normalizePreset(value: Partial<QuickTaskPreset> | undefined): QuickTask
   }
 }
 
+function normalizeArchiveTag(value: unknown): string {
+  if (typeof value !== 'string')
+    return defaultSettings.archiveTag
+
+  const trimmed = value.trim()
+  return trimmed || defaultSettings.archiveTag
+}
+
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -125,6 +137,7 @@ export function loadSettings(): AppSettings {
       listFileName: parsed.listFileName?.trim() || defaultSettings.listFileName,
       noteSaveMode: parsed.noteSaveMode === 'daily_note' ? 'daily_note' : 'single_file',
       noteFileName: parsed.noteFileName?.trim() || defaultSettings.noteFileName,
+      archiveTag: normalizeArchiveTag(parsed.archiveTag),
       quickTaskPresets: presets.length > 0 ? presets : defaultSettings.quickTaskPresets,
       debugMode: parsed.debugMode === true,
     }
@@ -161,6 +174,7 @@ export function resetSettings(): AppSettings {
     listFileName: defaultSettings.listFileName,
     noteSaveMode: defaultSettings.noteSaveMode,
     noteFileName: defaultSettings.noteFileName,
+    archiveTag: defaultSettings.archiveTag,
     debugMode: defaultSettings.debugMode,
     quickTaskPresets: defaultSettings.quickTaskPresets.map(preset => ({
       ...preset,

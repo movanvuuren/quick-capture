@@ -57,7 +57,10 @@ public class WidgetSyncPlugin extends Plugin {
             prefsEditor.remove("widget_accent");
         }
 
-        prefsEditor.apply();
+        if (!prefsEditor.commit()) {
+            call.reject("Failed to persist widget sync preferences");
+            return;
+        }
 
         Map<String, JSONObject> habitsByFile = new HashMap<>();
         try {
@@ -102,7 +105,10 @@ public class WidgetSyncPlugin extends Plugin {
             }
         }
 
-        widgetEditor.apply();
+        if (!widgetEditor.commit()) {
+            call.reject("Failed to persist widget configuration");
+            return;
+        }
 
         for (int widgetId : widgetIds) {
             HabitWidgetProvider.updateWidget(ctx, manager, widgetId);
@@ -112,6 +118,35 @@ public class WidgetSyncPlugin extends Plugin {
         AgendaTodayGlanceWidget.update(ctx);
         WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
 
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void syncAppearance(PluginCall call) {
+        String widgetTheme = call.getString("theme");
+        String widgetAccent = call.getString("accentColor");
+
+        Context ctx = getContext();
+        SharedPreferences.Editor prefsEditor = ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+            .edit();
+
+        if (widgetTheme != null && !widgetTheme.trim().isEmpty()) {
+            prefsEditor.putString("widget_theme", widgetTheme.trim());
+        }
+
+        if (widgetAccent != null && widgetAccent.trim().matches("^#[0-9a-fA-F]{6}$")) {
+            prefsEditor.putString("widget_accent", widgetAccent.trim().toLowerCase());
+        } else if (widgetAccent != null) {
+            prefsEditor.remove("widget_accent");
+        }
+
+        if (!prefsEditor.commit()) {
+            call.reject("Failed to persist widget appearance");
+            return;
+        }
+
+        WidgetRefreshScheduler.refreshAllWidgets(ctx);
+        WidgetRefreshScheduler.scheduleNextMidnightRefresh(ctx);
         call.resolve();
     }
 

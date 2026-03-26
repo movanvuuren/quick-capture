@@ -8,7 +8,6 @@ import { parseFrontmatter } from '../lib/lists'
 import { applyTheme, getThemeAccentColor, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { WidgetSync } from '../plugins/widget-sync'
-import BottomActionNav from '../components/BottomActionNav.vue'
 
 const router = useRouter()
 const MAX_QUICK_TASK_PRESETS = 3
@@ -38,7 +37,7 @@ watch(
   () => [settings.theme, settings.accentColor],
   ([newTheme, newAccent]) => {
     applyTheme(newTheme as any, (newAccent as string | undefined))
-    void syncWidgetAppearance()
+    void syncWidgetTheme()
   },
 )
 
@@ -484,6 +483,21 @@ async function syncWidgetAppearance() {
   }
 }
 
+async function syncWidgetTheme() {
+  if (!settings.baseFolderUri)
+    return
+
+  try {
+    await WidgetSync.syncAppearance({
+      theme: settings.theme,
+      accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+    })
+  }
+  catch (error) {
+    console.error('Failed to sync widget theme', error)
+  }
+}
+
 function addHabitDraft() {
   if (habitDrafts.value.length >= MAX_HABITS) return
   habitDrafts.value.push(createDefaultHabitDraft())
@@ -703,6 +717,12 @@ function jumpToSection(value: string) {
             Version {{ appVersion }}
           </p>
         </div>
+
+        <label class="field">
+          <span>Archive tag</span>
+          <input v-model="settings.archiveTag" type="text" placeholder="qcArchive">
+          <p class="hint">Used when archiving cards from Home.</p>
+        </label>
       </div>
 
       <!-- appearance card -->
@@ -888,7 +908,7 @@ function jumpToSection(value: string) {
       </button>
     </nav>
   </div>
-  <BottomActionNav />
+
 </template>
 
 <style scoped>

@@ -175,7 +175,7 @@ public class FolderPickerPlugin extends Plugin {
         getContext().getSharedPreferences("quick_capture_prefs", android.content.Context.MODE_PRIVATE)
             .edit()
             .putString("folder_uri", treeUri.toString())
-            .apply();
+            .commit();
 
         String folderName = DocumentsContract.getTreeDocumentId(treeUri);
 

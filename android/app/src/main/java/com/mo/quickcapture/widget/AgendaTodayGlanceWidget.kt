@@ -176,7 +176,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                         text = "Agenda Today",
                         style = TextStyle(
                             color = ColorProvider(day = palette.titleColor, night = palette.titleColor),
-                            fontSize = 15.sp,
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Medium,
                         ),
                         modifier = GlanceModifier.defaultWeight()
@@ -187,7 +187,9 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                             fontSize = 15.sp,
                             color = ColorProvider(day = palette.subtextColor, night = palette.subtextColor)
                         ),
-                        modifier = GlanceModifier.clickable(actionRunCallback<RefreshAction>())
+                        modifier = GlanceModifier
+                            .padding(6.dp)
+                            .clickable(actionRunCallback<RefreshAction>())
                     )
                 }
 
@@ -328,7 +330,14 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                 .clickable(actionRunCallback<CheckOffTaskAction>(checkParams)),
             contentAlignment = Alignment.Center,
         ) {
-            // The checkmark was removed from here. The box is now empty for pending tasks.
+            Text(
+                text = "✓",
+                style = TextStyle(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = ColorProvider(day = palette.backgroundColor, night = palette.backgroundColor)
+                ),
+            )
         }
         Spacer(modifier = GlanceModifier.width(8.dp))
         Column(modifier = GlanceModifier.defaultWeight()) {
@@ -377,7 +386,8 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
 
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        AgendaTodayGlanceWidget.update(context)
+        WidgetRefreshScheduler.refreshAllWidgets(context)
+        WidgetRefreshScheduler.scheduleNextMidnightRefresh(context)
     }
 }
 
@@ -433,7 +443,7 @@ class CheckOffTaskAction : ActionCallback {
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
         updateTaskInFile(context, fileName, lineIndex, "done", body, due, urgent)
-        AgendaTodayGlanceWidget.update(context)
+        WidgetRefreshScheduler.refreshAllWidgets(context)
     }
 }
 
@@ -446,7 +456,7 @@ class RescheduleTaskAction : ActionCallback {
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
         updateTaskInFile(context, fileName, lineIndex, "pending", body, tomorrowIso(), urgent)
-        AgendaTodayGlanceWidget.update(context)
+        WidgetRefreshScheduler.refreshAllWidgets(context)
     }
 }
 

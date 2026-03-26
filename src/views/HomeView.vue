@@ -135,7 +135,7 @@ async function archiveCard(card: DashboardCard) {
   try {
     const fileName = card.kind === 'note' ? card.item.name : card.item.fileName
 
-    await addTagToFrontmatter(baseFolderUri.value, fileName, 'qcdone')
+    await addTagToFrontmatter(baseFolderUri.value, fileName, settings.value.archiveTag || 'qcArchive')
 
     if (card.kind === 'list')
       lists.value = lists.value.filter(list => list.fileName !== card.item.fileName)

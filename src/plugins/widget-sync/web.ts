@@ -9,5 +9,10 @@ export class WidgetSyncWeb extends WebPlugin implements WidgetSyncPlugin {
     accentColor?: string
   }): Promise<void> { }
 
+  async syncAppearance(_options: {
+    theme?: 'light' | 'dark' | 'dim'
+    accentColor?: string
+  }): Promise<void> { }
+
   async refreshWidgets(): Promise<void> { }
 }
