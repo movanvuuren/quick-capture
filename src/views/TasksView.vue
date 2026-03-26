@@ -927,6 +927,10 @@ onMounted(async () => {
     applyHighlight(highlightQuery)
 })
 
+function goBack() {
+  router.push('/')
+}
+
 onActivated(async () => {
   if (isFirstTasksActivation) {
     isFirstTasksActivation = false
@@ -949,7 +953,7 @@ onActivated(async () => {
 
     <div class="page-content" :style="pageContentStyle">
 
-      <PageHeader title="Tasks" />
+      <PageHeader title="Tasks" @back="goBack" />
 
 
       <div class="card glass-card quick-add-card">

@@ -35,6 +35,7 @@ import com.mo.quickcapture.R
 import com.mo.quickcapture.WidgetRefreshScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.FileOutputStream
@@ -49,6 +50,7 @@ import java.util.Locale
 private const val PREFS_NAME = "quick_capture_prefs"
 private const val FOLDER_URI_KEY = "folder_uri"
 private const val MAX_WIDGET_ITEMS = 6
+private const val RECENT_DONE_WINDOW_MS = 1800L
 
 private data class AgendaTask(
     val fileName: String,
@@ -65,7 +67,8 @@ private data class WidgetPalette(
     val heroColor: Color,
     val backgroundColor: Color,
     val failColor: Color,
-    val ringNeutralColor: Color
+    val ringNeutralColor: Color,
+    val successColor: Color
 )
 
 private object AgendaActionKeys {
@@ -127,7 +130,8 @@ private fun buildPalette(context: Context): WidgetPalette {
             heroColor = hero,
             backgroundColor = Color(android.graphics.Color.parseColor("#CC18191D")),
             failColor = Color(0xFFEF4444),
-            ringNeutralColor = Color(0xFF5D6169)
+            ringNeutralColor = Color(0xFF5D6169),
+            successColor = Color(0xFF34D399)
         )
         "dim" -> WidgetPalette(
             titleColor = Color(0xFFE8EDF7),
@@ -135,7 +139,8 @@ private fun buildPalette(context: Context): WidgetPalette {
             heroColor = hero,
             backgroundColor = Color(android.graphics.Color.parseColor("#CC132435")),
             failColor = Color(0xFFF87171),
-            ringNeutralColor = Color(0xFF6E7280)
+            ringNeutralColor = Color(0xFF6E7280),
+            successColor = Color(0xFF34D399)
         )
         else -> WidgetPalette( // light
             titleColor = Color(0xFF111827),
@@ -143,7 +148,8 @@ private fun buildPalette(context: Context): WidgetPalette {
             heroColor = hero,
             backgroundColor = Color(android.graphics.Color.parseColor("#D8ECECEF")),
             failColor = Color(0xFFDC2626),
-            ringNeutralColor = Color(0xFFA5ACB8)
+            ringNeutralColor = Color(0xFFA5ACB8),
+            successColor = Color(0xFF16A34A)
         )
     }
 }
@@ -294,6 +300,32 @@ private fun displayBody(body: String): String {
         .trim()
 }
 
+private fun recentDoneKey(fileName: String, lineIndex: Int): String {
+    return "agenda_recent_done_${fileName}_${lineIndex}"
+}
+
+private fun markTaskRecentlyDone(context: Context, fileName: String, lineIndex: Int) {
+    context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        .edit()
+        .putLong(recentDoneKey(fileName, lineIndex), System.currentTimeMillis())
+        .apply()
+}
+
+private fun wasTaskRecentlyDone(context: Context, fileName: String, lineIndex: Int): Boolean {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    val key = recentDoneKey(fileName, lineIndex)
+    val timestamp = prefs.getLong(key, 0L)
+    if (timestamp <= 0L) {
+        return false
+    }
+
+    val isRecent = System.currentTimeMillis() - timestamp <= RECENT_DONE_WINDOW_MS
+    if (!isRecent) {
+        prefs.edit().remove(key).apply()
+    }
+    return isRecent
+}
+
 @Composable
 private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
     val checkParams = actionParametersOf(
@@ -325,7 +357,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
             modifier = GlanceModifier
                 .width(22.dp)
                 .height(22.dp)
-                .background(palette.ringNeutralColor)
+                .background(if (task.state == "done") palette.successColor else palette.ringNeutralColor)
                 .padding(2.dp)
                 .clickable(actionRunCallback<CheckOffTaskAction>(checkParams)),
             contentAlignment = Alignment.Center,
@@ -335,7 +367,10 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
                 style = TextStyle(
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    color = ColorProvider(day = palette.backgroundColor, night = palette.backgroundColor)
+                    color = ColorProvider(
+                        day = if (task.state == "done") Color(0xFFFFFFFF) else palette.backgroundColor,
+                        night = if (task.state == "done") Color(0xFFFFFFFF) else palette.backgroundColor
+                    )
                 ),
             )
         }
@@ -416,7 +451,11 @@ private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<Agend
                         var line = reader.readLine()
                         while (line != null) {
                             val task = parseTaskLine(line)
-                            if (task != null && task.state == "pending" && task.dueDate == today) {
+                            if (task != null && task.dueDate == today && (
+                                task.state == "pending" || (
+                                    task.state == "done" && wasTaskRecentlyDone(context, file.name ?: "unknown", lineIndex)
+                                )
+                            )) {
                                 allTasks.add(task.copy(fileName = file.name ?: "unknown", lineIndex = lineIndex))
                             }
                             line = reader.readLine()
@@ -443,7 +482,12 @@ class CheckOffTaskAction : ActionCallback {
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
 
         updateTaskInFile(context, fileName, lineIndex, "done", body, due, urgent)
+        markTaskRecentlyDone(context, fileName, lineIndex)
         WidgetRefreshScheduler.refreshAllWidgets(context)
+        CoroutineScope(Dispatchers.Default).launch {
+            delay(RECENT_DONE_WINDOW_MS)
+            WidgetRefreshScheduler.refreshAllWidgets(context)
+        }
     }
 }
 
