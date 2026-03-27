@@ -47,6 +47,40 @@ const DASHBOARD_READ_CONCURRENCY = 6
 
 let dashboardCacheFolderUri = ''
 const dashboardFileCache = new Map<string, CachedDashboardFile>()
+let cachedFolderFileNamesUri = ''
+let cachedFolderFileNames: Set<string> | null = null
+
+function resetFolderFileNameCache(folderUri: string) {
+  if (cachedFolderFileNamesUri !== folderUri) {
+    cachedFolderFileNamesUri = folderUri
+    cachedFolderFileNames = null
+  }
+}
+
+async function ensureFolderFileNames(folderUri: string): Promise<Set<string>> {
+  resetFolderFileNameCache(folderUri)
+
+  if (cachedFolderFileNames)
+    return cachedFolderFileNames
+
+  const result = await FolderPicker.listFiles({ folderUri })
+  cachedFolderFileNames = new Set(
+    result.files
+      .filter(file => file.isFile)
+      .map(file => file.name.toLowerCase()),
+  )
+  return cachedFolderFileNames
+}
+
+function rememberFolderFileName(folderUri: string, fileName: string) {
+  resetFolderFileNameCache(folderUri)
+  cachedFolderFileNames?.add(fileName.toLowerCase())
+}
+
+function forgetFolderFileName(folderUri: string, fileName: string) {
+  resetFolderFileNameCache(folderUri)
+  cachedFolderFileNames?.delete(fileName.toLowerCase())
+}
 
 function toAppFileType(value: unknown): AppFile['type'] {
   if (value === 'list' || value === 'task' || value === 'note')
@@ -318,12 +352,7 @@ function getDefaultFileStem(type: 'list' | 'task' | 'note', date: string): strin
 }
 
 async function getUniqueMarkdownFileName(folderUri: string, stem: string): Promise<string> {
-  const result = await FolderPicker.listFiles({ folderUri })
-  const existingFileNames = new Set(
-    result.files
-      .filter(file => file.isFile)
-      .map(file => file.name.toLowerCase()),
-  )
+  const existingFileNames = await ensureFolderFileNames(folderUri)
 
   let candidate = `${stem}.md`
   let counter = 1
@@ -550,6 +579,7 @@ export async function createListFile(
     fileName,
     content: listToMarkdown(base),
   })
+  rememberFolderFileName(folderUri, fileName)
 
   return {
     ...base,
@@ -565,6 +595,7 @@ export async function deleteListFile(
     folderUri,
     fileName: list.fileName,
   })
+  forgetFolderFileName(folderUri, list.fileName)
 }
 
 export async function createNoteFile(
@@ -586,6 +617,7 @@ export async function createNoteFile(
     fileName,
     content: noteToMarkdown(base),
   })
+  rememberFolderFileName(folderUri, fileName)
 
   return {
     ...base,

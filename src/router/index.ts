@@ -1,9 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
 import HomeView from '../views/HomeView.vue'
+import ListView from '../views/ListView.vue'
+import NoteView from '../views/NoteView.vue'
 
-const ListView = () => import('../views/ListView.vue')
-const NoteView = () => import('../views/NoteView.vue')
 const SettingsView = () => import('../views/SettingsView.vue')
 const TasksView = () => import('../views/TasksView.vue')
 const HabitsView = () => import('../views/HabitsView.vue')

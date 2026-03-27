@@ -242,30 +242,30 @@ function parseAgendaTasksFromContent(fileName: string, content: string): AgendaT
   return tasks
 }
 
-function parseHabitScheduleFromContent(fileName: string, content: string): HabitSchedule | null {
-  const frontmatter = parseFrontmatter(content)
-  if (frontmatter.type !== 'habit')
-    return null
+// function parseHabitScheduleFromContent(fileName: string, content: string): HabitSchedule | null {
+//   const frontmatter = parseFrontmatter(content)
+//   if (frontmatter.type !== 'habit')
+//     return null
 
-  const displayName = fileName.replace(/^habits\//, '').replace(/\.md$/i, '')
+//   const displayName = fileName.replace(/^habits\//, '').replace(/\.md$/i, '')
 
-  return {
-    fileName,
-    id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
-      ? frontmatter.id.trim()
-      : displayName,
-    name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
-      ? frontmatter.name.trim()
-      : displayName,
-    icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
-      ? frontmatter.icon.trim()
-      : '✓',
-    targetCount: Number.isFinite(Number(frontmatter.targetCount))
-      ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
-      : 1,
-    scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
-  }
-}
+//   return {
+//     fileName,
+//     id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
+//       ? frontmatter.id.trim()
+//       : displayName,
+//     name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
+//       ? frontmatter.name.trim()
+//       : displayName,
+//     icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
+//       ? frontmatter.icon.trim()
+//       : '✓',
+//     targetCount: Number.isFinite(Number(frontmatter.targetCount))
+//       ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
+//       : 1,
+//     scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
+//   }
+// }
 
 async function loadAgendaData() {
   if (!settings.baseFolderUri)
@@ -273,60 +273,77 @@ async function loadAgendaData() {
 
   const folderUri = settings.baseFolderUri
 
+  if (agendaCacheFolderUri !== folderUri) {
+    agendaCacheFolderUri = folderUri
+    agendaTaskFileCache.clear()
+    agendaHabitFileCache.clear()
+  }
+
   if (activeAgendaLoadPromise)
     return activeAgendaLoadPromise
 
   activeAgendaLoadPromise = (async () => {
     isLoading.value = true
     try {
-      const listed = await FolderPicker.listFiles({ folderUri })
+      const [listed, listedHabits] = await Promise.all([
+        FolderPicker.listFiles({ folderUri }),
+        FolderPicker.listFiles({
+          folderUri,
+          relativePath: HABIT_CONFIGS_DIR,
+        }),
+      ])
       const taskMdFiles = listed.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
-      const listedHabits = await FolderPicker.listFiles({
-        folderUri,
-        relativePath: HABIT_CONFIGS_DIR,
-      })
       const habitMdFiles = listedHabits.files.filter(file => file.isFile && file.name.toLowerCase().endsWith('.md'))
-      const tasks: AgendaTask[] = []
       const schedules: HabitSchedule[] = []
 
-      for (const file of taskMdFiles) {
-        try {
-          const read = await FolderPicker.readFile({
-            folderUri,
-            fileName: file.name,
-          })
+      const taskGroups = await mapWithConcurrency(
+        taskMdFiles,
+        AGENDA_READ_CONCURRENCY,
+        async (file) => {
+          try {
+            const signature = getFileSignature(file)
+            const cached = agendaTaskFileCache.get(file.name)
 
-          const frontmatter = parseFrontmatter(read.content)
-          const isTaskFileByType = frontmatter.type === 'task'
-          const isTaskFileByName = isDatedTaskFileName(file.name)
+            if (signature && cached && cached.signature === signature)
+              return cached.tasks.map(cloneAgendaTask)
 
-          const lines = read.content.split(/\r?\n/)
-          for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-            const rawLine = lines[lineIndex] || ''
-            const parsed = parseTaskLine(rawLine)
-            if (!parsed)
-              continue
-
-            const isPresetTask = Boolean(getPresetForTask(rawLine, file.name))
-            if (!isTaskFileByType && !isTaskFileByName && !isPresetTask)
-              continue
-
-            tasks.push({
-              id: `${file.name}:${lineIndex}`,
+            const read = await FolderPicker.readFile({
+              folderUri,
               fileName: file.name,
-              lineIndex,
-              ...parsed,
             })
+            const parsedTasks = parseAgendaTasksFromContent(file.name, read.content)
+
+            if (signature) {
+              agendaTaskFileCache.set(file.name, {
+                signature,
+                tasks: parsedTasks.map(cloneAgendaTask),
+              })
+            }
+            else {
+              agendaTaskFileCache.delete(file.name)
+            }
+
+            return parsedTasks
           }
-        }
-        catch (fileErr) {
-          console.warn('Agenda: failed to read file', file.name, fileErr)
-        }
-      }
+          catch (fileErr) {
+            console.warn('Agenda: failed to read file', file.name, fileErr)
+            return []
+          }
+        },
+      )
 
       for (const file of habitMdFiles) {
         const habitFilePath = `${HABIT_CONFIGS_DIR}/${file.name}`
         try {
+          const signature = getFileSignature(file)
+          const cached = agendaHabitFileCache.get(habitFilePath)
+
+          if (signature && cached && cached.signature === signature) {
+            if (cached.schedule)
+              schedules.push(cloneHabitSchedule(cached.schedule))
+            continue
+          }
+
           const read = await FolderPicker.readFile({
             folderUri,
             fileName: habitFilePath,
@@ -352,13 +369,36 @@ async function loadAgendaData() {
               : 1,
             scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
           })
+
+          if (signature) {
+            const latestSchedule = schedules[schedules.length - 1] ?? null
+            agendaHabitFileCache.set(habitFilePath, {
+              signature,
+              schedule: latestSchedule ? cloneHabitSchedule(latestSchedule) : null,
+            })
+          }
+          else {
+            agendaHabitFileCache.delete(habitFilePath)
+          }
         }
         catch (fileErr) {
           console.warn('Agenda: failed to read habit file', habitFilePath, fileErr)
         }
       }
 
-      allTasks.value = tasks
+      const activeTaskNames = new Set(taskMdFiles.map(file => file.name))
+      for (const cachedName of Array.from(agendaTaskFileCache.keys())) {
+        if (!activeTaskNames.has(cachedName))
+          agendaTaskFileCache.delete(cachedName)
+      }
+
+      const activeHabitNames = new Set(habitMdFiles.map(file => `${HABIT_CONFIGS_DIR}/${file.name}`))
+      for (const cachedName of Array.from(agendaHabitFileCache.keys())) {
+        if (!activeHabitNames.has(cachedName))
+          agendaHabitFileCache.delete(cachedName)
+      }
+
+      allTasks.value = taskGroups.flat()
       habitSchedules.value = schedules
       loadedHabitLogMonths.value = {}
     }
@@ -708,7 +748,7 @@ function openHabitForDate(habit: HabitSchedule) {
 }
 
 function goBack() {
-  router.back()
+  router.push('/')
 }
 </script>
 
