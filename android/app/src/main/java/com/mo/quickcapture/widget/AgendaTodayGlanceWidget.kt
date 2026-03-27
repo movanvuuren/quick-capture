@@ -18,16 +18,19 @@ import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.updateAll
 import androidx.glance.background
+import androidx.glance.currentState
 import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.*
+import androidx.glance.state.PreferencesGlanceStateDefinition
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
@@ -41,20 +44,37 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.FileOutputStream
-import java.io.IOException
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.mutablePreferencesOf
+import androidx.datastore.preferences.core.stringPreferencesKey
 
 private const val PREFS_NAME = "quick_capture_prefs"
 private const val FOLDER_URI_KEY = "folder_uri"
 private const val MAX_WIDGET_ITEMS = 6
 private const val RECENT_DONE_WINDOW_MS = 1800L
 private const val RECENT_RESCHEDULED_WINDOW_MS = 1800L
-private val ACTION_REFRESH_DELAYS_MS = longArrayOf(250L, 1000L)
+private val ACTION_REFRESH_DELAYS_MS = longArrayOf(250L, 1000L, 2000L)
+private const val TAG = "WidgetRefresh"
+private const val DEBUG_LOGS = false
+private val REFRESH_TOKEN_KEY = longPreferencesKey("agenda_refresh_token")
+private val THEME_KEY = stringPreferencesKey("agenda_theme")
+private val ACCENT_KEY = stringPreferencesKey("agenda_accent")
+private val STATE_RECENT_DONE_AT_KEY = longPreferencesKey("agenda_recent_done_at")
+private val STATE_RECENT_DONE_FILE_KEY = stringPreferencesKey("agenda_recent_done_file")
+private val STATE_RECENT_DONE_LINE_KEY = longPreferencesKey("agenda_recent_done_line")
+private val STATE_RECENT_DONE_BODY_KEY = stringPreferencesKey("agenda_recent_done_body")
+private val STATE_RECENT_DONE_DUE_KEY = stringPreferencesKey("agenda_recent_done_due")
+private val STATE_RECENT_DONE_URGENT_KEY = stringPreferencesKey("agenda_recent_done_urgent")
+private val STATE_RECENT_RESCHEDULED_AT_KEY = longPreferencesKey("agenda_recent_rescheduled_at")
+private val STATE_RECENT_RESCHEDULED_FILE_KEY = stringPreferencesKey("agenda_recent_rescheduled_file")
+private val STATE_RECENT_RESCHEDULED_LINE_KEY = longPreferencesKey("agenda_recent_rescheduled_line")
 
 private data class AgendaTask(
     val fileName: String,
@@ -106,20 +126,13 @@ private fun parseColorOrFallback(candidate: String?, fallback: String): Color {
     return Color(android.graphics.Color.parseColor(fallback))
 }
 
-private fun getWidgetTheme(context: Context): String? {
-    val prefs = context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
-    return prefs.getString("widget_theme", null)
+private fun debugLog(message: String) {
+    if (DEBUG_LOGS) {
+        Log.d(TAG, message)
+    }
 }
 
-private fun getWidgetAccentColor(context: Context): String? {
-    val prefs = context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
-    return prefs.getString("widget_accent", null)
-}
-
-private fun buildPalette(context: Context): WidgetPalette {
-    val widgetTheme = getWidgetTheme(context)
-    val accentColor = getWidgetAccentColor(context)
-
+private fun buildPalette(context: Context, widgetTheme: String?, accentColor: String?): WidgetPalette {
     val isDarkSystem = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     val resolvedTheme = if (widgetTheme.isNullOrEmpty()) (if (isDarkSystem) "dark" else "light") else widgetTheme
 
@@ -127,6 +140,8 @@ private fun buildPalette(context: Context): WidgetPalette {
     if (resolvedTheme == "dim" && (accentColor == null || accentColor.trim().isEmpty())) {
         hero = Color(android.graphics.Color.parseColor("#ff53b3"))
     }
+
+    debugLog("buildPalette: widgetTheme=$widgetTheme resolvedTheme=$resolvedTheme accent=$accentColor hero=$hero")
 
     return when (resolvedTheme) {
         "dark" -> WidgetPalette(
@@ -160,19 +175,62 @@ private fun buildPalette(context: Context): WidgetPalette {
 }
 
 class AgendaTodayGlanceWidget : GlanceAppWidget() {
+    override val stateDefinition = PreferencesGlanceStateDefinition
+
     companion object {
         @JvmStatic
         fun update(context: Context) {
             CoroutineScope(Dispatchers.Default).launch {
-                AgendaTodayGlanceWidget().updateAll(context)
+                val widget = AgendaTodayGlanceWidget()
+                val manager = GlanceAppWidgetManager(context)
+                val glanceIds = manager.getGlanceIds(AgendaTodayGlanceWidget::class.java)
+                debugLog("AgendaTodayGlanceWidget.update: glanceIdCount=${glanceIds.size}")
+                if (glanceIds.isEmpty()) {
+                    return@launch
+                }
+
+                glanceIds.forEachIndexed { index, glanceId ->
+                    val refreshToken = System.currentTimeMillis()
+                    val sharedPrefs = context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+                    val widgetTheme = sharedPrefs.getString("widget_theme", null)
+                    val widgetAccent = sharedPrefs.getString("widget_accent", null)
+                    updateAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId) { prefs ->
+                        val mutablePrefs = mutablePreferencesOf()
+                        prefs.asMap().forEach { (key, value) ->
+                            @Suppress("UNCHECKED_CAST")
+                            mutablePrefs[key as Preferences.Key<Any>] = value
+                        }
+                        mutablePrefs[REFRESH_TOKEN_KEY] = refreshToken
+                        if (widgetTheme != null) {
+                            mutablePrefs[THEME_KEY] = widgetTheme
+                        } else {
+                            mutablePrefs.remove(THEME_KEY)
+                        }
+                        if (widgetAccent != null) {
+                            mutablePrefs[ACCENT_KEY] = widgetAccent
+                        } else {
+                            mutablePrefs.remove(ACCENT_KEY)
+                        }
+                        mutablePrefs
+                    }
+                    debugLog("AgendaTodayGlanceWidget.update: refreshToken=$refreshToken theme=$widgetTheme accent=$widgetAccent glanceIdIndex=$index")
+                    debugLog("AgendaTodayGlanceWidget.update: updating glanceIdIndex=$index")
+                    widget.update(context, glanceId)
+                }
             }
         }
     }
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val (tasks, error) = loadPendingDueTodayTasksWithError(context)
-        val palette = buildPalette(context)
         provideContent {
+            val state = currentState<Preferences>()
+            val refreshToken = state[REFRESH_TOKEN_KEY] ?: 0L
+            val widgetTheme = state[THEME_KEY]
+            val widgetAccent = state[ACCENT_KEY]
+            val (loadedTasks, error) = loadPendingDueTodayTasksWithError(context)
+            val tasks = applyWidgetStateTaskOverrides(loadedTasks, state)
+            val palette = buildPalette(context, widgetTheme, widgetAccent)
+            debugLog("provideGlance: refreshToken=$refreshToken theme=$widgetTheme accent=$widgetAccent taskCount=${tasks.size} error=$error")
             Column(
                 modifier = GlanceModifier
                     .fillMaxSize()
@@ -214,7 +272,6 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                             .clickable(actionRunCallback<RefreshAction>())
                     )
                 }
-
                 Spacer(modifier = GlanceModifier.height(8.dp))
 
                 if (error != null) {
@@ -338,14 +395,36 @@ private fun recentDoneKey(fileName: String, lineIndex: Int): String {
     return "agenda_recent_done_${fileName}_${lineIndex}"
 }
 
+private fun recentDoneBodyKey(fileName: String, lineIndex: Int): String {
+    return "agenda_recent_done_body_${fileName}_${lineIndex}"
+}
+
+private fun recentDoneDueKey(fileName: String, lineIndex: Int): String {
+    return "agenda_recent_done_due_${fileName}_${lineIndex}"
+}
+
+private fun recentDoneUrgentKey(fileName: String, lineIndex: Int): String {
+    return "agenda_recent_done_urgent_${fileName}_${lineIndex}"
+}
+
 private fun recentRescheduledKey(fileName: String, lineIndex: Int): String {
     return "agenda_recent_rescheduled_${fileName}_${lineIndex}"
 }
 
-private fun markTaskRecentlyDone(context: Context, fileName: String, lineIndex: Int) {
+private fun markTaskRecentlyDone(
+    context: Context,
+    fileName: String,
+    lineIndex: Int,
+    body: String,
+    dueDate: String,
+    isHighPriority: Boolean,
+) {
     context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         .edit()
         .putLong(recentDoneKey(fileName, lineIndex), System.currentTimeMillis())
+        .putString(recentDoneBodyKey(fileName, lineIndex), body)
+        .putString(recentDoneDueKey(fileName, lineIndex), dueDate)
+        .putBoolean(recentDoneUrgentKey(fileName, lineIndex), isHighPriority)
         .commit()
 }
 
@@ -366,7 +445,12 @@ private fun wasTaskRecentlyDone(context: Context, fileName: String, lineIndex: I
 
     val isRecent = System.currentTimeMillis() - timestamp <= RECENT_DONE_WINDOW_MS
     if (!isRecent) {
-        prefs.edit().remove(key).apply()
+        prefs.edit()
+            .remove(key)
+            .remove(recentDoneBodyKey(fileName, lineIndex))
+            .remove(recentDoneDueKey(fileName, lineIndex))
+            .remove(recentDoneUrgentKey(fileName, lineIndex))
+            .apply()
     }
     return isRecent
 }
@@ -387,14 +471,99 @@ private fun wasTaskRecentlyRescheduled(context: Context, fileName: String, lineI
 }
 
 private fun refreshAgendaWidgetWithFollowUps(context: Context) {
+    debugLog("refreshAgendaWidgetWithFollowUps: immediate + follow-ups")
     WidgetRefreshScheduler.refreshAllWidgets(context)
     CoroutineScope(Dispatchers.Default).launch {
         ACTION_REFRESH_DELAYS_MS.forEach { delayMs ->
             delay(delayMs)
+            debugLog("refreshAgendaWidgetWithFollowUps: follow-up delayMs=$delayMs")
             WidgetRefreshScheduler.refreshAllWidgets(context)
         }
     }
     WidgetRefreshScheduler.scheduleNextMidnightRefresh(context)
+}
+
+private fun recentlyCompletedTaskOverlay(context: Context, fileName: String, lineIndex: Int): AgendaTask? {
+    val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    if (!wasTaskRecentlyDone(context, fileName, lineIndex)) {
+        return null
+    }
+
+    val body = prefs.getString(recentDoneBodyKey(fileName, lineIndex), null) ?: return null
+    val dueDate = prefs.getString(recentDoneDueKey(fileName, lineIndex), null) ?: return null
+    val isHighPriority = prefs.getBoolean(recentDoneUrgentKey(fileName, lineIndex), false)
+
+    return AgendaTask(
+        fileName = fileName,
+        lineIndex = lineIndex,
+        state = "done",
+        body = body,
+        dueDate = dueDate,
+        isHighPriority = isHighPriority,
+        isRecentlyCompleted = true,
+    )
+}
+
+private fun applyWidgetStateTaskOverrides(tasks: List<AgendaTask>, state: Preferences): List<AgendaTask> {
+    val now = System.currentTimeMillis()
+    val recentDoneAt = state[STATE_RECENT_DONE_AT_KEY] ?: 0L
+    val recentDoneFile = state[STATE_RECENT_DONE_FILE_KEY]
+    val recentDoneLine = state[STATE_RECENT_DONE_LINE_KEY]?.toInt()
+    val recentDoneBody = state[STATE_RECENT_DONE_BODY_KEY]
+    val recentDoneDue = state[STATE_RECENT_DONE_DUE_KEY]
+    val recentDoneUrgent = (state[STATE_RECENT_DONE_URGENT_KEY] ?: "false").toBoolean()
+    val recentDoneActive = recentDoneAt > 0L &&
+        now - recentDoneAt <= RECENT_DONE_WINDOW_MS &&
+        recentDoneFile != null &&
+        recentDoneLine != null &&
+        recentDoneBody != null &&
+        recentDoneDue != null
+
+    val recentRescheduledAt = state[STATE_RECENT_RESCHEDULED_AT_KEY] ?: 0L
+    val recentRescheduledFile = state[STATE_RECENT_RESCHEDULED_FILE_KEY]
+    val recentRescheduledLine = state[STATE_RECENT_RESCHEDULED_LINE_KEY]?.toInt()
+    val recentRescheduledActive = recentRescheduledAt > 0L &&
+        now - recentRescheduledAt <= RECENT_RESCHEDULED_WINDOW_MS &&
+        recentRescheduledFile != null &&
+        recentRescheduledLine != null
+
+    val overriddenTasks = tasks.mapNotNull { task ->
+        val matchesRecentDone = recentDoneFile == task.fileName && recentDoneLine == task.lineIndex
+        val matchesRecentRescheduled = recentRescheduledFile == task.fileName && recentRescheduledLine == task.lineIndex
+
+        when {
+            recentDoneActive && matchesRecentDone -> {
+                task.copy(state = "done", isRecentlyCompleted = true)
+            }
+            matchesRecentDone -> {
+                null
+            }
+            recentRescheduledActive && matchesRecentRescheduled -> {
+                null
+            }
+            else -> task
+        }
+    }.toMutableList()
+
+    val hasRecentDoneRow = recentDoneFile != null && recentDoneLine != null &&
+        overriddenTasks.any { it.fileName == recentDoneFile && it.lineIndex == recentDoneLine }
+
+    if (recentDoneActive && !hasRecentDoneRow) {
+        overriddenTasks.add(
+            0,
+            AgendaTask(
+                fileName = recentDoneFile!!,
+                lineIndex = recentDoneLine!!,
+                state = "done",
+                body = recentDoneBody!!,
+                dueDate = recentDoneDue!!,
+                isHighPriority = recentDoneUrgent,
+                isRecentlyCompleted = true,
+            )
+        )
+    }
+
+    return overriddenTasks.sortedByDescending { it.isHighPriority }
 }
 
 @Composable
@@ -506,6 +675,7 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
 
 class RefreshAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+    debugLog("RefreshAction.onAction")
         refreshAgendaWidgetWithFollowUps(context)
     }
 }
@@ -524,8 +694,9 @@ private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<Agend
             return emptyList<AgendaTask>() to "Folder no longer exists"
         }
 
-        val allTasks = mutableListOf<AgendaTask>()
+        val allTasks = linkedMapOf<String, AgendaTask>()
         val today = todayIso()
+        debugLog("loadPendingDueTodayTasksWithError: today=$today")
 
         rootDoc.listFiles().forEach { file ->
             if (file.isFile && file.name?.endsWith(".md") == true) {
@@ -535,18 +706,32 @@ private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<Agend
                         var line = reader.readLine()
                         while (line != null) {
                             val task = parseTaskLine(line)
-                            val recentlyCompleted = task != null && wasTaskRecentlyDone(context, file.name ?: "unknown", lineIndex)
-                            val recentlyRescheduled = task != null && wasTaskRecentlyRescheduled(context, file.name ?: "unknown", lineIndex)
-                            if (task != null && task.dueDate == today && (
-                                (task.state == "pending" && !recentlyRescheduled) || recentlyCompleted
-                            )) {
-                                allTasks.add(
-                                    task.copy(
-                                        fileName = file.name ?: "unknown",
+                            val resolvedFileName = file.name ?: "unknown"
+                            val taskKey = "$resolvedFileName:$lineIndex"
+                            val recentlyCompleted = wasTaskRecentlyDone(context, resolvedFileName, lineIndex)
+                            val recentlyRescheduled = wasTaskRecentlyRescheduled(context, resolvedFileName, lineIndex)
+
+                            if (task != null && task.dueDate == today) {
+                                if (recentlyRescheduled) {
+                                    allTasks.remove(taskKey)
+                                } else if (recentlyCompleted) {
+                                    allTasks[taskKey] = task.copy(
+                                        fileName = resolvedFileName,
                                         lineIndex = lineIndex,
-                                        isRecentlyCompleted = recentlyCompleted,
+                                        state = "done",
+                                        isRecentlyCompleted = true,
                                     )
-                                )
+                                } else if (task.state == "pending") {
+                                    allTasks[taskKey] = task.copy(
+                                        fileName = resolvedFileName,
+                                        lineIndex = lineIndex,
+                                    )
+                                }
+                            } else if (recentlyCompleted) {
+                                val overlayTask = recentlyCompletedTaskOverlay(context, resolvedFileName, lineIndex)
+                                if (overlayTask != null && overlayTask.dueDate == today) {
+                                    allTasks[taskKey] = overlayTask
+                                }
                             }
                             line = reader.readLine()
                             lineIndex++
@@ -556,7 +741,11 @@ private fun loadPendingDueTodayTasksWithError(context: Context): Pair<List<Agend
             }
         }
 
-        return allTasks.sortedByDescending { it.isHighPriority } to null
+        val taskSummaries = allTasks.values.joinToString(" | ") {
+            "${it.fileName}:${it.lineIndex}:${it.state}:${displayBody(it.body)}"
+        }
+        debugLog("loadPendingDueTodayTasksWithError: loadedCount=${allTasks.size} tasks=$taskSummaries")
+        return allTasks.values.sortedByDescending { it.isHighPriority } to null
     } catch (e: Exception) {
         Log.e("AgendaTodayWidget", "Error loading tasks", e)
         return emptyList<AgendaTask>() to "Error: ${e.message}"
@@ -570,9 +759,27 @@ class CheckOffTaskAction : ActionCallback {
         val body = parameters[AgendaActionKeys.body] ?: return
         val due = parameters[AgendaActionKeys.due] ?: return
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
+        debugLog("CheckOffTaskAction.onAction file=$fileName lineIndex=$lineIndex due=$due urgent=$urgent")
 
         updateTaskInFile(context, fileName, lineIndex, "done", body, due, urgent)
-        markTaskRecentlyDone(context, fileName, lineIndex)
+        markTaskRecentlyDone(context, fileName, lineIndex, body, due, urgent)
+        updateAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId) { prefs ->
+            val mutablePrefs = mutablePreferencesOf()
+            prefs.asMap().forEach { (key, value) ->
+                @Suppress("UNCHECKED_CAST")
+                mutablePrefs[key as Preferences.Key<Any>] = value
+            }
+            mutablePrefs[STATE_RECENT_DONE_AT_KEY] = System.currentTimeMillis()
+            mutablePrefs[STATE_RECENT_DONE_FILE_KEY] = fileName
+            mutablePrefs[STATE_RECENT_DONE_LINE_KEY] = lineIndex.toLong()
+            mutablePrefs[STATE_RECENT_DONE_BODY_KEY] = body
+            mutablePrefs[STATE_RECENT_DONE_DUE_KEY] = due
+            mutablePrefs[STATE_RECENT_DONE_URGENT_KEY] = urgent.toString()
+            mutablePrefs.remove(STATE_RECENT_RESCHEDULED_AT_KEY)
+            mutablePrefs.remove(STATE_RECENT_RESCHEDULED_FILE_KEY)
+            mutablePrefs.remove(STATE_RECENT_RESCHEDULED_LINE_KEY)
+            mutablePrefs
+        }
         refreshAgendaWidgetWithFollowUps(context)
         CoroutineScope(Dispatchers.Default).launch {
             delay(RECENT_DONE_WINDOW_MS)
@@ -588,9 +795,27 @@ class RescheduleTaskAction : ActionCallback {
         val body = parameters[AgendaActionKeys.body] ?: return
         val due = parameters[AgendaActionKeys.due] ?: return
         val urgent = parameters[AgendaActionKeys.urgent] ?: false
+        debugLog("RescheduleTaskAction.onAction file=$fileName lineIndex=$lineIndex due=$due urgent=$urgent")
 
         updateTaskInFile(context, fileName, lineIndex, "pending", body, tomorrowIso(), urgent)
         markTaskRecentlyRescheduled(context, fileName, lineIndex)
+        updateAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId) { prefs ->
+            val mutablePrefs = mutablePreferencesOf()
+            prefs.asMap().forEach { (key, value) ->
+                @Suppress("UNCHECKED_CAST")
+                mutablePrefs[key as Preferences.Key<Any>] = value
+            }
+            mutablePrefs[STATE_RECENT_RESCHEDULED_AT_KEY] = System.currentTimeMillis()
+            mutablePrefs[STATE_RECENT_RESCHEDULED_FILE_KEY] = fileName
+            mutablePrefs[STATE_RECENT_RESCHEDULED_LINE_KEY] = lineIndex.toLong()
+            mutablePrefs.remove(STATE_RECENT_DONE_AT_KEY)
+            mutablePrefs.remove(STATE_RECENT_DONE_FILE_KEY)
+            mutablePrefs.remove(STATE_RECENT_DONE_LINE_KEY)
+            mutablePrefs.remove(STATE_RECENT_DONE_BODY_KEY)
+            mutablePrefs.remove(STATE_RECENT_DONE_DUE_KEY)
+            mutablePrefs.remove(STATE_RECENT_DONE_URGENT_KEY)
+            mutablePrefs
+        }
         refreshAgendaWidgetWithFollowUps(context)
         CoroutineScope(Dispatchers.Default).launch {
             delay(RECENT_RESCHEDULED_WINDOW_MS)
@@ -610,6 +835,7 @@ private fun updateTaskInFile(
 ) {
     val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     val folderUriStr = prefs.getString(FOLDER_URI_KEY, null) ?: return
+    debugLog("updateTaskInFile: file=$fileName lineIndex=$lineIndex newState=$newState dueDate=$dueDate urgent=$isHighPriority")
     val folderUri = Uri.parse(folderUriStr)
     val rootDoc = DocumentFile.fromTreeUri(context, folderUri) ?: return
     val file = rootDoc.findFile(fileName) ?: return
@@ -633,5 +859,6 @@ private fun updateTaskInFile(
                 outputStream.write(content.toByteArray(StandardCharsets.UTF_8))
             }
         }
+        debugLog("updateTaskInFile: write complete file=$fileName")
     }
 }

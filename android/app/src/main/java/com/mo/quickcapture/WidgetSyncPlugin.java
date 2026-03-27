@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -21,12 +22,15 @@ import java.util.Map;
 
 @CapacitorPlugin(name = "WidgetSync")
 public class WidgetSyncPlugin extends Plugin {
-    private static final long[] FOLLOW_UP_REFRESH_DELAYS_MS = new long[] { 250L, 1000L };
+    private static final String TAG = "WidgetRefresh";
+    private static final long[] FOLLOW_UP_REFRESH_DELAYS_MS = new long[] { 250L, 1000L, 2000L };
 
     private void refreshWidgetsWithFollowUp(Context ctx) {
+        Log.d(TAG, "refreshWidgetsWithFollowUp: immediate refresh");
         WidgetRefreshScheduler.refreshAllWidgets(ctx);
         Handler handler = new Handler(Looper.getMainLooper());
         for (long delayMs : FOLLOW_UP_REFRESH_DELAYS_MS) {
+            Log.d(TAG, "refreshWidgetsWithFollowUp: scheduled follow-up delayMs=" + delayMs);
             handler.postDelayed(
                 () -> WidgetRefreshScheduler.refreshAllWidgets(ctx),
                 delayMs
@@ -56,6 +60,8 @@ public class WidgetSyncPlugin extends Plugin {
             return;
         }
 
+        Log.d(TAG, "syncHabits: theme=" + widgetTheme + " accent=" + widgetAccent + " folderUriSet=" + !folderUri.trim().isEmpty());
+
         Context ctx = getContext();
         SharedPreferences.Editor prefsEditor = ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
             .edit()
@@ -76,6 +82,8 @@ public class WidgetSyncPlugin extends Plugin {
             call.reject("Failed to persist widget sync preferences");
             return;
         }
+
+        Log.d(TAG, "syncHabits: persisted prefs");
 
         Map<String, JSONObject> habitsByFile = new HashMap<>();
         try {
@@ -125,6 +133,8 @@ public class WidgetSyncPlugin extends Plugin {
             return;
         }
 
+        Log.d(TAG, "syncHabits: persisted widget configuration");
+
         for (int widgetId : widgetIds) {
             HabitWidgetProvider.updateWidget(ctx, manager, widgetId);
         }
@@ -140,6 +150,7 @@ public class WidgetSyncPlugin extends Plugin {
     public void syncAppearance(PluginCall call) {
         String widgetTheme = call.getString("theme");
         String widgetAccent = call.getString("accentColor");
+        Log.d(TAG, "syncAppearance: theme=" + widgetTheme + " accent=" + widgetAccent);
 
         Context ctx = getContext();
         SharedPreferences.Editor prefsEditor = ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
@@ -160,6 +171,13 @@ public class WidgetSyncPlugin extends Plugin {
             return;
         }
 
+        SharedPreferences prefs = ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE);
+        Log.d(
+            TAG,
+            "syncAppearance: stored theme=" + prefs.getString("widget_theme", null)
+                + " accent=" + prefs.getString("widget_accent", null)
+        );
+
         refreshWidgetsWithFollowUp(ctx);
         call.resolve();
     }
@@ -167,6 +185,7 @@ public class WidgetSyncPlugin extends Plugin {
     @PluginMethod
     public void refreshWidgets(PluginCall call) {
         Context ctx = getContext();
+        Log.d(TAG, "refreshWidgets: requested from JS");
         refreshWidgetsWithFollowUp(ctx);
         call.resolve();
     }

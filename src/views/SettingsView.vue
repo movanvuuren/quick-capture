@@ -471,6 +471,11 @@ async function syncWidgetAppearance() {
     }))
 
   try {
+    console.debug('WidgetRefresh syncWidgetAppearance', {
+      theme: settings.theme,
+      accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+      habitCount: habitsForWidget.length,
+    })
     await WidgetSync.syncHabits({
       folderUri: settings.baseFolderUri,
       habitsJson: JSON.stringify(habitsForWidget),
@@ -488,6 +493,10 @@ async function syncWidgetTheme() {
     return
 
   try {
+    console.debug('WidgetRefresh syncWidgetTheme', {
+      theme: settings.theme,
+      accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+    })
     await WidgetSync.syncAppearance({
       theme: settings.theme,
       accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
