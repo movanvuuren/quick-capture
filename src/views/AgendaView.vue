@@ -2,6 +2,7 @@
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
 import { parseFrontmatter } from '../lib/lists'
 import { parseTaskLine as parseSharedTaskLine } from '../lib/taskLine'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -10,6 +11,7 @@ import BottomActionNav from '../components/BottomActionNav.vue'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const HABIT_CONFIGS_DIR = 'habits'
+const AGENDA_READ_CONCURRENCY = 6
 
 type TaskState = 'pending' | 'done' | 'cancelled'
 
@@ -43,6 +45,20 @@ interface HabitSchedule {
 }
 
 type HabitLogValue = number | 'skip' | 'fail'
+
+interface CachedAgendaTaskFile {
+  signature: string
+  tasks: AgendaTask[]
+}
+
+interface CachedHabitScheduleFile {
+  signature: string
+  schedule: HabitSchedule | null
+}
+
+let agendaCacheFolderUri = ''
+const agendaTaskFileCache = new Map<string, CachedAgendaTaskFile>()
+const agendaHabitFileCache = new Map<string, CachedHabitScheduleFile>()
 
 const router = useRouter()
 const settings = loadSettings()
@@ -184,6 +200,70 @@ function parseTaskLine(line: string): Omit<AgendaTask, 'id' | 'fileName' | 'line
     state: parsed.state as TaskState,
     dueDate,
     isHighPriority: Boolean(parsed.isHighPriority),
+  }
+}
+
+function cloneAgendaTask(task: AgendaTask): AgendaTask {
+  return { ...task }
+}
+
+function cloneHabitSchedule(schedule: HabitSchedule): HabitSchedule {
+  return {
+    ...schedule,
+    scheduledDays: [...schedule.scheduledDays],
+  }
+}
+
+function parseAgendaTasksFromContent(fileName: string, content: string): AgendaTask[] {
+  const frontmatter = parseFrontmatter(content)
+  const isTaskFileByType = frontmatter.type === 'task'
+  const isTaskFileByName = isDatedTaskFileName(fileName)
+  const tasks: AgendaTask[] = []
+  const lines = content.split(/\r?\n/)
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const rawLine = lines[lineIndex] || ''
+    const parsed = parseTaskLine(rawLine)
+    if (!parsed)
+      continue
+
+    const isPresetTask = Boolean(getPresetForTask(rawLine, fileName))
+    if (!isTaskFileByType && !isTaskFileByName && !isPresetTask)
+      continue
+
+    tasks.push({
+      id: `${fileName}:${lineIndex}`,
+      fileName,
+      lineIndex,
+      ...parsed,
+    })
+  }
+
+  return tasks
+}
+
+function parseHabitScheduleFromContent(fileName: string, content: string): HabitSchedule | null {
+  const frontmatter = parseFrontmatter(content)
+  if (frontmatter.type !== 'habit')
+    return null
+
+  const displayName = fileName.replace(/^habits\//, '').replace(/\.md$/i, '')
+
+  return {
+    fileName,
+    id: typeof frontmatter.id === 'string' && frontmatter.id.trim()
+      ? frontmatter.id.trim()
+      : displayName,
+    name: typeof frontmatter.name === 'string' && frontmatter.name.trim()
+      ? frontmatter.name.trim()
+      : displayName,
+    icon: typeof frontmatter.icon === 'string' && frontmatter.icon.trim()
+      ? frontmatter.icon.trim()
+      : '✓',
+    targetCount: Number.isFinite(Number(frontmatter.targetCount))
+      ? Math.max(1, Math.floor(Number(frontmatter.targetCount)))
+      : 1,
+    scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
   }
 }
 
