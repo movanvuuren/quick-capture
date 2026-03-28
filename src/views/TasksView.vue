@@ -1628,15 +1628,29 @@ h1 {
   height: 34px;
   border-radius: 12px;
   color: var(--text-soft);
+  transition:
+    color 0.14s ease,
+    background 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
 }
 
 .priority-task-button:hover {
-  color: #ef4444;
+  color: var(--primary);
 }
 
 .priority-task-button.is-active {
-  color: #ef4444;
-  background: color-mix(in srgb, #ef4444 14%, transparent);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--text));
+  background: color-mix(in srgb, var(--primary) 16%, var(--c-glass) 14%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
+    inset 1.5px 2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 88%), transparent),
+    inset -1px -2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 68%), transparent),
+    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 12%), transparent),
+    0 8px 18px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .priority-toggle-button {
@@ -1645,15 +1659,29 @@ h1 {
   border-radius: 12px;
   color: var(--text-soft);
   flex-shrink: 0;
+  transition:
+    color 0.14s ease,
+    background 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    transform 0.14s ease;
 }
 
 .priority-toggle-button:hover {
-  color: #ef4444;
+  color: var(--primary);
 }
 
 .priority-toggle-button.is-active {
-  color: #ef4444;
-  background: color-mix(in srgb, #ef4444 14%, transparent);
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 52%, var(--text));
+  background: color-mix(in srgb, var(--primary) 16%, var(--c-glass) 14%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
+    inset 1.5px 2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 88%), transparent),
+    inset -1px -2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 68%), transparent),
+    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 12%), transparent),
+    0 8px 18px color-mix(in srgb, var(--primary) 20%, transparent);
 }
 
 .task-row.is-high-priority {
