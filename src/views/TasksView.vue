@@ -539,13 +539,10 @@ async function updateTaskInFile(
   })
 }
 
-async function refreshWidgetsAfterTaskChange() {
-  try {
-    await WidgetSync.refreshWidgets()
-  }
-  catch (err) {
+function refreshWidgetsAfterTaskChange() {
+  void WidgetSync.refreshWidgets().catch((err) => {
     console.warn('Failed to refresh widgets after task change', err)
-  }
+  })
 }
 
 function advanceDueDate(dateIso: string, repeat: string): string {
@@ -586,7 +583,7 @@ async function toggleTaskState(task: QuickTaskItem) {
     task.dueDate = nextDue
     try {
       await updateTaskInFile(task, 'pending', nextDue, undefined, task.isHighPriority)
-      await refreshWidgetsAfterTaskChange()
+      refreshWidgetsAfterTaskChange()
     }
     catch (err) {
       task.dueDate = previousDue
@@ -603,7 +600,7 @@ async function toggleTaskState(task: QuickTaskItem) {
 
   try {
     await updateTaskInFile(task, nextState, task.dueDate, undefined, task.isHighPriority)
-    await refreshWidgetsAfterTaskChange()
+    refreshWidgetsAfterTaskChange()
 
     // Force immediate re-render without re-sorting by clearing any pending sort delay
     if (sortDelayTimer !== null)
@@ -634,7 +631,7 @@ async function toggleTaskPriority(task: QuickTaskItem) {
 
   try {
     await updateTaskInFile(task, task.state, task.dueDate, undefined, task.isHighPriority)
-    await refreshWidgetsAfterTaskChange()
+    refreshWidgetsAfterTaskChange()
 
     // Force immediate re-render without re-sorting
     if (sortDelayTimer !== null)
@@ -661,7 +658,7 @@ async function changeDueDate(task: QuickTaskItem, dueDate: string) {
 
   try {
     await updateTaskInFile(task, task.state, normalized)
-    await refreshWidgetsAfterTaskChange()
+    refreshWidgetsAfterTaskChange()
 
     if (!normalized) {
       await clearTaskReminder(task)
@@ -748,7 +745,7 @@ async function saveTaskText(task: QuickTaskItem) {
 
   try {
     await updateTaskInFile(task, task.state, task.dueDate, nextBody)
-    await refreshWidgetsAfterTaskChange()
+    refreshWidgetsAfterTaskChange()
     cancelEditTask()
   }
   catch (err) {
@@ -798,7 +795,7 @@ async function deleteTask(task: QuickTaskItem) {
     await clearTaskReminder(task)
 
     await loadQuickTasks()
-    await refreshWidgetsAfterTaskChange()
+    refreshWidgetsAfterTaskChange()
   }
   catch (err) {
     console.error('Failed to delete task', err)
@@ -873,7 +870,7 @@ async function addQuickTask() {
     newDueDate.value = ''
     newTaskIsHighPriority.value = false
     await loadQuickTasks()
-    await refreshWidgetsAfterTaskChange()
+    refreshWidgetsAfterTaskChange()
   }
   catch (err) {
     console.error('Failed to add quick task', err)

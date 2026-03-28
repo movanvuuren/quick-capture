@@ -186,7 +186,7 @@ public class WidgetSyncPlugin extends Plugin {
     public void refreshWidgets(PluginCall call) {
         Context ctx = getContext();
         Log.d(TAG, "refreshWidgets: requested from JS");
-        refreshWidgetsWithFollowUp(ctx);
         call.resolve();
+        new Thread(() -> refreshWidgetsWithFollowUp(ctx)).start();
     }
 }
