@@ -4,6 +4,7 @@ import type { CSSProperties } from 'vue'
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
+import PageHeader from '../components/PageHeader.vue'
 import { parseFrontmatter } from '../lib/lists'
 import { applyTheme, getThemeAccentColor, loadSettings, saveSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
@@ -49,7 +50,7 @@ function resetAccentColor() {
 }
 
 function goBack() {
-  router.back()
+  router.replace('/')
 }
 
 async function pickBaseFolder() {
@@ -702,8 +703,9 @@ function jumpToSection(value: string) {
     </div>
 
     <div class="page-content" :style="pageContentStyle">
-      <div class="header">
-        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+      <PageHeader title="Settings" @back="goBack" />
+      <div class="header legacy-header">
+        <button class="glass-icon-button back-button" aria-label="Go home" @click="goBack">
           ←
         </button>
 
@@ -1301,6 +1303,10 @@ h1 {
   display: flex;
   gap: 12px;
   margin-top: 20px;
+}
+
+.legacy-header {
+  display: none;
 }
 
 @media (max-width: 860px) {

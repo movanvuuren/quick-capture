@@ -9,6 +9,7 @@ import { getThemeAccentColor, loadSettings } from '../lib/settings'
 import { FolderPicker } from '../plugins/folder-picker'
 import { WidgetSync } from '../plugins/widget-sync'
 import BottomActionNav from '../components/BottomActionNav.vue'
+import PageHeader from '../components/PageHeader.vue'
 
 interface HabitCard {
   id: string
@@ -136,7 +137,7 @@ function applyRouteHabitSelection() {
 }
 
 function goBack() {
-  router.push('/')
+  router.replace('/')
 }
 
 function cloneSnapshot(snapshot: HabitSnapshot): HabitSnapshot {
@@ -1467,8 +1468,9 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="page-content" :style="pageContentStyle">
-      <div class="header">
-        <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+      <PageHeader title="Habits" @back="goBack" />
+      <div class="header legacy-header">
+        <button class="glass-icon-button back-button" aria-label="Go home" @click="goBack">
           ←
         </button>
         <h1>Habits</h1>
@@ -2145,6 +2147,10 @@ h1 {
   width: 36px;
   height: 36px;
   border-radius: 12px;
+}
+
+.legacy-header {
+  display: none;
 }
 
 @media (max-width: 560px) {

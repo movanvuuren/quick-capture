@@ -6,6 +6,7 @@ import { loadDashboardData } from '../lib/listFiles'
 import type { AppFile } from '../lib/listFiles'
 import { loadSettings } from '../lib/settings'
 import BottomActionNav from '../components/BottomActionNav.vue'
+import PageHeader from '../components/PageHeader.vue'
 
 const router = useRouter()
 const settings = loadSettings()
@@ -100,8 +101,9 @@ function openFile(file: AppFile) {
 
 <template>
   <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+    <PageHeader title="Search" @back="goBack" />
+    <div class="search-toolbar">
+      <button class="glass-icon-button back-button" aria-label="Go home" @click="goBack">
         ←
       </button>
       <div class="search-wrap">
@@ -187,11 +189,15 @@ function openFile(file: AppFile) {
   color: var(--text);
 }
 
-.header {
+.search-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 18px;
+}
+
+.back-button {
+  display: none;
 }
 
 .search-wrap {
@@ -339,16 +345,4 @@ function openFile(file: AppFile) {
   text-overflow: ellipsis;
 }
 
-.back-button {
-  flex-shrink: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  color: var(--text);
-}
 </style>

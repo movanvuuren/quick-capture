@@ -265,6 +265,7 @@ describe('SearchView.vue', () => {
 
   it('goes back when back button is clicked', async () => {
     const { wrapper, router } = await mountComponent()
+    expect(wrapper.find('.back-button').attributes('aria-label')).toBe('Go home')
 
     await wrapper.find('.back-button').trigger('click')
     await flushPromises()

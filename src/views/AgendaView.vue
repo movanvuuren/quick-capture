@@ -8,6 +8,7 @@ import { parseTaskLine as parseSharedTaskLine } from '../lib/taskLine'
 import { FolderPicker } from '../plugins/folder-picker'
 import { loadSettings } from '../lib/settings'
 import BottomActionNav from '../components/BottomActionNav.vue'
+import PageHeader from '../components/PageHeader.vue'
 
 const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const HABIT_CONFIGS_DIR = 'habits'
@@ -748,14 +749,15 @@ function openHabitForDate(habit: HabitSchedule) {
 }
 
 function goBack() {
-  router.push('/')
+  router.replace('/')
 }
 </script>
 
 <template>
   <div class="page">
-    <div class="header">
-      <button class="glass-icon-button back-button" aria-label="Go back" @click="goBack">
+    <PageHeader title="Agenda" @back="goBack" />
+    <div class="header legacy-header">
+      <button class="glass-icon-button back-button" aria-label="Go home" @click="goBack">
         ←
       </button>
       <h1>Agenda</h1>
@@ -878,6 +880,10 @@ function goBack() {
   align-items: center;
   gap: 12px;
   margin-bottom: 18px;
+}
+
+.legacy-header {
+  display: none;
 }
 
 h1 {
@@ -1211,16 +1217,4 @@ h1 {
   color: var(--text-soft);
 }
 
-.back-button {
-  flex-shrink: 0;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  color: var(--text);
-}
 </style>

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { House } from 'lucide-vue-next'
+
 withDefaults(defineProps<{
   title: string
   showBack?: boolean
@@ -14,8 +16,8 @@ const emit = defineEmits<{
 <template>
   <div class="page-header">
     <div class="header-main">
-      <button v-if="showBack" class="glass-icon-button back-button" aria-label="Go back" @click="emit('back')">
-        ←
+      <button v-if="showBack" class="glass-icon-button back-button" aria-label="Go home" @click="emit('back')">
+        <House :size="18" />
       </button>
       <h1 class="header-title">{{ title }}</h1>
     </div>
