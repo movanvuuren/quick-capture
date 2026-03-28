@@ -43,7 +43,7 @@ const route = useRoute()
 function go(path: string) {
   if (route.path === path)
     return
-  router.push(path)
+  router.replace(path)
 }
 
 function matchesRoute(target: string | string[]) {

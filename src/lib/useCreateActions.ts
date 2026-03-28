@@ -45,11 +45,11 @@ export function useCreateActions() {
   }
 
   function createNote() {
-    router.push('/note')
+    router.replace('/note')
   }
 
   function openTasks() {
-    router.push('/tasks')
+    router.replace('/tasks')
   }
 
   return {
