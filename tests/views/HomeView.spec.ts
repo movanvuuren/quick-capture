@@ -297,14 +297,14 @@ describe('HomeView.vue', () => {
 
   it('navigates to agenda when agenda button is clicked', async () => {
     const { wrapper, router } = await mountComponent()
-    const replaceSpy = vi.spyOn(router, 'replace')
+    const pushSpy = vi.spyOn(router, 'push')
 
     const calendarButton = wrapper.find('button[aria-label="Agenda"]')
 
     expect(calendarButton.exists()).toBeTruthy()
     await calendarButton.trigger('click')
 
-    expect(replaceSpy).toHaveBeenCalledWith('/agenda')
+    expect(pushSpy).toHaveBeenCalledWith('/agenda')
   })
 
   it('navigates to a list when list card is clicked', async () => {
@@ -370,16 +370,16 @@ describe('HomeView.vue', () => {
 
   it('navigates from quick add buttons', async () => {
     const { wrapper, router } = await mountComponent()
-    const replaceSpy = vi.spyOn(router, 'replace')
+    const pushSpy = vi.spyOn(router, 'push')
 
     await wrapper.find('button[aria-label="Quick tasks"]').trigger('click')
-    expect(replaceSpy).toHaveBeenCalledWith('/tasks')
+    expect(pushSpy).toHaveBeenCalledWith('/tasks')
 
     await wrapper.find('button[aria-label="Create note"]').trigger('click')
-    expect(replaceSpy).toHaveBeenCalledWith('/note')
+    expect(pushSpy).toHaveBeenCalledWith('/note')
 
     await wrapper.find('button[aria-label="Habits"]').trigger('click')
-    expect(replaceSpy).toHaveBeenCalledWith('/habits')
+    expect(pushSpy).toHaveBeenCalledWith('/habits')
   })
 
   it('deletes a note card', async () => {

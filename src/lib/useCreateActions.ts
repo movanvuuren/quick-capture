@@ -1,9 +1,10 @@
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { createListFile } from '../lib/listFiles'
 import { loadSettings } from '../lib/settings'
 
 export function useCreateActions() {
   const router = useRouter()
+  const route = useRoute()
   const settings = loadSettings()
 
   function makeDraftTitle(kind: 'list' | 'task') {
@@ -44,12 +45,22 @@ export function useCreateActions() {
     }
   }
 
-  function createNote() {
-    router.replace('/note')
+  async function navigateViaHome(path: string) {
+    if (route.path === path)
+      return
+
+    if (route.path !== '/')
+      await router.replace('/')
+
+    await router.push(path)
   }
 
-  function openTasks() {
-    router.replace('/tasks')
+  async function createNote() {
+    await navigateViaHome('/note')
+  }
+
+  async function openTasks() {
+    await navigateViaHome('/tasks')
   }
 
   return {

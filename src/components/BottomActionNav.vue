@@ -40,10 +40,14 @@ const { createTodoFile, openTasks } = useCreateActions()
 const router = useRouter()
 const route = useRoute()
 
-function go(path: string) {
+async function go(path: string) {
   if (route.path === path)
     return
-  router.replace(path)
+
+  if (route.path !== '/')
+    await router.replace('/')
+
+  await router.push(path)
 }
 
 function matchesRoute(target: string | string[]) {
