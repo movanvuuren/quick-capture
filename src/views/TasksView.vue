@@ -2,7 +2,7 @@
 import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
 import type { CSSProperties } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { SquareArrowRightEnter, AlarmClock, AlertTriangle, CalendarDays, Check, ChevronDown, ChevronUp, Filter, Flame, LayoutGrid, ListChecks, Square, Trash2 } from 'lucide-vue-next'
+import { SquareArrowRightEnter, AlarmClock, AlertTriangle, CalendarDays, Check, ChevronDown, ChevronUp, Filter, Flame, LayoutGrid, ListChecks, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
@@ -198,7 +198,7 @@ const taskFilterOptions = computed(() => {
       value: 'pending',
       label: '',
       count: taskCounts.value.pending,
-      icon: Square,
+      icon: Check,
     },
     {
       value: 'closed',
@@ -1048,9 +1048,7 @@ onActivated(async () => {
             <Flame v-if="task.isHighPriority && task.state === 'pending'" :size="14" class="state-icon-flame"
               aria-hidden="true" />
             <span v-else class="state-icon">
-              <Square v-if="task.state === 'pending'" :size="12" :stroke-width="2.2" aria-hidden="true"
-                class="state-icon-square" />
-              <span v-else>{{ task.state === 'done' ? '✓' : '–' }}</span>
+              <span v-if="task.state !== 'pending'">{{ task.state === 'done' ? '✓' : '–' }}</span>
             </span>
             <Flame v-if="task.isHighPriority && task.state !== 'pending'" :size="12" class="state-flame"
               aria-hidden="true" />
@@ -1379,10 +1377,6 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.state-icon-square {
-  display: block;
 }
 
 .state-icon-flame {
