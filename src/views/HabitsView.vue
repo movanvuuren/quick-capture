@@ -1176,6 +1176,9 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         await waitForNextFrame()
       }
 
+      const hydratedLogsByFile: Record<string, Record<string, HabitLogValue>> = {}
+      const hydratedFlagsByFile: Record<string, boolean> = {}
+
       await mapWithConcurrency(
         habits.value,
         HABIT_LAZY_LOAD_CONCURRENCY,
@@ -1185,14 +1188,8 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
           if (loadToken !== habitsLoadToken)
             return null
 
-          habitLogs.value = {
-            ...habitLogs.value,
-            [habit.fileName]: logs,
-          }
-          isHabitCardHydrating.value = {
-            ...isHabitCardHydrating.value,
-            [habit.fileName]: false,
-          }
+          hydratedLogsByFile[habit.fileName] = logs
+          hydratedFlagsByFile[habit.fileName] = false
 
           return null
         },
@@ -1201,9 +1198,16 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
       if (loadToken !== habitsLoadToken)
         return
 
-      syncHabitCache()
+      habitLogs.value = {
+        ...habitLogs.value,
+        ...hydratedLogsByFile,
+      }
+      isHabitCardHydrating.value = {
+        ...isHabitCardHydrating.value,
+        ...hydratedFlagsByFile,
+      }
 
-      void syncHabitsToWidget().catch(() => { })
+      syncHabitCache()
     }
     catch (err) {
       console.error('Failed to load habits', err)
@@ -1420,6 +1424,7 @@ async function createExampleHabit() {
     })
 
     await loadHabits()
+    void syncHabitsToWidget().catch(() => { })
   }
   catch (err) {
     console.error('Failed to create example habit', err)
