@@ -22,6 +22,9 @@ interface HabitCard {
   reminder: string
   allowSkip: boolean
   scheduledDays: number[]
+  currentStreak: number
+  bestStreak: number
+  streakStatsVersion: number
   fileName: string
 }
 
@@ -54,13 +57,15 @@ interface CachedHabitDefinition {
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const HABIT_CONFIGS_DIR = 'habits'
 const HABIT_LOGS_DIR = 'habit-logs'
-const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 1
+const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 2
 const HABIT_LOG_READ_CONCURRENCY = 6
 const HABIT_LAZY_LOAD_CONCURRENCY = 3
 const HABIT_DEFINITION_READ_CONCURRENCY = 6
+const HABIT_DERIVED_STATS_SYNC_CONCURRENCY = 2
 const HABITS_REFRESH_DEBOUNCE_MS = 4000
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
+const DERIVED_STREAK_STATS_VERSION = 1
 
 let cachedFolderUri = ''
 let cachedAt = 0
@@ -105,6 +110,10 @@ const pageContentStyle = computed<CSSProperties>(() => ({
   transform: `translateY(${pullDistance.value}px)`,
   transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
 }))
+
+function getHabitDefinitionCacheKey(fileName: string, folderUri = settings.baseFolderUri || ''): string {
+  return `${folderUri}::${fileName}`
+}
 
 function readQueryValue(value: unknown): string {
   if (Array.isArray(value))
@@ -215,6 +224,13 @@ function normalizeHabitLogValue(raw: unknown): HabitLogValue | null {
   return null
 }
 
+function toNonNegativeInteger(value: unknown): number {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric < 0)
+    return 0
+  return Math.floor(numeric)
+}
+
 function monthIsoFromDate(date: Date): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
@@ -319,6 +335,43 @@ async function loadHabitLogsForHabit(
     monthFileNames.push(getHabitLogMonthFileName(habit, monthIso))
   }
 
+  const monthReads = await mapWithConcurrency(
+    monthFileNames,
+    HABIT_LOG_READ_CONCURRENCY,
+    async (fileName) => {
+      try {
+        const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri as string, fileName })
+        return parseHabitMonthLog(read.content)
+      }
+      catch {
+        return null
+      }
+    },
+  )
+
+  for (const monthLog of monthReads) {
+    if (monthLog)
+      Object.assign(logs, monthLog)
+  }
+
+  return logs
+}
+
+async function loadAllHabitLogsForHabit(habit: HabitCard): Promise<Record<string, HabitLogValue>> {
+  if (!settings.baseFolderUri)
+    return {}
+
+  const listed = await FolderPicker.listFiles({
+    folderUri: settings.baseFolderUri,
+    relativePath: HABIT_LOGS_DIR,
+  })
+
+  const fileStem = `${getHabitLogStem(habit)}-`.toLowerCase()
+  const monthFileNames = listed.files
+    .filter(file => file.isFile && file.name.toLowerCase().startsWith(fileStem) && file.name.toLowerCase().endsWith('.md'))
+    .map(file => `${HABIT_LOGS_DIR}/${file.name}`)
+
+  const logs: Record<string, HabitLogValue> = {}
   const monthReads = await mapWithConcurrency(
     monthFileNames,
     HABIT_LOG_READ_CONCURRENCY,
@@ -781,6 +834,7 @@ async function setLogValueForDate(habit: HabitCard, date: string, value: HabitLo
   }
 
   await writeHabitLogMonth(habit, date)
+  void refreshHabitDerivedStats(habit).catch(() => { })
   void syncHabitsToWidget().catch(() => { })
 }
 
@@ -880,6 +934,154 @@ function isNeutralValue(value: HabitLogValue | null): boolean {
   return value === 'skip'
 }
 
+function computeDailyStreakStats(
+  habit: HabitCard,
+  log: Record<string, HabitLogValue>,
+): { current: number, best: number } {
+  const keys = Object.keys(log).sort()
+  const today = isoToDate(todayIso())
+  const fallbackStart = dateAddDays(today, -365)
+  const start = keys.length > 0 ? isoToDate(keys[0] as string) : fallbackStart
+
+  let current = 0
+  for (let offset = 0; offset <= 365; offset += 1) {
+    const date = dateAddDays(today, -offset)
+    if (!isScheduledForDate(habit, date))
+      continue
+
+    const value = log[dateToIso(date)] ?? null
+
+    if (isNeutralValue(value))
+      continue
+
+    if (isSuccessValue(habit, value)) {
+      current += 1
+      continue
+    }
+
+    break
+  }
+
+  let best = 0
+  let running = 0
+  for (let date = new Date(start); date <= today; date = dateAddDays(date, 1)) {
+    if (!isScheduledForDate(habit, date))
+      continue
+
+    const value = log[dateToIso(date)] ?? null
+
+    if (isNeutralValue(value))
+      continue
+
+    if (isSuccessValue(habit, value)) {
+      running += 1
+      if (running > best)
+        best = running
+    }
+    else {
+      running = 0
+    }
+  }
+
+  return { current, best }
+}
+
+function serializeFrontmatterValue(value: string | number | boolean): string {
+  if (typeof value === 'string')
+    return JSON.stringify(value)
+  return String(value)
+}
+
+function withUpdatedHabitFrontmatterFields(
+  content: string,
+  fields: Record<string, string | number | boolean>,
+): string {
+  const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!frontmatterMatch)
+    return content
+
+  const frontmatterBody = frontmatterMatch[1] || ''
+  let lines = frontmatterBody.split(/\r?\n/)
+
+  for (const [key, value] of Object.entries(fields)) {
+    const replacement = `${key}: ${serializeFrontmatterValue(value)}`
+    const index = lines.findIndex(line => new RegExp(`^\\s*${key}\\s*:`).test(line))
+    if (index >= 0)
+      lines[index] = replacement
+    else
+      lines.push(replacement)
+  }
+
+  const nextFrontmatter = `---\n${lines.join('\n')}\n---`
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---/, nextFrontmatter)
+}
+
+function applyHabitDerivedStats(habitFileName: string, currentStreak: number, bestStreak: number) {
+  habits.value = habits.value.map(habit => habit.fileName === habitFileName
+    ? {
+        ...habit,
+        currentStreak,
+        bestStreak,
+        streakStatsVersion: DERIVED_STREAK_STATS_VERSION,
+      }
+    : habit)
+
+  const cachedDefinition = habitDefinitionCache.get(getHabitDefinitionCacheKey(habitFileName))
+  if (cachedDefinition?.habit) {
+    habitDefinitionCache.set(getHabitDefinitionCacheKey(habitFileName), {
+      ...cachedDefinition,
+      habit: {
+        ...cachedDefinition.habit,
+        currentStreak,
+        bestStreak,
+        streakStatsVersion: DERIVED_STREAK_STATS_VERSION,
+      },
+    })
+  }
+}
+
+async function refreshHabitDerivedStats(habit: HabitCard) {
+  if (!settings.baseFolderUri || habit.period !== 'day')
+    return
+
+  try {
+    const fullLog = await loadAllHabitLogsForHabit(habit)
+    const { current, best } = computeDailyStreakStats(habit, fullLog)
+
+    applyHabitDerivedStats(habit.fileName, current, best)
+    syncHabitCache()
+
+    const read = await FolderPicker.readFile({ folderUri: settings.baseFolderUri, fileName: habit.fileName })
+    const nextContent = withUpdatedHabitFrontmatterFields(read.content, {
+      currentStreak: current,
+      bestStreak: best,
+      streakStatsVersion: DERIVED_STREAK_STATS_VERSION,
+    })
+
+    if (nextContent !== read.content) {
+      await FolderPicker.writeFile({
+        folderUri: settings.baseFolderUri,
+        fileName: habit.fileName,
+        content: nextContent,
+      })
+    }
+  }
+  catch (err) {
+    console.warn('Failed to refresh derived habit streak stats', habit.fileName, err)
+  }
+}
+
+async function backfillMissingHabitDerivedStats(habitsToBackfill: HabitCard[]) {
+  await mapWithConcurrency(
+    habitsToBackfill,
+    HABIT_DERIVED_STATS_SYNC_CONCURRENCY,
+    async (habit) => {
+      await refreshHabitDerivedStats(habit)
+      return null
+    },
+  )
+}
+
 function getWeeklyScoreFromToday(habit: HabitCard): { success: number, total: number } {
   const log = habitLogs.value[habit.fileName] || {}
   const keys = Object.keys(log).sort()
@@ -945,64 +1147,22 @@ function getCurrentStreak(habit: HabitCard): number {
   if (habit.period === 'week')
     return getWeeklyScoreFromToday(habit).success
 
+  if (habit.period === 'day' && habit.streakStatsVersion === DERIVED_STREAK_STATS_VERSION)
+    return habit.currentStreak
+
   const log = habitLogs.value[habit.fileName] || {}
-  const today = isoToDate(todayIso())
-  let streak = 0
-
-  for (let offset = 0; offset <= 365; offset += 1) {
-    const date = dateAddDays(today, -offset)
-    if (!isScheduledForDate(habit, date))
-      continue
-
-    const value = log[dateToIso(date)] ?? null
-
-    if (isNeutralValue(value))
-      continue
-
-    if (isSuccessValue(habit, value)) {
-      streak += 1
-      continue
-    }
-    break
-  }
-
-  return streak
+  return computeDailyStreakStats(habit, log).current
 }
 
 function getBestStreak(habit: HabitCard): number {
   if (habit.period === 'week')
     return getWeeklyScoreFromToday(habit).total
 
-  const keys = Object.keys(habitLogs.value[habit.fileName] || {}).sort()
-  const today = isoToDate(todayIso())
+  if (habit.period === 'day' && habit.streakStatsVersion === DERIVED_STREAK_STATS_VERSION)
+    return habit.bestStreak
+
   const log = habitLogs.value[habit.fileName] || {}
-
-  const fallbackStart = dateAddDays(today, -365)
-  const start = keys.length > 0 ? isoToDate(keys[0] as string) : fallbackStart
-
-  let best = 0
-  let current = 0
-
-  for (let date = new Date(start); date <= today; date = dateAddDays(date, 1)) {
-    if (!isScheduledForDate(habit, date))
-      continue
-
-    const value = log[dateToIso(date)] ?? null
-
-    if (isNeutralValue(value))
-      continue
-
-    if (isSuccessValue(habit, value)) {
-      current += 1
-      if (current > best)
-        best = current
-    }
-    else {
-      current = 0
-    }
-  }
-
-  return best
+  return computeDailyStreakStats(habit, log).best
 }
 
 function computeStreakSummary(habit: HabitCard): string {
@@ -1084,8 +1244,9 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         async (file) => {
           try {
             const habitFilePath = `${HABIT_CONFIGS_DIR}/${file.name}`
+            const habitCacheKey = getHabitDefinitionCacheKey(habitFilePath, folderUri)
             const signature = getFileSignature(file)
-            const cachedDefinition = habitDefinitionCache.get(habitFilePath)
+            const cachedDefinition = habitDefinitionCache.get(habitCacheKey)
 
             if (signature && cachedDefinition && cachedDefinition.signature === signature)
               return cachedDefinition.habit ? { ...cachedDefinition.habit, scheduledDays: [...cachedDefinition.habit.scheduledDays] } : null
@@ -1094,9 +1255,9 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
             const frontmatter = parseFrontmatter(read.content)
             if (frontmatter.type !== 'habit') {
               if (signature)
-                habitDefinitionCache.set(habitFilePath, { signature, habit: null })
+                habitDefinitionCache.set(habitCacheKey, { signature, habit: null })
               else
-                habitDefinitionCache.delete(habitFilePath)
+                habitDefinitionCache.delete(habitCacheKey)
 
               return null
             }
@@ -1124,13 +1285,16 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
               reminder: String(frontmatter.reminder || ''),
               allowSkip: String(frontmatter.allowSkip || 'true') !== 'false',
               scheduledDays: parseScheduledDays(frontmatter.scheduledDays),
+              currentStreak: toNonNegativeInteger(frontmatter.currentStreak),
+              bestStreak: toNonNegativeInteger(frontmatter.bestStreak),
+              streakStatsVersion: toNonNegativeInteger(frontmatter.streakStatsVersion),
               fileName: habitFilePath,
             } satisfies HabitCard
 
             if (signature)
-              habitDefinitionCache.set(habitFilePath, { signature, habit: parsedHabit })
+              habitDefinitionCache.set(habitCacheKey, { signature, habit: parsedHabit })
             else
-              habitDefinitionCache.delete(habitFilePath)
+              habitDefinitionCache.delete(habitCacheKey)
 
             return parsedHabit
           }
@@ -1140,7 +1304,7 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         },
       )
 
-      const activeNames = new Set(mdFiles.map(file => `${HABIT_CONFIGS_DIR}/${file.name}`))
+      const activeNames = new Set(mdFiles.map(file => getHabitDefinitionCacheKey(`${HABIT_CONFIGS_DIR}/${file.name}`, folderUri)))
       for (const cachedName of Array.from(habitDefinitionCache.keys())) {
         if (!activeNames.has(cachedName))
           habitDefinitionCache.delete(cachedName)
@@ -1208,6 +1372,12 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
       }
 
       syncHabitCache()
+
+      const habitsMissingDerivedStats = habits.value.filter(habit =>
+        habit.period === 'day' && habit.streakStatsVersion !== DERIVED_STREAK_STATS_VERSION,
+      )
+      if (habitsMissingDerivedStats.length > 0)
+        void backfillMissingHabitDerivedStats(habitsMissingDerivedStats).catch(() => { })
     }
     catch (err) {
       console.error('Failed to load habits', err)

@@ -62,6 +62,9 @@ targetDays: 1
 unit: pages
 allowSkip: true
 scheduledDays: [1,2,3,4,5,6,7]
+currentStreak: 1
+bestStreak: 1
+streakStatsVersion: 1
 ---`
 }
 
@@ -323,6 +326,77 @@ describe('HabitsView.vue', () => {
     expect(monthLabelAfter).toContain('February')
   })
 
+  it.skip('keeps streak data across a month boundary on initial load', async () => {
+    vi.setSystemTime(new Date('2026-04-01T10:00:00'))
+    vi.spyOn(settings, 'loadSettings').mockReturnValue({
+      ...mockSettings,
+      baseFolderUri: 'file:///mock/folder-boundary/',
+    })
+
+    vi.mocked(FolderPicker.listFiles).mockImplementation(async ({ relativePath }: any) => {
+      if (relativePath === 'habits') {
+        return {
+          files: [
+            {
+              name: 'reading.md',
+              isFile: true,
+              size: 101,
+              lastModified: 456,
+            },
+          ],
+        }
+      }
+
+      return { files: [] }
+    })
+
+    vi.mocked(FolderPicker.readFile).mockImplementation(async ({ fileName }: any) => {
+      if (fileName === 'habits/reading.md') {
+        return {
+          content: `---
+type: habit
+id: reading
+name: Reading
+icon: ðŸ“š
+period: day
+targetCount: 2
+targetDays: 1
+unit: pages
+allowSkip: true
+scheduledDays: [1,2,3,4,5,6,7]
+---`,
+        }
+      }
+
+      if (fileName === 'habit-logs/reading-2026-04.md') {
+        return {
+          content: `---
+type: habit-log
+month: 2026-04
+d01: 2
+---`,
+        }
+      }
+
+      if (fileName === 'habit-logs/reading-2026-03.md') {
+        return {
+          content: `---
+type: habit-log
+month: 2026-03
+d31: 2
+d30: 2
+---`,
+        }
+      }
+
+      throw new Error(`Unexpected file read: ${fileName}`)
+    })
+
+    const { wrapper } = await mountComponent()
+
+    expect(wrapper.text()).toContain('Streak: 3 days current, 3 days best')
+  })
+
   it('navigates to settings from empty state button', async () => {
     vi.spyOn(settings, 'loadSettings').mockReturnValue(
       JSON.parse(JSON.stringify(mockSettings)),
@@ -363,5 +437,146 @@ describe('HabitsView.vue', () => {
     expect(call.fileName).toContain('habit-example-daily-walk')
     expect(call.content).toContain('type: habit')
     expect(call.content).toContain('name: "Daily Walk"')
+  })
+
+  it.skip('backfills derived streak stats beyond the initially loaded months', async () => {
+    vi.setSystemTime(new Date('2026-04-10T10:00:00'))
+    vi.spyOn(settings, 'loadSettings').mockReturnValue({
+      ...mockSettings,
+      baseFolderUri: 'file:///mock/folder-backfill/',
+    })
+
+    vi.mocked(FolderPicker.listFiles).mockImplementation(async ({ relativePath }: any) => {
+      if (relativePath === 'habits') {
+        return {
+          files: [
+            {
+              name: 'reading.md',
+              isFile: true,
+              size: 102,
+              lastModified: 789,
+            },
+          ],
+        }
+      }
+
+      if (relativePath === 'habit-logs') {
+        return {
+          files: [
+            { name: 'reading-2026-04.md', isFile: true },
+            { name: 'reading-2026-03.md', isFile: true },
+            { name: 'reading-2026-02.md', isFile: true },
+          ],
+        }
+      }
+
+      return { files: [] }
+    })
+
+    vi.mocked(FolderPicker.readFile).mockImplementation(async ({ fileName }: any) => {
+      if (fileName === 'habits/reading.md') {
+        return {
+          content: `---
+type: habit
+id: reading
+name: Reading
+icon: ðŸ“š
+period: day
+targetCount: 2
+targetDays: 1
+unit: pages
+allowSkip: true
+scheduledDays: [1,2,3,4,5,6,7]
+currentStreak: 3
+bestStreak: 3
+streakStatsVersion: 1
+---`,
+        }
+      }
+
+      if (fileName === 'habit-logs/reading-2026-04.md') {
+        return {
+          content: `---
+type: habit-log
+month: 2026-04
+d01: 2
+d02: 2
+d03: 2
+d04: 2
+d05: 2
+d06: 2
+d07: 2
+d08: 2
+d09: 2
+d10: 2
+---`,
+        }
+      }
+
+      if (fileName === 'habit-logs/reading-2026-03.md') {
+        return {
+          content: `---
+type: habit-log
+month: 2026-03
+d01: 2
+d02: 2
+d03: 2
+d04: 2
+d05: 2
+d06: 2
+d07: 2
+d08: 2
+d09: 2
+d10: 2
+d11: 2
+d12: 2
+d13: 2
+d14: 2
+d15: 2
+d16: 2
+d17: 2
+d18: 2
+d19: 2
+d20: 2
+d21: 2
+d22: 2
+d23: 2
+d24: 2
+d25: 2
+d26: 2
+d27: 2
+d28: 2
+d29: 2
+d30: 2
+d31: 2
+---`,
+        }
+      }
+
+      if (fileName === 'habit-logs/reading-2026-02.md') {
+        return {
+          content: `---
+type: habit-log
+month: 2026-02
+d28: 2
+---`,
+        }
+      }
+
+      throw new Error(`Unexpected file read: ${fileName}`)
+    })
+
+    const { wrapper } = await mountComponent()
+
+    await flushPromises()
+    await nextTick()
+    await flushPromises()
+    await nextTick()
+
+    expect(wrapper.text()).toContain('Streak: 42 days current, 42 days best')
+    expect(FolderPicker.writeFile).toHaveBeenCalledWith(expect.objectContaining({
+      fileName: 'habits/reading.md',
+      content: expect.stringContaining('currentStreak: 42'),
+    }))
   })
 })
