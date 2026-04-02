@@ -2053,7 +2053,6 @@ onBeforeUnmount(() => {
               <p class="habit-detail-kicker">Individual habit view</p>
               <h2>{{ selectedHabit.name }}</h2>
               <p class="habit-detail-score">{{ getStreakSummary(selectedHabit) }}</p>
-              <p class="habit-detail-goal">{{ getTargetSummary(selectedHabit) }}</p>
             </div>
           </div>
           <div class="habit-detail-stats">
@@ -2263,9 +2262,6 @@ onBeforeUnmount(() => {
           <template v-else>
             <p class="habit-score">{{ getStreakSummary(habit) }}</p>
             <div class="habit-meta-row">
-              <!-- <span>{{ habit.period === 'week' ? 'Weekly' : 'Daily' }}</span> -->
-              <span>{{ getTargetSummary(habit) }}</span>
-              <!-- <span>{{ getSelectedDateTitle(habit) }}</span> -->
               <span v-if="habit.reminder">Reminder: {{ habit.reminder }}</span>
               <!-- <span class="mini-status">
                 <span class="mini-status-dot mini-status-dot--skip" />
@@ -2770,9 +2766,9 @@ h1 {
 
 .habit-weekday-rail {
   display: grid;
-  grid-template-rows: repeat(7, 12px);
-  gap: 3px;
-  padding-top: 22px;
+  grid-template-rows: repeat(7, 14px);
+  gap: 4px;
+  padding-top: 20px;
   width: 42px;
   justify-items: start;
   flex: 0 0 auto;
@@ -2780,7 +2776,7 @@ h1 {
 
 .habit-weekday-label {
   font-size: 0.66rem;
-  line-height: 12px;
+  line-height: 14px;
   color: var(--text-soft);
   font-weight: 700;
 }
