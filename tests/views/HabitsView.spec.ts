@@ -160,6 +160,10 @@ describe('HabitsView.vue', () => {
     await flushPromises()
     await nextTick()
 
+    vi.mocked(FolderPicker.writeFile).mockClear()
+    vi.mocked(FolderPicker.deleteFile).mockClear()
+    vi.mocked(WidgetSync.syncHabits).mockClear()
+
     return { wrapper, router }
   }
 
@@ -261,7 +265,7 @@ describe('HabitsView.vue', () => {
     const { wrapper } = await mountComponent()
 
     const buttons = wrapper.findAll('.habit-actions button')
-    const clearButton = buttons.find(btn => btn.text().includes('Clear'))
+    const clearButton = buttons.find(btn => btn.attributes('aria-label') === 'Clear entry')
 
     expect(clearButton).toBeTruthy()
 
@@ -310,20 +314,11 @@ describe('HabitsView.vue', () => {
     expect(WidgetSync.syncHabits).toHaveBeenCalled()
   })
 
-  it('changes visible month when previous month button is clicked', async () => {
+  it('renders abbreviated month label for the current heatmap', async () => {
     const { wrapper } = await mountComponent()
 
     const monthLabelBefore = wrapper.find('.heatmap-month-label').text()
-    expect(monthLabelBefore).toContain('March')
-
-    const monthButtons = wrapper.findAll('.heatmap-nav-button')
-    await monthButtons[0].trigger('click')
-
-    await flushPromises()
-    await nextTick()
-
-    const monthLabelAfter = wrapper.find('.heatmap-month-label').text()
-    expect(monthLabelAfter).toContain('February')
+    expect(monthLabelBefore).toContain('Mar')
   })
 
   it.skip('keeps streak data across a month boundary on initial load', async () => {

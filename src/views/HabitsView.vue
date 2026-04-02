@@ -65,7 +65,7 @@ const HABITS_REFRESH_DEBOUNCE_MS = 4000
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 const DERIVED_STREAK_STATS_VERSION = 2
-const SHOULD_AUTO_SEED_DEV_HABITS = import.meta.env.DEV
+const SHOULD_AUTO_SEED_DEV_HABITS = import.meta.env.DEV && import.meta.env.MODE !== 'test'
 
 let cachedFolderUri = ''
 let cachedAt = 0
