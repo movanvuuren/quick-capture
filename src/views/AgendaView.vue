@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { CalendarDays, ChevronLeft, ChevronRight, Star } from 'lucide-vue-next'
 import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
@@ -841,7 +841,7 @@ function goBack() {
           <p class="empty-text">No pending tasks due.</p>
         </div>
         <button v-for="task in tasksForSelectedDate" :key="task.id" class="task-item" @click="openTaskFile(task)">
-          <span v-if="task.isHighPriority" class="priority-dot" aria-label="High priority" />
+          <Star v-if="task.isHighPriority" :size="12" fill="currentColor" class="priority-dot" aria-label="High priority" />
           <span class="task-body">{{ task.body }}</span>
         </button>
       </div>
@@ -1166,11 +1166,8 @@ h1 {
 
 .priority-dot {
   flex-shrink: 0;
-  margin-top: 4px;
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: var(--danger);
+  margin-top: 3px;
+  color: #facc15;
 }
 
 .task-body {

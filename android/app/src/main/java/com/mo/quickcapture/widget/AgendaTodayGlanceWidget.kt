@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
-import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.action.ActionParameters
@@ -26,8 +25,6 @@ import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
-import androidx.glance.Image
-import androidx.glance.ImageProvider
 import androidx.glance.color.ColorProvider
 import androidx.glance.layout.*
 import androidx.glance.state.PreferencesGlanceStateDefinition
@@ -36,7 +33,6 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import com.mo.quickcapture.MainActivity
-import com.mo.quickcapture.R
 import com.mo.quickcapture.WidgetRefreshScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -322,7 +318,7 @@ private fun tomorrowIso(): String {
 }
 
 // Use lazy to avoid ExceptionInInitializerError during class loading
-private val taskLineRegex by lazy { Regex("""^\s*-\s\[([fFxX\s-]*?)\](?:\s+(.*))?$""") }
+private val taskLineRegex by lazy { Regex("""^\s*-\s\[([fF*xX\s-]*?)\](?:\s+(.*))?$""") }
 private val dueDateRegex by lazy { Regex("""\uD83D\uDCC5\s*(\d{4}-\d{2}-\d{2})""") } // \uD83D\uDCC5 is 📅
 
 private fun parseTaskLine(line: String): AgendaTask? {
@@ -333,8 +329,8 @@ private fun parseTaskLine(line: String): AgendaTask? {
     if (body.isEmpty())
         return null
 
-    val isHighPriority = markerRaw.contains('f')
-    val stateChar = markerRaw.replace("f", "").trim().ifEmpty { " " }
+    val isHighPriority = markerRaw.contains('f') || markerRaw.contains('*')
+    val stateChar = markerRaw.replace(Regex("[f*]"), "").trim().ifEmpty { " " }
     val state = when (stateChar) {
         "x" -> "done"
         "-" -> "cancelled"
@@ -362,7 +358,7 @@ private fun serializeTaskLine(state: String, body: String, dueDate: String?, isH
     }
 
     if (isHighPriority && state == "pending") {
-        marker = (marker + "f").trim().ifEmpty { "f" }
+        marker = (marker + "*").trim().ifEmpty { "*" }
     }
 
     var normalizedBody = body.replace(Regex("""\s*\uD83D\uDCC5\s*\d{4}-\d{2}-\d{2}\s*"""), " ").trim()
@@ -614,11 +610,13 @@ private fun TaskRow(task: AgendaTask, palette: WidgetPalette) {
             val tags = displayTags(task.body)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (task.isHighPriority) {
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_flame),
-                        contentDescription = "High Priority",
-                        modifier = GlanceModifier.width(14.dp).height(14.dp),
-                        colorFilter = ColorFilter.tint(ColorProvider(day = palette.failColor, night = palette.failColor))
+                    Text(
+                        text = "★",
+                        style = TextStyle(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = ColorProvider(day = Color(0xFFFACC15), night = Color(0xFFFACC15))
+                        ),
                     )
                     Spacer(modifier = GlanceModifier.width(4.dp))
                 }

@@ -10,7 +10,7 @@ export interface ParsedTaskLine {
   repeat?: TaskRepeat
 }
 
-const TASK_LINE_REGEX = /^\s*-\s\[([fFxX-\s]*?)\](?:\s+(.*))?$/
+const TASK_LINE_REGEX = /^\s*-\s\[([fF*xX-\s]*?)\](?:\s+(.*))?$/
 
 export function stateToCheckbox(state: TodoState): string {
   switch (state) {
@@ -40,8 +40,8 @@ export function parseTaskLine(line: string): ParsedTaskLine | null {
   const body = rawBody.trim()
 
   const markerStr = markerRaw.toLowerCase()
-  const isHighPriority = markerStr.includes('f')
-  const stateChar = markerStr.replace(/f/g, '').trim() || ' '
+  const isHighPriority = markerStr.includes('f') || markerStr.includes('*')
+  const stateChar = markerStr.replace(/[f*]/g, '').trim() || ' '
 
   const dueMatch = body.match(/📅\s*(\d{4}-\d{2}-\d{2})/)
   const dueDate = dueMatch?.[1]
@@ -67,7 +67,7 @@ export function serializeTaskLine(
 ): string {
   let marker = stateToCheckbox(state)
   if (isHighPriority && state === 'pending')
-    marker = `${marker}f`.trim() || 'f'
+    marker = `${marker}*`.trim() || '*'
 
   let normalizedBody = body.replace(/\s*📅\s*\d{4}-\d{2}-\d{2}\s*/g, ' ').trim()
   if (dueDate)

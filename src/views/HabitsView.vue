@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import type { CSSProperties } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import type { CSSProperties, ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Check, ChevronLeft, ChevronRight, Flame, SkipForward, X } from 'lucide-vue-next'
+import { Check, Eraser, Flame, SkipForward, X } from 'lucide-vue-next'
 import { parseFrontmatter } from '../lib/lists'
 import { getFileSignature, mapWithConcurrency } from '../lib/asyncUtils'
 import { getThemeAccentColor, loadSettings } from '../lib/settings'
@@ -45,7 +45,6 @@ interface HabitSnapshot {
   habits: HabitCard[]
   habitLogs: Record<string, Record<string, HabitLogValue>>
   selectedDates: Record<string, string>
-  visibleMonthOffsets: Record<string, number>
   loadedHabitLogMonths: Record<string, number>
 }
 
@@ -54,10 +53,10 @@ interface CachedHabitDefinition {
   habit: HabitCard | null
 }
 
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 const HABIT_CONFIGS_DIR = 'habits'
 const HABIT_LOGS_DIR = 'habit-logs'
-const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 2
+const HABIT_LOG_INITIAL_MONTHS_TO_LOAD = 1
+const HABIT_DETAIL_MONTH_COUNT = 12
 const HABIT_LOG_READ_CONCURRENCY = 6
 const HABIT_LAZY_LOAD_CONCURRENCY = 3
 const HABIT_DEFINITION_READ_CONCURRENCY = 6
@@ -65,7 +64,8 @@ const HABIT_DERIVED_STATS_SYNC_CONCURRENCY = 2
 const HABITS_REFRESH_DEBOUNCE_MS = 4000
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
-const DERIVED_STREAK_STATS_VERSION = 1
+const DERIVED_STREAK_STATS_VERSION = 2
+const SHOULD_AUTO_SEED_DEV_HABITS = import.meta.env.DEV
 
 let cachedFolderUri = ''
 let cachedAt = 0
@@ -82,7 +82,6 @@ const error = ref('')
 const habits = ref<HabitCard[]>([])
 const habitLogs = ref<Record<string, Record<string, HabitLogValue>>>({})
 const selectedDates = ref<Record<string, string>>({})
-const visibleMonthOffsets = ref<Record<string, number>>({})
 const loadedHabitLogMonths = ref<Record<string, number>>({})
 const isHabitLogLazyLoading = ref<Record<string, boolean>>({})
 const habitSaving = ref<Record<string, boolean>>({})
@@ -90,6 +89,11 @@ const habitSaveErrors = ref<Record<string, string>>({})
 const isCreatingExample = ref(false)
 const exampleError = ref('')
 const isHabitCardHydrating = ref<Record<string, boolean>>({})
+const isHabitDetailLoading = ref(false)
+const habitTimelineRefs = new Map<string, HTMLElement>()
+const habitTimelineTouchStartX = new Map<string, number>()
+const habitTimelinePointerStartX = new Map<string, number>()
+let hasAttemptedDevHabitSeed = false
 
 const hasBaseFolder = computed(() => Boolean(settings.baseFolderUri))
 const EXTERNAL_REFRESH_COOLDOWN_MS = 1000
@@ -121,6 +125,16 @@ function readQueryValue(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
 
+function readRouteValue(value: unknown): string {
+  if (Array.isArray(value))
+    return typeof value[0] === 'string' ? value[0] : ''
+  return typeof value === 'string' ? value : ''
+}
+
+function getRequestedHabitKey(): string {
+  return readRouteValue(route.params.habitId)
+}
+
 function applyRouteHabitSelection() {
   const pulse = readQueryValue(route.query.pulse)
   if (pulse && pulse === lastHandledRoutePulse)
@@ -149,6 +163,19 @@ function goBack() {
   router.replace('/')
 }
 
+function goToHabitList() {
+  if (selectedHabit.value)
+    collapseHabitTimelineToCurrent(selectedHabit.value)
+  router.replace('/habits')
+}
+
+function openHabitDetail(habit: HabitCard) {
+  const habitKey = habit.id || habit.fileName
+  router.push({
+    path: `/habits/${encodeURIComponent(habitKey)}`,
+  })
+}
+
 function cloneSnapshot(snapshot: HabitSnapshot): HabitSnapshot {
   return {
     habits: snapshot.habits.map(habit => ({ ...habit, scheduledDays: [...habit.scheduledDays] })),
@@ -156,7 +183,6 @@ function cloneSnapshot(snapshot: HabitSnapshot): HabitSnapshot {
       Object.entries(snapshot.habitLogs).map(([fileName, logs]) => [fileName, { ...logs }]),
     ),
     selectedDates: { ...snapshot.selectedDates },
-    visibleMonthOffsets: { ...snapshot.visibleMonthOffsets },
     loadedHabitLogMonths: { ...snapshot.loadedHabitLogMonths },
   }
 }
@@ -166,7 +192,6 @@ function applyHabitSnapshot(snapshot: HabitSnapshot) {
   habits.value = cloned.habits
   habitLogs.value = cloned.habitLogs
   selectedDates.value = cloned.selectedDates
-  visibleMonthOffsets.value = cloned.visibleMonthOffsets
   loadedHabitLogMonths.value = cloned.loadedHabitLogMonths
 }
 
@@ -180,7 +205,6 @@ function syncHabitCache() {
     habits: habits.value,
     habitLogs: habitLogs.value,
     selectedDates: selectedDates.value,
-    visibleMonthOffsets: visibleMonthOffsets.value,
     loadedHabitLogMonths: loadedHabitLogMonths.value,
   })
 }
@@ -286,6 +310,218 @@ function serializeHabitMonthLog(habit: HabitCard, monthIso: string, monthEntries
   lines.push('')
   lines.push('Habit log data file.')
   return `${lines.join('\n')}\n`
+}
+
+function createDevHabitContent(options: {
+  id: string
+  name: string
+  icon: string
+  unit: string
+  reminder: string
+  created: string
+  fileName: string
+}): string {
+  return [
+    '---',
+    'type: habit',
+    `id: ${options.id}`,
+    `name: ${JSON.stringify(options.name)}`,
+    'active: true',
+    'period: day',
+    'targetCount: 1',
+    'targetDays: 1',
+    'scheduledDays: [1, 2, 3, 4, 5, 6, 7]',
+    'allowSkip: true',
+    `unit: ${JSON.stringify(options.unit)}`,
+    `icon: ${JSON.stringify(options.icon)}`,
+    `reminder: ${JSON.stringify(options.reminder)}`,
+    'currentStreak: 0',
+    'bestStreak: 0',
+    `streakStatsVersion: ${DERIVED_STREAK_STATS_VERSION}`,
+    `created: ${options.created}`,
+    '---',
+    '',
+    `Sample dev habit for ${options.name}.`,
+    '',
+  ].join('\n')
+}
+
+function createDevHabitEntries(pattern: (day: Date, today: string) => HabitLogValue | null, months = 6): Record<string, HabitLogValue>[] {
+  const today = todayIso()
+  return Array.from({ length: months }, (_, monthIndex) => {
+    const monthDate = getMonthDateForOffset(monthIndex)
+    const totalDays = daysInMonth(monthDate)
+    const entries: Record<string, HabitLogValue> = {}
+
+    for (let day = 1; day <= totalDays; day += 1) {
+      const date = new Date(monthDate.getFullYear(), monthDate.getMonth(), day)
+      const iso = dateToIso(date)
+      if (iso > today)
+        continue
+      const value = pattern(date, today)
+      if (value !== null)
+        entries[iso] = value
+    }
+
+    return entries
+  })
+}
+
+function isEveryNthDay(date: Date, n: number, offset = 0): boolean {
+  return ((date.getDate() + offset) % n) === 0
+}
+
+async function seedDevHabitDataIfNeeded() {
+  if (!SHOULD_AUTO_SEED_DEV_HABITS || !settings.baseFolderUri || hasAttemptedDevHabitSeed)
+    return
+
+  hasAttemptedDevHabitSeed = true
+
+  try {
+    const listed = await FolderPicker.listFiles({ folderUri: settings.baseFolderUri })
+    const hasHabitConfig = listed.files.some(file =>
+      file.isFile
+      && file.name.toLowerCase().endsWith('.md')
+      && file.name.toLowerCase().includes('habit'),
+    )
+
+    if (hasHabitConfig)
+      return
+
+    const created = todayIso()
+    const sampleHabits = [
+      {
+        id: 'dev-daily-walk',
+        name: 'Daily Walk',
+        icon: '🚶',
+        unit: 'walk',
+        reminder: '06:30',
+        fileName: `${HABIT_CONFIGS_DIR}/habit-dev-daily-walk.md`,
+        entries: createDevHabitEntries((date) => {
+          const weekday = date.getDay()
+          if (weekday === 0)
+            return 'skip'
+          if (weekday === 6)
+            return isEveryNthDay(date, 2) ? 1 : null
+          return 1
+        }),
+      },
+      {
+        id: 'dev-reading',
+        name: 'Read 20 min',
+        icon: '📚',
+        unit: 'session',
+        reminder: '20:30',
+        fileName: `${HABIT_CONFIGS_DIR}/habit-dev-reading.md`,
+        entries: createDevHabitEntries((date, today) => {
+          const iso = dateToIso(date)
+          if (iso === today)
+            return null
+          if (date.getDay() === 2)
+            return 'fail'
+          return date.getDate() % 5 === 0 ? 'skip' : 1
+        }),
+      },
+      {
+        id: 'dev-stretch',
+        name: 'Morning Stretch',
+        icon: '\uD83E\uDDD8',
+        unit: 'stretch',
+        reminder: '07:00',
+        fileName: `${HABIT_CONFIGS_DIR}/habit-dev-stretch.md`,
+        entries: createDevHabitEntries((date, today) => {
+          const iso = dateToIso(date)
+          if (iso === today)
+            return 1
+          if (isEveryNthDay(date, 9))
+            return 'fail'
+          if (isEveryNthDay(date, 6, 1))
+            return 'skip'
+          return 1
+        }),
+      },
+      {
+        id: 'dev-journal',
+        name: 'Journal',
+        icon: '\u270D\uFE0F',
+        unit: 'entry',
+        reminder: '21:15',
+        fileName: `${HABIT_CONFIGS_DIR}/habit-dev-journal.md`,
+        entries: createDevHabitEntries((date, today) => {
+          const iso = dateToIso(date)
+          if (iso === today)
+            return null
+          if (date.getDay() === 5 || isEveryNthDay(date, 4))
+            return null
+          if (isEveryNthDay(date, 11))
+            return 'fail'
+          return 1
+        }),
+      },
+    ]
+
+    for (const habit of sampleHabits) {
+      await FolderPicker.writeFile({
+        folderUri: settings.baseFolderUri,
+        fileName: habit.fileName,
+        content: createDevHabitContent({
+          id: habit.id,
+          name: habit.name,
+          icon: habit.icon,
+          unit: habit.unit,
+          reminder: habit.reminder,
+          created,
+          fileName: habit.fileName,
+        }),
+      })
+
+      for (let monthOffset = 0; monthOffset < habit.entries.length; monthOffset += 1) {
+        const monthEntries = habit.entries[monthOffset]
+        if (!monthEntries || Object.keys(monthEntries).length === 0)
+          continue
+
+        const monthIso = monthIsoFromDate(getMonthDateForOffset(monthOffset))
+        await FolderPicker.writeFile({
+          folderUri: settings.baseFolderUri,
+          fileName: getHabitLogMonthFileName({
+            id: habit.id,
+            name: habit.name,
+            icon: habit.icon,
+            period: 'day',
+            targetCount: 1,
+            targetDays: 1,
+            unit: habit.unit,
+            reminder: habit.reminder,
+            allowSkip: true,
+            scheduledDays: [1, 2, 3, 4, 5, 6, 7],
+            currentStreak: 0,
+            bestStreak: 0,
+            streakStatsVersion: DERIVED_STREAK_STATS_VERSION,
+            fileName: habit.fileName,
+          }, monthIso),
+          content: serializeHabitMonthLog({
+            id: habit.id,
+            name: habit.name,
+            icon: habit.icon,
+            period: 'day',
+            targetCount: 1,
+            targetDays: 1,
+            unit: habit.unit,
+            reminder: habit.reminder,
+            allowSkip: true,
+            scheduledDays: [1, 2, 3, 4, 5, 6, 7],
+            currentStreak: 0,
+            bestStreak: 0,
+            streakStatsVersion: DERIVED_STREAK_STATS_VERSION,
+            fileName: habit.fileName,
+          }, monthIso, monthEntries),
+        })
+      }
+    }
+  }
+  catch (err) {
+    console.warn('Failed to seed dev habits', err)
+  }
 }
 
 function parseHabitMonthLog(content: string): Record<string, HabitLogValue> {
@@ -427,27 +663,12 @@ function isScheduledForDate(habit: HabitCard, date: Date): boolean {
   return habit.scheduledDays.includes(toWeekdayIndex(date))
 }
 
-function getVisibleMonthOffset(habit: HabitCard): number {
-  return Math.max(0, visibleMonthOffsets.value[habit.fileName] || 0)
-}
-
-function getVisibleMonthDate(habit: HabitCard): Date {
+function getMonthDateForOffset(monthOffset: number): Date {
   const date = new Date()
   date.setHours(0, 0, 0, 0)
   date.setDate(1)
-  date.setMonth(date.getMonth() - getVisibleMonthOffset(habit))
+  date.setMonth(date.getMonth() - Math.max(0, monthOffset))
   return date
-}
-
-function getVisibleMonthLabel(habit: HabitCard): string {
-  return new Intl.DateTimeFormat(undefined, {
-    month: 'long',
-    year: 'numeric',
-  }).format(getVisibleMonthDate(habit))
-}
-
-function canShowNextMonth(habit: HabitCard): boolean {
-  return getVisibleMonthOffset(habit) > 0
 }
 
 function isLoadingOlderMonths(habit: HabitCard): boolean {
@@ -456,27 +677,6 @@ function isLoadingOlderMonths(habit: HabitCard): boolean {
 
 function isHydratingHabitCard(habit: HabitCard): boolean {
   return Boolean(isHabitCardHydrating.value[habit.fileName])
-}
-
-function showPreviousMonth(habit: HabitCard) {
-  const nextOffset = getVisibleMonthOffset(habit) + 1
-  visibleMonthOffsets.value = {
-    ...visibleMonthOffsets.value,
-    [habit.fileName]: nextOffset,
-  }
-
-  void ensureHabitLogsLoadedForOffset(habit, nextOffset)
-}
-
-function showNextMonth(habit: HabitCard) {
-  const current = getVisibleMonthOffset(habit)
-  if (current <= 0)
-    return
-
-  visibleMonthOffsets.value = {
-    ...visibleMonthOffsets.value,
-    [habit.fileName]: current - 1,
-  }
 }
 
 async function ensureHabitLogsLoadedForOffset(habit: HabitCard, monthOffset: number) {
@@ -525,11 +725,11 @@ async function ensureHabitLogsLoadedForOffset(habit: HabitCard, monthOffset: num
   }
 }
 
-function computeHeatmap(habit: HabitCard): HeatmapCell[] {
-  const monthDate = getVisibleMonthDate(habit)
+function computeHeatmapForMonth(habit: HabitCard, monthOffset: number): HeatmapCell[] {
+  const monthDate = getMonthDateForOffset(monthOffset)
   const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1)
   const totalDays = daysInMonth(monthDate)
-  const leadingPadding = monthStart.getDay()
+  const leadingPadding = (monthStart.getDay() + 6) % 7
   const logs = habitLogs.value[habit.fileName] || {}
   const today = todayIso()
   const cells: HeatmapCell[] = []
@@ -553,13 +753,13 @@ function computeHeatmap(habit: HabitCard): HeatmapCell[] {
 
     if (isFuture) {
       cells.push({
-        date: `placeholder-future-${iso}`,
+        date: iso,
         value: null,
         level: 0,
         isToday: false,
-        isScheduled: false,
+        isScheduled: isScheduledForDate(habit, date),
         isFuture: true,
-        isPlaceholder: true,
+        isPlaceholder: false,
       })
       continue
     }
@@ -615,15 +815,147 @@ function computeHeatmap(habit: HabitCard): HeatmapCell[] {
   return cells
 }
 
-const heatmapMap = computed(() => {
-  const m = new Map<string, HeatmapCell[]>()
-  for (const habit of habits.value)
-    m.set(habit.fileName, computeHeatmap(habit))
-  return m
-})
+function getHeatmapForMonth(habit: HabitCard, monthOffset: number): HeatmapCell[] {
+  return computeHeatmapForMonth(habit, monthOffset)
+}
 
-function getHeatmap(habit: HabitCard): HeatmapCell[] {
-  return heatmapMap.value.get(habit.fileName) ?? []
+function getLoadedMonthOffsets(habit: HabitCard): number[] {
+  const loadedMonths = Math.max(1, loadedHabitLogMonths.value[habit.fileName] || HABIT_LOG_INITIAL_MONTHS_TO_LOAD)
+  return Array.from({ length: loadedMonths }, (_, index) => loadedMonths - 1 - index)
+}
+
+function getTimelineMonthLabel(monthOffset: number): string {
+  return new Intl.DateTimeFormat(undefined, { month: 'short' }).format(getMonthDateForOffset(monthOffset))
+}
+
+function getTimelineWeekdayLabel(index: number): string {
+  return ['M', 'T', 'W', 'T', 'F', 'S', 'S'][index] || ''
+}
+
+function setHabitTimelineRef(fileName: string, element: Element | ComponentPublicInstance | null) {
+  if (element instanceof HTMLElement)
+    habitTimelineRefs.set(fileName, element)
+  else
+    habitTimelineRefs.delete(fileName)
+}
+
+async function scrollHabitTimelineToCurrent(habit: HabitCard) {
+  await nextTick()
+  const element = habitTimelineRefs.get(habit.fileName)
+  if (!element)
+    return
+  element.scrollLeft = element.scrollWidth
+}
+
+async function scrollAllHabitTimelinesToCurrent() {
+  await nextTick()
+  await Promise.all(habits.value.map(habit => scrollHabitTimelineToCurrent(habit)))
+}
+
+async function loadOlderTimelineMonths(habit: HabitCard, element: HTMLElement) {
+  if (isLoadingOlderMonths(habit))
+    return
+
+  const previousLoadedMonths = loadedHabitLogMonths.value[habit.fileName] || HABIT_LOG_INITIAL_MONTHS_TO_LOAD
+  const previousScrollWidth = element.scrollWidth
+  const previousScrollLeft = element.scrollLeft
+  await ensureHabitLogsLoadedForOffset(habit, previousLoadedMonths)
+  const nextLoadedMonths = loadedHabitLogMonths.value[habit.fileName] || HABIT_LOG_INITIAL_MONTHS_TO_LOAD
+  if (nextLoadedMonths <= previousLoadedMonths)
+    return
+
+  await nextTick()
+  const updatedElement = habitTimelineRefs.get(habit.fileName)
+  if (!updatedElement)
+    return
+  updatedElement.scrollLeft = previousScrollLeft + (updatedElement.scrollWidth - previousScrollWidth)
+}
+
+function collapseHabitTimelineToCurrent(habit: HabitCard) {
+  const loadedMonths = loadedHabitLogMonths.value[habit.fileName] || HABIT_LOG_INITIAL_MONTHS_TO_LOAD
+  if (loadedMonths <= HABIT_LOG_INITIAL_MONTHS_TO_LOAD)
+    return
+
+  loadedHabitLogMonths.value = {
+    ...loadedHabitLogMonths.value,
+    [habit.fileName]: HABIT_LOG_INITIAL_MONTHS_TO_LOAD,
+  }
+
+  void scrollHabitTimelineToCurrent(habit)
+}
+
+function handleHabitTimelineTouchStart(habit: HabitCard, event: TouchEvent) {
+  const touch = event.touches[0]
+  if (!touch)
+    return
+  habitTimelineTouchStartX.set(habit.fileName, touch.clientX)
+}
+
+function handleHabitTimelinePointerDown(habit: HabitCard, event: PointerEvent) {
+  if (event.pointerType === 'mouse' || event.pointerType === 'pen')
+    habitTimelinePointerStartX.set(habit.fileName, event.clientX)
+}
+
+function handleHabitTimelineTouchEnd(habit: HabitCard, event: TouchEvent, isDetail = false) {
+  const startX = habitTimelineTouchStartX.get(habit.fileName)
+  habitTimelineTouchStartX.delete(habit.fileName)
+  if (startX === undefined)
+    return
+
+  const touch = event.changedTouches[0]
+  if (!touch)
+    return
+
+  const deltaX = touch.clientX - startX
+  const element = habitTimelineRefs.get(habit.fileName)
+  if (!element)
+    return
+
+  if (!isDetail && deltaX > 32 && element.scrollLeft <= 24)
+    void loadOlderTimelineMonths(habit, element)
+
+  const rightEdgeThreshold = Math.max(20, Math.round(element.clientWidth * 0.05))
+  if (
+    !isDetail
+    && deltaX < -24
+    && element.scrollWidth - element.clientWidth - element.scrollLeft <= rightEdgeThreshold
+  ) {
+    collapseHabitTimelineToCurrent(habit)
+  }
+}
+
+function handleHabitTimelinePointerUp(habit: HabitCard, event: PointerEvent, isDetail = false) {
+  const startX = habitTimelinePointerStartX.get(habit.fileName)
+  habitTimelinePointerStartX.delete(habit.fileName)
+  if (startX === undefined)
+    return
+
+  const deltaX = event.clientX - startX
+  const element = habitTimelineRefs.get(habit.fileName)
+  if (!element)
+    return
+
+  if (!isDetail && deltaX > 32 && element.scrollLeft <= 24)
+    void loadOlderTimelineMonths(habit, element)
+
+  const rightEdgeThreshold = Math.max(20, Math.round(element.clientWidth * 0.05))
+  if (
+    !isDetail
+    && deltaX < -24
+    && element.scrollWidth - element.clientWidth - element.scrollLeft <= rightEdgeThreshold
+  ) {
+    collapseHabitTimelineToCurrent(habit)
+  }
+}
+
+function handleHabitTimelineScroll(habit: HabitCard, event: Event, isDetail = false) {
+  const element = event.target
+  if (!(element instanceof HTMLElement))
+    return
+
+  const preloadThreshold = Math.max(120, Math.round(element.clientWidth * 0.2))
+  if (!isDetail && element.scrollLeft <= preloadThreshold)
+    void loadOlderTimelineMonths(habit, element)
 }
 
 function getSelectedDate(habit: HabitCard): string {
@@ -688,6 +1020,64 @@ function getTargetSummary(habit: HabitCard): string {
 
   return `Goal: ${habit.targetCount} ${habit.unit} per day`
 }
+
+function formatMonthLabel(monthOffset: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'long',
+    year: 'numeric',
+  }).format(getMonthDateForOffset(monthOffset))
+}
+
+const selectedHabit = computed(() => {
+  const habitKey = getRequestedHabitKey()
+  if (!habitKey)
+    return null
+
+  const decodedKey = decodeURIComponent(habitKey)
+  return habits.value.find(habit => habit.id === decodedKey || habit.fileName === decodedKey) ?? null
+})
+
+const isHabitDetailView = computed(() => Boolean(getRequestedHabitKey() && selectedHabit.value))
+
+const detailMonthOffsets = computed(() =>
+  selectedHabit.value
+    ? Array.from({ length: HABIT_DETAIL_MONTH_COUNT }, (_, index) => HABIT_DETAIL_MONTH_COUNT - 1 - index)
+    : [],
+)
+
+const selectedHabitMonthSummaries = computed(() => {
+  if (!selectedHabit.value)
+    return []
+  return detailMonthOffsets.value.map(monthOffset => ({
+    offset: monthOffset,
+    label: formatMonthLabel(monthOffset),
+  }))
+})
+
+async function preloadHabitDetailHistory(habit: HabitCard | null) {
+  if (!habit)
+    return
+
+  if (isHabitDetailLoading.value)
+    return
+
+  isHabitDetailLoading.value = true
+
+  try {
+    await ensureHabitLogsLoadedForOffset(habit, HABIT_DETAIL_MONTH_COUNT - 1)
+  }
+  finally {
+    isHabitDetailLoading.value = false
+  }
+}
+
+watch(
+  () => [route.params.habitId, habits.value.map(habit => habit.fileName).join('|')] as const,
+  async () => {
+    await preloadHabitDetailHistory(selectedHabit.value)
+  },
+  { immediate: false },
+)
 
 async function writeHabitLogMonth(habit: HabitCard, dateIso: string) {
   if (!settings.baseFolderUri)
@@ -931,7 +1321,7 @@ function isSuccessValue(habit: HabitCard, value: HabitLogValue | null): boolean 
 }
 
 function isNeutralValue(value: HabitLogValue | null): boolean {
-  return value === 'skip'
+  return value === 'skip' || value === null
 }
 
 function computeDailyStreakStats(
@@ -1041,7 +1431,7 @@ function applyHabitDerivedStats(habitFileName: string, currentStreak: number, be
 }
 
 async function refreshHabitDerivedStats(habit: HabitCard) {
-  if (!settings.baseFolderUri || habit.period !== 'day')
+  if (!settings.baseFolderUri || habit.period === 'month')
     return
 
   try {
@@ -1082,43 +1472,6 @@ async function backfillMissingHabitDerivedStats(habitsToBackfill: HabitCard[]) {
   )
 }
 
-function getWeeklyScoreFromToday(habit: HabitCard): { success: number, total: number } {
-  const log = habitLogs.value[habit.fileName] || {}
-  const keys = Object.keys(log).sort()
-  const firstLoggedDate = keys[0]
-  if (!firstLoggedDate)
-    return { success: 0, total: 0 }
-
-  const today = isoToDate(todayIso())
-  let success = 0
-  let total = 0
-
-  for (let offset = 0; offset <= 365; offset += 1) {
-    const date = dateAddDays(today, -offset)
-    const iso = dateToIso(date)
-    if (iso < firstLoggedDate)
-      break
-
-    if (!isScheduledForDate(habit, date))
-      continue
-
-    const value = log[iso] ?? null
-
-    if (isNeutralValue(value))
-      continue
-
-    total += 1
-
-    if (isSuccessValue(habit, value))
-      success += 1
-  }
-
-  return {
-    success,
-    total,
-  }
-}
-
 function getMonthlyScoreFromCurrentMonth(habit: HabitCard): { success: number, required: number } {
   const log = habitLogs.value[habit.fileName] || {}
   const today = new Date()
@@ -1144,10 +1497,12 @@ function getMonthlyScoreFromCurrentMonth(habit: HabitCard): { success: number, r
 }
 
 function getCurrentStreak(habit: HabitCard): number {
-  if (habit.period === 'week')
-    return getWeeklyScoreFromToday(habit).success
+  if (habit.period === 'month') {
+    const { success } = getMonthlyScoreFromCurrentMonth(habit)
+    return success
+  }
 
-  if (habit.period === 'day' && habit.streakStatsVersion === DERIVED_STREAK_STATS_VERSION)
+  if (habit.streakStatsVersion === DERIVED_STREAK_STATS_VERSION)
     return habit.currentStreak
 
   const log = habitLogs.value[habit.fileName] || {}
@@ -1155,10 +1510,12 @@ function getCurrentStreak(habit: HabitCard): number {
 }
 
 function getBestStreak(habit: HabitCard): number {
-  if (habit.period === 'week')
-    return getWeeklyScoreFromToday(habit).total
+  if (habit.period === 'month') {
+    const { required } = getMonthlyScoreFromCurrentMonth(habit)
+    return required
+  }
 
-  if (habit.period === 'day' && habit.streakStatsVersion === DERIVED_STREAK_STATS_VERSION)
+  if (habit.streakStatsVersion === DERIVED_STREAK_STATS_VERSION)
     return habit.bestStreak
 
   const log = habitLogs.value[habit.fileName] || {}
@@ -1166,11 +1523,6 @@ function getBestStreak(habit: HabitCard): number {
 }
 
 function computeStreakSummary(habit: HabitCard): string {
-  if (habit.period === 'week') {
-    const { success, total } = getWeeklyScoreFromToday(habit)
-    return `Streak: ${success}/${total} days`
-  }
-
   if (habit.period === 'month') {
     const { success, required } = getMonthlyScoreFromCurrentMonth(habit)
     return `Month: ${success}/${required} days`
@@ -1200,7 +1552,6 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
     habits.value = []
     habitLogs.value = {}
     selectedDates.value = {}
-    visibleMonthOffsets.value = {}
     loadedHabitLogMonths.value = {}
     isHabitCardHydrating.value = {}
     cachedSnapshot = null
@@ -1232,6 +1583,8 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
 
   activeHabitsLoadPromise = (async () => {
     try {
+      await seedDevHabitDataIfNeeded()
+
       const listed = await FolderPicker.listFiles({
         folderUri,
         relativePath: HABIT_CONFIGS_DIR,
@@ -1318,10 +1671,6 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         acc[habit.fileName] = selectedDates.value[habit.fileName] || todayIso()
         return acc
       }, {})
-      visibleMonthOffsets.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
-        acc[habit.fileName] = getVisibleMonthOffset(habit)
-        return acc
-      }, {})
       loadedHabitLogMonths.value = habits.value.reduce<Record<string, number>>((acc, habit) => {
         acc[habit.fileName] = HABIT_LOG_INITIAL_MONTHS_TO_LOAD
         return acc
@@ -1370,11 +1719,12 @@ async function loadHabits(options: { preferCache?: boolean, force?: boolean } = 
         ...isHabitCardHydrating.value,
         ...hydratedFlagsByFile,
       }
+      await scrollAllHabitTimelinesToCurrent()
 
       syncHabitCache()
 
       const habitsMissingDerivedStats = habits.value.filter(habit =>
-        habit.period === 'day' && habit.streakStatsVersion !== DERIVED_STREAK_STATS_VERSION,
+        habit.period !== 'month' && habit.streakStatsVersion !== DERIVED_STREAK_STATS_VERSION,
       )
       if (habitsMissingDerivedStats.length > 0)
         void backfillMissingHabitDerivedStats(habitsMissingDerivedStats).catch(() => { })
@@ -1613,6 +1963,8 @@ onMounted(async () => {
   scheduleMidnightRefresh()
   await loadHabits({ preferCache: true })
   applyRouteHabitSelection()
+  await preloadHabitDetailHistory(selectedHabit.value)
+  await scrollAllHabitTimelinesToCurrent()
 })
 
 onActivated(async () => {
@@ -1623,6 +1975,8 @@ onActivated(async () => {
   Object.assign(settings, loadSettings())
   await loadHabits({ preferCache: true })
   applyRouteHabitSelection()
+  await preloadHabitDetailHistory(selectedHabit.value)
+  await scrollAllHabitTimelinesToCurrent()
 })
 
 onBeforeUnmount(() => {
@@ -1643,7 +1997,14 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="page-content" :style="pageContentStyle">
-      <PageHeader title="Habits" @back="goBack" />
+      <PageHeader :title="isHabitDetailView && selectedHabit ? selectedHabit.name : 'Habits'" @back="goBack">
+        <template v-if="isHabitDetailView" #right>
+          <button class="glass-button glass-button--secondary habit-detail-header-button" type="button"
+            @click="goToHabitList">
+            All habits
+          </button>
+        </template>
+      </PageHeader>
       <div class="header legacy-header">
         <button class="glass-icon-button back-button" aria-label="Go home" @click="goBack">
           ←
@@ -1684,6 +2045,82 @@ onBeforeUnmount(() => {
         <p class="hint">Example habit: Daily Walk (target 1 walk/day).</p>
       </div>
 
+      <div v-else-if="isHabitDetailView && selectedHabit" class="habit-detail-view">
+        <div class="card glass-card habit-detail-hero">
+          <div class="habit-detail-hero-main">
+            <div class="habit-detail-icon">{{ selectedHabit.icon || '•' }}</div>
+            <div class="habit-detail-intro">
+              <p class="habit-detail-kicker">Individual habit view</p>
+              <h2>{{ selectedHabit.name }}</h2>
+              <p class="habit-detail-score">{{ getStreakSummary(selectedHabit) }}</p>
+              <p class="habit-detail-goal">{{ getTargetSummary(selectedHabit) }}</p>
+            </div>
+          </div>
+          <div class="habit-detail-stats">
+            <div class="habit-detail-stat">
+              <span class="habit-detail-stat-label">Current streak</span>
+              <strong>{{ selectedHabit.currentStreak }}</strong>
+            </div>
+            <div class="habit-detail-stat">
+              <span class="habit-detail-stat-label">Best streak</span>
+              <strong>{{ selectedHabit.bestStreak }}</strong>
+            </div>
+            <div class="habit-detail-stat">
+              <span class="habit-detail-stat-label">Reminder</span>
+              <strong>{{ selectedHabit.reminder || 'None' }}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass-card habit-detail-months">
+          <div class="habit-detail-section-head">
+            <h3>Contribution History</h3>
+          </div>
+          <p v-if="isHabitDetailLoading" class="hint">Loading the last 12 months...</p>
+          <div class="habit-timeline-shell habit-timeline-shell--detail">
+            <div class="habit-weekday-rail" aria-hidden="true">
+              <span v-for="dayIndex in 7" :key="`${selectedHabit.fileName}-detail-day-${dayIndex}`"
+                class="habit-weekday-label">
+                {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+              </span>
+            </div>
+            <div :ref="element => setHabitTimelineRef(selectedHabit?.fileName || 'habit-detail', element)" class="habit-timeline-scroll"
+              role="img" :aria-label="`Heat map for ${selectedHabit.name}`"
+              @scroll="handleHabitTimelineScroll(selectedHabit, $event, true)"
+              @touchstart="handleHabitTimelineTouchStart(selectedHabit, $event)"
+              @touchend="handleHabitTimelineTouchEnd(selectedHabit, $event, true)"
+              @touchcancel="handleHabitTimelineTouchEnd(selectedHabit, $event, true)"
+              @pointerdown="handleHabitTimelinePointerDown(selectedHabit, $event)"
+              @pointerup="handleHabitTimelinePointerUp(selectedHabit, $event, true)"
+              @pointercancel="handleHabitTimelinePointerUp(selectedHabit, $event, true)">
+              <div class="habit-timeline-track">
+                <div v-for="summary in selectedHabitMonthSummaries" :key="`${selectedHabit.fileName}-month-${summary.offset}`"
+                  class="habit-timeline-month">
+                  <span class="heatmap-month-label">{{ getTimelineMonthLabel(summary.offset) }}</span>
+                  <div class="habit-month-grid">
+                    <div v-for="cell in getHeatmapForMonth(selectedHabit, summary.offset)"
+                      :key="`${selectedHabit.fileName}-${summary.offset}-${cell.date}`" class="heatmap-cell"
+                      :class="[
+                        `level-${cell.level}`,
+                        {
+                          'is-placeholder': cell.isPlaceholder,
+                          'is-today': cell.isToday,
+                          'is-unscheduled': !cell.isScheduled,
+                          'is-future': cell.isFuture,
+                          'is-fail': cell.value === 'fail',
+                          'is-skip': cell.value === 'skip',
+                          'is-clickable': !cell.isFuture && !cell.isPlaceholder,
+                          'is-selected': isSelectedCell(selectedHabit, cell),
+                        },
+                      ]" :title="cellTitle(selectedHabit, cell)" @click="selectCell(selectedHabit, cell)" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div v-else class="habit-list">
         <div v-for="habit in habits" :key="habit.fileName" class="card glass-card habit-card">
           <div class="habit-head">
@@ -1695,57 +2132,76 @@ onBeforeUnmount(() => {
             <div>
               <h2>{{ habit.name }}</h2>
             </div>
+            <button class="glass-button glass-button--secondary habit-detail-button" type="button"
+              :aria-label="`Open details for ${habit.name}`" @click="openHabitDetail(habit)">
+              Details
+            </button>
           </div>
 
           <div class="habit-main-row">
             <div class="heatmap-wrap">
               <template v-if="isHydratingHabitCard(habit)">
-                <div class="heatmap-skeleton-header skeleton-block" />
-                <div class="heatmap-days" aria-hidden="true">
-                  <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
-                  }}</span>
-                </div>
-                <div class="heatmap-grid heatmap-grid--skeleton" aria-hidden="true">
-                  <div v-for="index in 35" :key="`${habit.fileName}-skeleton-${index}`"
-                    class="heatmap-cell heatmap-cell--skeleton" />
+                <div class="habit-timeline-shell">
+                  <div class="habit-weekday-rail" aria-hidden="true">
+                    <span v-for="dayIndex in 7" :key="`${habit.fileName}-skeleton-day-${dayIndex}`"
+                      class="habit-weekday-label">
+                      {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+                    </span>
+                  </div>
+                  <div class="habit-timeline-scroll habit-timeline-scroll--skeleton">
+                    <div class="habit-timeline-month">
+                      <div class="heatmap-skeleton-header skeleton-block" />
+                      <div class="habit-month-grid heatmap-grid--skeleton" aria-hidden="true">
+                        <div v-for="index in 35" :key="`${habit.fileName}-skeleton-${index}`"
+                          class="heatmap-cell heatmap-cell--skeleton" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </template>
               <template v-else>
-                <div class="heatmap-month-nav">
-                  <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show previous month"
-                    @click="showPreviousMonth(habit)">
-                    <ChevronLeft :size="14" />
-                  </button>
-                  <div class="heatmap-month-center">
-                    <span class="heatmap-month-label">{{ getVisibleMonthLabel(habit) }}</span>
-                    <span v-if="isLoadingOlderMonths(habit)" class="heatmap-month-loading">
-                      <span class="mini-spinner" aria-hidden="true" />
+                <div class="habit-timeline-shell">
+                  <div class="habit-weekday-rail" aria-hidden="true">
+                    <span v-for="dayIndex in 7" :key="`${habit.fileName}-day-${dayIndex}`" class="habit-weekday-label">
+                      {{ getTimelineWeekdayLabel(dayIndex - 1) }}
                     </span>
                   </div>
-                  <button class="glass-icon-button heatmap-nav-button" type="button" aria-label="Show next month"
-                    :disabled="!canShowNextMonth(habit)" @click="showNextMonth(habit)">
-                    <ChevronRight :size="14" />
-                  </button>
-                </div>
-                <div class="heatmap-days" aria-hidden="true">
-                  <span v-for="day in DAY_LABELS" :key="`${habit.fileName}-${day}`" class="heatmap-day-label">{{ day
-                  }}</span>
-                </div>
-                <div class="heatmap-grid" role="img" :aria-label="`Heat map for ${habit.name}`">
-                  <div v-for="cell in getHeatmap(habit)" :key="`${habit.fileName}-${cell.date}`" class="heatmap-cell"
-                    :class="[
-                      `level-${cell.level}`,
-                      {
-                        'is-placeholder': cell.isPlaceholder,
-                        'is-today': cell.isToday,
-                        'is-unscheduled': !cell.isScheduled,
-                        'is-future': cell.isFuture,
-                        'is-fail': cell.value === 'fail',
-                        'is-skip': cell.value === 'skip',
-                        'is-clickable': !cell.isFuture && !cell.isPlaceholder,
-                        'is-selected': isSelectedCell(habit, cell),
-                      },
-                    ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
+                  <div :ref="element => setHabitTimelineRef(habit.fileName, element)" class="habit-timeline-scroll"
+                    role="img" :aria-label="`Heat map for ${habit.name}`"
+                    @scroll="handleHabitTimelineScroll(habit, $event)"
+                    @touchstart="handleHabitTimelineTouchStart(habit, $event)"
+                    @touchend="handleHabitTimelineTouchEnd(habit, $event)"
+                    @touchcancel="handleHabitTimelineTouchEnd(habit, $event)"
+                    @pointerdown="handleHabitTimelinePointerDown(habit, $event)"
+                    @pointerup="handleHabitTimelinePointerUp(habit, $event)"
+                    @pointercancel="handleHabitTimelinePointerUp(habit, $event)">
+                    <div class="habit-timeline-track">
+                      <div v-for="monthOffset in getLoadedMonthOffsets(habit)" :key="`${habit.fileName}-month-${monthOffset}`"
+                        class="habit-timeline-month">
+                        <span class="heatmap-month-label">{{ getTimelineMonthLabel(monthOffset) }}</span>
+                        <div class="habit-month-grid">
+                          <div v-for="cell in getHeatmapForMonth(habit, monthOffset)"
+                            :key="`${habit.fileName}-${monthOffset}-${cell.date}`" class="heatmap-cell"
+                            :class="[
+                              `level-${cell.level}`,
+                              {
+                                'is-placeholder': cell.isPlaceholder,
+                                'is-today': cell.isToday,
+                                'is-unscheduled': !cell.isScheduled,
+                                'is-future': cell.isFuture,
+                                'is-fail': cell.value === 'fail',
+                                'is-skip': cell.value === 'skip',
+                                'is-clickable': !cell.isFuture && !cell.isPlaceholder,
+                                'is-selected': isSelectedCell(habit, cell),
+                              },
+                            ]" :title="cellTitle(habit, cell)" @click="selectCell(habit, cell)" />
+                        </div>
+                      </div>
+                      <div v-if="isLoadingOlderMonths(habit)" class="heatmap-month-loading">
+                        <span class="mini-spinner" aria-hidden="true" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </template>
             </div>
@@ -1785,8 +2241,9 @@ onBeforeUnmount(() => {
                     <SkipForward :size="14" />
 
                   </button>
-                  <button class="glass-button glass-button--secondary" type="button" @click="clearSelectedValue(habit)">
-                    Clear
+                  <button class="glass-button glass-button--secondary" type="button" aria-label="Clear entry"
+                    @click="clearSelectedValue(habit)">
+                    <Eraser :size="14" />
                   </button>
                 </div>
               </template>
@@ -1977,6 +2434,131 @@ h1 {
   color: var(--text-soft);
 }
 
+.habit-detail-header-button {
+  white-space: nowrap;
+}
+
+.habit-detail-view {
+  display: grid;
+  gap: 12px;
+}
+
+.habit-detail-hero {
+  display: grid;
+  gap: 14px;
+}
+
+.habit-detail-hero-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.habit-detail-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  color: color-mix(in srgb, var(--primary) 82%, var(--text));
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 24%, transparent), color-mix(in srgb, white 16%, transparent)),
+    var(--surface);
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+}
+
+.habit-detail-intro {
+  min-width: 0;
+}
+
+.habit-detail-kicker,
+.habit-detail-goal {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.habit-detail-kicker {
+  margin-bottom: 4px;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.habit-detail-intro h2,
+.habit-detail-section-head h3,
+.habit-detail-month-head h3 {
+  margin: 0;
+}
+
+.habit-detail-score {
+  margin: 6px 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.habit-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.habit-detail-stat {
+  padding: 12px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--c-light) 18%);
+  border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+}
+
+.habit-detail-stat-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.76rem;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.habit-detail-summary {
+  display: grid;
+  gap: 12px;
+}
+
+.habit-detail-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: end;
+}
+
+.habit-detail-months {
+  display: grid;
+  gap: 12px;
+}
+
+.habit-detail-month-row {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.habit-detail-month-row:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.habit-detail-month-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.habit-detail-heatmap {
+  gap: 6px;
+}
+
 .habit-list {
   display: grid;
   gap: 10px;
@@ -1989,7 +2571,7 @@ h1 {
 
 .habit-head {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
 }
@@ -1997,6 +2579,10 @@ h1 {
 .habit-head h2 {
   margin: 0;
   font-size: 1rem;
+}
+
+.habit-detail-button {
+  white-space: nowrap;
 }
 
 .habit-icon-wrap {
@@ -2067,15 +2653,13 @@ h1 {
 
 .habit-main-row {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 12px;
-  align-items: start;
+  gap: 10px;
 }
 
 .habit-controls {
   display: grid;
-  gap: 8px;
-  min-width: 150px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .habit-score {
@@ -2092,7 +2676,13 @@ h1 {
 .habit-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+}
+
+.habit-actions :deep(.glass-button) {
+  min-height: 30px;
+  padding: 6px 8px;
+  border-radius: 10px;
 }
 
 .glass-input {
@@ -2105,8 +2695,8 @@ h1 {
 
 .habit-count-entry {
   display: grid;
-  gap: 6px;
-  max-width: 180px;
+  gap: 4px;
+  max-width: 144px;
 }
 
 .habit-count-label {
@@ -2117,12 +2707,14 @@ h1 {
 .habit-count-input {
   width: 100%;
   transition: background 0.2s ease;
+  min-height: 34px;
+  padding: 7px 10px;
 }
 
 .habit-action {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 9px;
 }
 
 .hint {
@@ -2134,30 +2726,18 @@ h1 {
 .heatmap-wrap {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 
 .heatmap-skeleton-header {
-  width: 132px;
-  height: 28px;
-  justify-self: center;
-}
-
-.heatmap-month-nav {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 8px;
-}
-
-.heatmap-month-center {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
+  width: 38px;
+  height: 14px;
 }
 
 .heatmap-month-label {
-  text-align: center;
-  font-size: 0.76rem;
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 0.74rem;
   font-weight: 700;
   color: var(--text-soft);
 }
@@ -2180,11 +2760,71 @@ h1 {
   animation: pull-refresh-spin 0.75s linear infinite;
 }
 
-.heatmap-nav-button {
-  width: 28px;
-  height: 28px;
-  border-radius: 10px;
+.habit-timeline-shell {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding-left: 8px;
+}
+
+.habit-weekday-rail {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  gap: 3px;
+  padding-top: 22px;
+  width: 42px;
+  justify-items: start;
+  flex: 0 0 auto;
+}
+
+.habit-weekday-label {
+  font-size: 0.66rem;
+  line-height: 12px;
   color: var(--text-soft);
+  font-weight: 700;
+}
+
+.habit-timeline-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 6px;
+  padding-left: 4px;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+
+.habit-timeline-scroll--skeleton {
+  overflow: hidden;
+}
+
+.habit-timeline-track {
+  display: inline-flex;
+  gap: 10px;
+  min-width: max-content;
+}
+
+.habit-timeline-month {
+  display: grid;
+  align-content: start;
+  min-width: max-content;
+  scroll-snap-align: start;
+}
+
+.habit-month-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 14px);
+  grid-auto-columns: 14px;
+  gap: 4px;
+  align-items: center;
+}
+
+.habit-timeline-month .heatmap-cell {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
 }
 
 .heatmap-days {
@@ -2329,14 +2969,37 @@ h1 {
 }
 
 @media (max-width: 560px) {
+  .habit-detail-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .habit-detail-section-head,
+  .habit-detail-month-head {
+    display: grid;
+    gap: 8px;
+  }
+
+  .habit-weekday-rail {
+    grid-template-rows: repeat(7, 10px);
+    gap: 2px;
+    width: 26px;
+  }
+
   .heatmap-days {
     grid-template-columns: repeat(7, 10px);
     gap: 2px;
   }
 
-  .heatmap-grid {
+  .heatmap-grid,
+  .habit-month-grid {
     grid-template-columns: repeat(7, 10px);
-    gap: 2px;
+    grid-auto-columns: 12px;
+    gap: 3px;
+  }
+
+  .habit-timeline-month .heatmap-cell {
+    width: 12px;
+    height: 12px;
   }
 
   .heatmap-cell {

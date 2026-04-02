@@ -2,7 +2,7 @@
 import type { CSSProperties } from 'vue'
 import type { AppFile } from '../lib/listFiles'
 import type { StoredTodoList } from '../lib/lists'
-import { Archive, CheckSquare, FileText, Flame, List, Search, Settings, Trash2 } from 'lucide-vue-next'
+import { Archive, CheckSquare, FileText, List, Search, Settings, Star, Trash2 } from 'lucide-vue-next'
 import { computed, onActivated, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BottomActionNav from '../components/BottomActionNav.vue'
@@ -806,7 +806,7 @@ async function toggleNotePin(note: AppFile) {
                           <span
                             v-if="card.kind === 'task' && previewItem.state === 'pending' && previewItem.isHighPriority"
                             class="todo-preview-flame" aria-label="High priority" title="High priority">
-                            <Flame :size="11" />
+                            <Star :size="11" fill="currentColor" />
                           </span>
                           <span class="todo-preview-text" :class="{ 'is-done': previewItem.state === 'done' }">{{
                             previewItem.text }}</span>
@@ -1255,7 +1255,7 @@ h1 {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: color-mix(in srgb, #f97316 74%, #f43f5e 26%);
+  color: #facc15;
 }
 
 .todo-preview-text {

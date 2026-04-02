@@ -19,7 +19,7 @@ const router = createRouter({
     { path: '/lists', name: 'lists', component: ListView },
     { path: '/list/:id', name: 'list-detail', component: ListView },
     { path: '/tasks', name: 'tasks', component: TasksView, meta: { keepAlive: true } },
-    { path: '/habits', name: 'habits', component: HabitsView, meta: { keepAlive: true } },
+    { path: '/habits/:habitId?', name: 'habits', component: HabitsView, meta: { keepAlive: true } },
     { path: '/task-list/:id', name: 'task-detail', component: ListView },
 
     { path: '/settings', component: SettingsView },

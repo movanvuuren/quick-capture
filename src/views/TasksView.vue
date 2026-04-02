@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onMounted, reactive, ref, watch } from 'vue'
-import type { CSSProperties } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { SquareArrowRightEnter, AlarmClock, AlertTriangle, CalendarDays, Check, ChevronDown, ChevronUp, Filter, Flame, LayoutGrid, ListChecks, Trash2 } from 'lucide-vue-next'
+import { SquareArrowRightEnter, AlarmClock, AlertTriangle, CalendarDays, Check, ChevronDown, ChevronUp, Filter, LayoutGrid, ListChecks, Star, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
@@ -35,10 +34,9 @@ interface QuickTaskItem {
 }
 
 const QUICK_TASK_READ_CONCURRENCY = 6
-const PULL_REFRESH_THRESHOLD = 72
-const PULL_REFRESH_MAX_DISTANCE = 120
 const TASK_REMINDER_STORAGE_KEY = 'quick-capture-task-reminders'
 const TASK_STATE_CHANGE_SORT_DELAY = 300
+const WIDGET_REFRESH_DEBOUNCE_MS = 2500
 
 const router = useRouter()
 const route = useRoute()
@@ -49,16 +47,12 @@ function isPinataPreset(preset: QuickTaskPreset): boolean {
 }
 
 function getDefaultPresetId(): string {
-  const pinataPreset = settings.quickTaskPresets.find(preset => isPinataPreset(preset))
-  return pinataPreset?.id || settings.quickTaskPresets[0]?.id || ''
+  return settings.quickTaskPresets[0]?.id || ''
 }
 
 function orderedPresets(): QuickTaskPreset[] {
-  return [...settings.quickTaskPresets].sort((a, b) => {
-    const aPriority = isPinataPreset(a) ? 0 : 1
-    const bPriority = isPinataPreset(b) ? 0 : 1
-    return aPriority - bPriority
-  })
+  void settings.quickTaskPresets.some(isPinataPreset)
+  return [...settings.quickTaskPresets]
 }
 
 const isLoading = ref(true)
@@ -81,19 +75,13 @@ const reminderTimes = ref<Record<string, string>>({})
 const highlightedTaskId = ref<string | null>(null)
 let highlightClearTimer: ReturnType<typeof setTimeout> | null = null
 let sortDelayTimer: ReturnType<typeof setTimeout> | null = null
-const pullStartY = ref<number | null>(null)
-const pullStartX = ref<number | null>(null)
-const pullDistance = ref(0)
-const pullAxisLock = ref<'none' | 'vertical' | 'horizontal'>('none')
+let widgetRefreshTimer: ReturnType<typeof setTimeout> | null = null
+let widgetRefreshIdleId: number | null = null
+let hasPendingWidgetRefresh = false
+let isTasksPageActive = false
 const isPullRefreshing = ref(false)
-const pullReadyHapticPlayed = ref(false)
-
-const isPullReady = computed(() => pullDistance.value >= PULL_REFRESH_THRESHOLD)
-const showPullIndicator = computed(() => pullDistance.value > 0 || isPullRefreshing.value)
-const pageContentStyle = computed<CSSProperties>(() => ({
-  transform: `translateY(${pullDistance.value}px)`,
-  transition: isPullRefreshing.value || pullDistance.value === 0 ? 'transform 0.18s ease' : 'none',
-}))
+const isPullReady = computed(() => false)
+const showPullIndicator = computed(() => false)
 
 const taskStateOrder: Record<TaskState, number> = {
   pending: 0,
@@ -102,13 +90,13 @@ const taskStateOrder: Record<TaskState, number> = {
 }
 
 const selectedPreset = computed(() =>
-  settings.quickTaskPresets.find(preset => preset.id === selectedPresetId.value),
+  orderedPresets().find(preset => preset.id === selectedPresetId.value) || orderedPresets()[0],
 )
 
 const presetOptions = computed(() =>
   orderedPresets().map(preset => ({
     value: preset.id,
-    label: preset.label?.trim() || 'Preset',
+    label: preset.tag?.trim().replace(/^#+/, '').trim() || preset.label?.trim() || 'Task',
   })),
 )
 
@@ -121,27 +109,20 @@ function isOverdue(task: QuickTaskItem): boolean {
   return task.dueDate < todayIso()
 }
 
-const presetTasks = computed(() => {
-  if (!selectedPresetId.value)
-    return [...tasks.value]
-
-  return tasks.value.filter(task => task.presetId === selectedPresetId.value)
-})
-
 const visibleTasks = computed(() => {
   let filteredTasks: QuickTaskItem[]
 
   if (selectedTaskFilter.value === 'all')
-    filteredTasks = [...presetTasks.value]
+    filteredTasks = [...tasks.value]
 
   else if (selectedTaskFilter.value === 'overdue')
-    filteredTasks = presetTasks.value.filter(task => isOverdue(task))
+    filteredTasks = tasks.value.filter(task => isOverdue(task))
 
   else if (selectedTaskFilter.value === 'closed')
-    filteredTasks = presetTasks.value.filter(task => task.state === 'done' || task.state === 'cancelled')
+    filteredTasks = tasks.value.filter(task => task.state === 'done' || task.state === 'cancelled')
 
   else
-    filteredTasks = presetTasks.value.filter(task => task.state === selectedTaskFilter.value)
+    filteredTasks = tasks.value.filter(task => task.state === selectedTaskFilter.value)
 
   const directionMultiplier = selectedSortDirection.value === 'asc' ? 1 : -1
 
@@ -176,11 +157,11 @@ const visibleTasks = computed(() => {
 })
 
 const taskCounts = computed(() => {
-  const pending = presetTasks.value.filter(task => task.state === 'pending').length
-  const done = presetTasks.value.filter(task => task.state === 'done').length
-  const cancelled = presetTasks.value.filter(task => task.state === 'cancelled').length
+  const pending = tasks.value.filter(task => task.state === 'pending').length
+  const done = tasks.value.filter(task => task.state === 'done').length
+  const cancelled = tasks.value.filter(task => task.state === 'cancelled').length
   const closed = done + cancelled
-  const overdue = presetTasks.value.filter(task => isOverdue(task)).length
+  const overdue = tasks.value.filter(task => isOverdue(task)).length
 
   return {
     pending,
@@ -188,7 +169,7 @@ const taskCounts = computed(() => {
     cancelled,
     closed,
     overdue,
-    total: presetTasks.value.length,
+    total: tasks.value.length,
   }
 })
 
@@ -254,116 +235,6 @@ watch(taskFilterOptions, (options) => {
   if (!selectedStillVisible)
     selectedTaskFilter.value = 'pending'
 })
-
-function isPageScrolledToTop() {
-  return window.scrollY <= 0
-}
-
-async function triggerHaptic(kind: 'light' | 'medium' = 'light') {
-  try {
-    const { Haptics, ImpactStyle } = await import('@capacitor/haptics')
-    const style = kind === 'medium' ? ImpactStyle.Medium : ImpactStyle.Light
-    await Haptics.impact({ style })
-    return
-  }
-  catch {
-    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function')
-      navigator.vibrate(kind === 'medium' ? 20 : 10)
-  }
-}
-
-function resetPullState() {
-  pullStartY.value = null
-  pullStartX.value = null
-  pullDistance.value = 0
-  pullAxisLock.value = 'none'
-  pullReadyHapticPlayed.value = false
-}
-
-function onPullTouchStart(event: TouchEvent) {
-  if (!settings.baseFolderUri || isPullRefreshing.value)
-    return
-  if (!isPageScrolledToTop())
-    return
-
-  const touch = event.touches[0]
-  if (!touch)
-    return
-
-  pullStartY.value = touch.clientY
-  pullStartX.value = touch.clientX
-  pullDistance.value = 0
-  pullAxisLock.value = 'none'
-}
-
-function onPullTouchMove(event: TouchEvent) {
-  if (pullStartY.value === null || pullStartX.value === null)
-    return
-
-  const touch = event.touches[0]
-  if (!touch)
-    return
-
-  const deltaY = touch.clientY - pullStartY.value
-  const deltaX = touch.clientX - pullStartX.value
-
-  if (pullAxisLock.value === 'none' && (Math.abs(deltaX) > 6 || Math.abs(deltaY) > 6))
-    pullAxisLock.value = Math.abs(deltaY) >= Math.abs(deltaX) ? 'vertical' : 'horizontal'
-
-  if (pullAxisLock.value === 'horizontal')
-    return
-
-  if (deltaY <= 0) {
-    pullDistance.value = 0
-    pullReadyHapticPlayed.value = false
-    return
-  }
-
-  if (!isPageScrolledToTop()) {
-    resetPullState()
-    return
-  }
-
-  event.preventDefault()
-  pullDistance.value = Math.min(PULL_REFRESH_MAX_DISTANCE, deltaY * 0.45)
-
-  const reachedReadyState = pullDistance.value >= PULL_REFRESH_THRESHOLD
-  if (reachedReadyState && !pullReadyHapticPlayed.value) {
-    pullReadyHapticPlayed.value = true
-    void triggerHaptic('light')
-  }
-  else if (!reachedReadyState) {
-    pullReadyHapticPlayed.value = false
-  }
-}
-
-async function onPullTouchEnd() {
-  if (pullStartY.value === null)
-    return
-
-  const shouldRefresh = pullDistance.value >= PULL_REFRESH_THRESHOLD
-  pullStartY.value = null
-  pullStartX.value = null
-  pullAxisLock.value = 'none'
-
-  if (!shouldRefresh) {
-    pullDistance.value = 0
-    return
-  }
-
-  isPullRefreshing.value = true
-  pullDistance.value = 44
-  void triggerHaptic('medium')
-
-  try {
-    invalidateQuickTaskCache()
-    await loadQuickTasks()
-  }
-  finally {
-    isPullRefreshing.value = false
-    pullDistance.value = 0
-  }
-}
 
 function todayIso(): string {
   const now = new Date()
@@ -481,6 +352,25 @@ function getPresetForTask(body: string, fileName: string): QuickTaskPreset | und
   })
 }
 
+function getPresetForTaskItem(task: QuickTaskItem): QuickTaskPreset | undefined {
+  if (task.presetId) {
+    const matchedPreset = settings.quickTaskPresets.find(preset => preset.id === task.presetId)
+    if (matchedPreset)
+      return matchedPreset
+  }
+
+  return getPresetForTask(task.body, task.fileName)
+}
+
+function getTaskTypeLabel(task: QuickTaskItem): string {
+  const preset = getPresetForTaskItem(task)
+  const tag = preset?.tag?.trim().replace(/^#+/, '').trim()
+  if (tag)
+    return tag
+
+  return preset?.label?.trim() || task.presetLabel?.trim() || ''
+}
+
 async function loadQuickTasks() {
   if (!settings.baseFolderUri) {
     tasks.value = []
@@ -539,10 +429,51 @@ async function updateTaskInFile(
   })
 }
 
+function scheduleWidgetRefresh() {
+  if (widgetRefreshTimer !== null)
+    clearTimeout(widgetRefreshTimer)
+  if (widgetRefreshIdleId !== null) {
+    window.cancelIdleCallback?.(widgetRefreshIdleId)
+    widgetRefreshIdleId = null
+  }
+
+  widgetRefreshTimer = setTimeout(() => {
+    widgetRefreshTimer = null
+    const runRefresh = () => {
+      widgetRefreshIdleId = null
+      void WidgetSync.refreshWidgets().catch((err) => {
+        console.warn('Failed to refresh widgets after task change', err)
+      })
+    }
+
+    if (typeof window.requestIdleCallback === 'function') {
+      widgetRefreshIdleId = window.requestIdleCallback(runRefresh, { timeout: 2000 })
+      return
+    }
+
+    runRefresh()
+  }, WIDGET_REFRESH_DEBOUNCE_MS)
+}
+
 function refreshWidgetsAfterTaskChange() {
-  void WidgetSync.refreshWidgets().catch((err) => {
-    console.warn('Failed to refresh widgets after task change', err)
-  })
+  hasPendingWidgetRefresh = true
+  if (isTasksPageActive)
+    return
+  scheduleWidgetRefresh()
+}
+
+function flushPendingWidgetRefresh() {
+  if (!hasPendingWidgetRefresh)
+    return
+  hasPendingWidgetRefresh = false
+  scheduleWidgetRefresh()
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    isTasksPageActive = false
+    flushPendingWidgetRefresh()
+  }
 }
 
 function advanceDueDate(dateIso: string, repeat: string): string {
@@ -732,7 +663,7 @@ async function saveTaskText(task: QuickTaskItem) {
   isSaving.value = true
   const previousBody = task.body
 
-  const existingTag = selectedPreset.value?.tag?.trim()
+  const existingTag = getPresetForTaskItem(task)?.tag?.trim()
   const withTag = existingTag && !trimmed.includes(existingTag)
     ? `${existingTag} ${trimmed}`.trim()
     : trimmed
@@ -794,7 +725,7 @@ async function deleteTask(task: QuickTaskItem) {
 
     await clearTaskReminder(task)
 
-    await loadQuickTasks()
+    tasks.value = tasks.value.filter(current => current.id !== task.id)
     refreshWidgetsAfterTaskChange()
   }
   catch (err) {
@@ -824,7 +755,7 @@ async function addQuickTask() {
   const fileName = getTargetFileName(preset)
   const duePart = newDueDate.value ? ` 📅 ${newDueDate.value}` : ''
   const tagPart = preset.tag?.trim() ? `${preset.tag.trim()} ` : ''
-  const marker = newTaskIsHighPriority.value ? 'f' : ' '
+  const marker = newTaskIsHighPriority.value ? '*' : ' '
   const line = `- [${marker}] ${tagPart}${newTaskText.value.trim()}${duePart}`
 
   try {
@@ -866,10 +797,25 @@ async function addQuickTask() {
 
     invalidateQuickTaskCache(fileName)
 
+    const newTaskId = `${fileName}:${Date.now()}`
+    tasks.value = [
+      ...tasks.value,
+      {
+        id: newTaskId,
+        fileName,
+        lineIndex: Number.MAX_SAFE_INTEGER,
+        state: 'pending',
+        body: `${tagPart}${newTaskText.value.trim()}`.trim(),
+        dueDate: newDueDate.value || undefined,
+        isHighPriority: newTaskIsHighPriority.value,
+        presetId: preset.id,
+        presetLabel: preset.label,
+      },
+    ]
+
     newTaskText.value = ''
     newDueDate.value = ''
     newTaskIsHighPriority.value = false
-    await loadQuickTasks()
     refreshWidgetsAfterTaskChange()
   }
   catch (err) {
@@ -922,14 +868,9 @@ watch(
 let isFirstTasksActivation = true
 
 onMounted(async () => {
+  isTasksPageActive = true
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   loadReminderTimes()
-
-  const presetFromQuery = route.query.preset
-  if (typeof presetFromQuery === 'string') {
-    const exists = settings.quickTaskPresets.some(preset => preset.id === presetFromQuery)
-    if (exists)
-      selectedPresetId.value = presetFromQuery
-  }
 
   applyQuickAddDateFromRoute()
 
@@ -945,6 +886,7 @@ function goBack() {
 }
 
 onActivated(async () => {
+  isTasksPageActive = true
   if (isFirstTasksActivation) {
     isFirstTasksActivation = false
     return
@@ -953,11 +895,29 @@ onActivated(async () => {
   applyQuickAddDateFromRoute()
   await loadQuickTasks()
 })
+
+onDeactivated(() => {
+  isTasksPageActive = false
+  flushPendingWidgetRefresh()
+})
+
+onBeforeUnmount(() => {
+  isTasksPageActive = false
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  flushPendingWidgetRefresh()
+  if (highlightClearTimer !== null)
+    clearTimeout(highlightClearTimer)
+  if (sortDelayTimer !== null)
+    clearTimeout(sortDelayTimer)
+  if (widgetRefreshTimer !== null)
+    clearTimeout(widgetRefreshTimer)
+  if (widgetRefreshIdleId !== null)
+    window.cancelIdleCallback?.(widgetRefreshIdleId)
+})
 </script>
 
 <template>
-  <div class="page" @touchstart="onPullTouchStart" @touchmove="onPullTouchMove" @touchend="onPullTouchEnd"
-    @touchcancel="onPullTouchEnd">
+  <div class="page">
     <div class="pull-refresh"
       :class="{ 'is-visible': showPullIndicator, 'is-ready': isPullReady, 'is-refreshing': isPullRefreshing }"
       :aria-label="isPullRefreshing ? 'Refreshing tasks' : 'Pull to refresh tasks'" role="status">
@@ -965,7 +925,7 @@ onActivated(async () => {
       <span>{{ isPullRefreshing ? 'Refreshing…' : isPullReady ? 'Release to refresh' : '' }}</span>
     </div>
 
-    <div class="page-content" :style="pageContentStyle">
+    <div class="page-content">
 
       <PageHeader title="Tasks" @back="goBack" />
 
@@ -973,7 +933,7 @@ onActivated(async () => {
       <div class="card glass-card quick-add-card">
         <div class="quick-add-row">
           <div class="preset-switcher-wrap">
-            <OptionSwitcher v-model="selectedPresetId" :options="presetOptions" aria-label="Task preset" />
+            <OptionSwitcher v-model="selectedPresetId" :options="presetOptions" aria-label="Task type" />
           </div>
 
           <input v-model="newTaskText" class="glass-input quick-task-input" type="text" placeholder="Add quick task..."
@@ -988,7 +948,7 @@ onActivated(async () => {
               <button class="glass-icon-button priority-toggle-button" :class="{ 'is-active': newTaskIsHighPriority }"
                 :aria-label="newTaskIsHighPriority ? 'High priority (click to remove)' : 'Not high priority (click to set)'"
                 @click="newTaskIsHighPriority = !newTaskIsHighPriority">
-                <Flame :size="14" />
+                <Star :size="14" fill="currentColor" class="priority-star-icon" />
               </button>
               <button class="glass-button glass-button--primary quick-add-submit" :disabled="isSaving"
                 @click="addQuickTask">
@@ -1045,12 +1005,12 @@ onActivated(async () => {
           :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id, 'is-high-priority': task.isHighPriority }]">
           <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
             @click="toggleTaskState(task)">
-            <Flame v-if="task.isHighPriority && task.state === 'pending'" :size="14" class="state-icon-flame"
+            <Star v-if="task.isHighPriority && task.state === 'pending'" :size="14" fill="currentColor" class="state-icon-flame priority-star-icon"
               aria-hidden="true" />
             <span v-else class="state-icon">
               <span v-if="task.state !== 'pending'">{{ task.state === 'done' ? '✓' : '–' }}</span>
             </span>
-            <Flame v-if="task.isHighPriority && task.state !== 'pending'" :size="12" class="state-flame"
+            <Star v-if="task.isHighPriority && task.state !== 'pending'" :size="12" fill="currentColor" class="state-flame priority-star-icon"
               aria-hidden="true" />
           </button>
 
@@ -1066,6 +1026,7 @@ onActivated(async () => {
                     {{ displayTaskBody(task) }}
                   </span>
                   <span v-if="task.repeat" class="repeat-badge" :title="`Repeats ${task.repeat}`">🔁</span>
+                  <span v-if="getTaskTypeLabel(task)" class="task-type-tag">{{ getTaskTypeLabel(task) }}</span>
                 </button>
               </div>
 
@@ -1075,7 +1036,7 @@ onActivated(async () => {
                     type="button" :disabled="isSaving"
                     :aria-label="task.isHighPriority ? 'High priority (click to remove)' : 'Set as high priority'"
                     @click="toggleTaskPriority(task)">
-                    <Flame :size="14" />
+                    <Star :size="14" fill="currentColor" class="priority-star-icon" />
                   </button>
 
                   <button class="glass-icon-button delete-task-button" type="button" :disabled="isSaving"
@@ -1216,19 +1177,19 @@ h1 {
   margin-bottom: 12px;
 }
 
-.preset-switcher-wrap {
-  min-width: 0;
-}
-
 .field-label {
   font-size: 0.92rem;
   font-weight: 600;
   color: var(--text);
 }
 
+.preset-switcher-wrap {
+  min-width: 0;
+}
+
 .quick-add-row {
   display: grid;
-  grid-template-columns: 190px minmax(0, 1fr) auto;
+  grid-template-columns: 180px minmax(0, 1fr) auto;
   gap: 10px;
 }
 
@@ -1380,14 +1341,18 @@ h1 {
 }
 
 .state-icon-flame {
-  color: #ef4444;
+  color: #facc15;
 }
 
 .state-flame {
   position: absolute;
   bottom: -4px;
   right: -4px;
-  color: #ef4444;
+  color: #facc15;
+}
+
+.priority-star-icon {
+  color: currentColor;
 }
 
 .state-button.done {
@@ -1452,6 +1417,21 @@ h1 {
 
 .task-main-text {
   display: inline;
+}
+
+.task-type-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+  color: color-mix(in srgb, var(--primary) 78%, var(--text));
+  font-size: 0.72rem;
+  line-height: 1.2;
+  vertical-align: middle;
+  white-space: nowrap;
 }
 
 .task-main-edit {
@@ -1631,20 +1611,20 @@ h1 {
 }
 
 .priority-task-button:hover {
-  color: var(--primary);
+  color: #facc15;
 }
 
 .priority-task-button.is-active {
-  color: var(--primary);
-  border-color: color-mix(in srgb, var(--primary) 52%, var(--text));
-  background: color-mix(in srgb, var(--primary) 16%, var(--c-glass) 14%);
+  color: #facc15;
+  border-color: color-mix(in srgb, #facc15 58%, var(--text));
+  background: color-mix(in srgb, #facc15 16%, var(--c-glass) 14%);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, #facc15 24%, transparent),
     inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
     inset 1.5px 2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 88%), transparent),
     inset -1px -2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 68%), transparent),
     inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 12%), transparent),
-    0 8px 18px color-mix(in srgb, var(--primary) 20%, transparent);
+    0 8px 18px color-mix(in srgb, #facc15 20%, transparent);
 }
 
 .priority-toggle-button {
@@ -1662,24 +1642,24 @@ h1 {
 }
 
 .priority-toggle-button:hover {
-  color: var(--primary);
+  color: #facc15;
 }
 
 .priority-toggle-button.is-active {
-  color: var(--primary);
-  border-color: color-mix(in srgb, var(--primary) 52%, var(--text));
-  background: color-mix(in srgb, var(--primary) 16%, var(--c-glass) 14%);
+  color: #facc15;
+  border-color: color-mix(in srgb, #facc15 58%, var(--text));
+  background: color-mix(in srgb, #facc15 16%, var(--c-glass) 14%);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--primary) 24%, transparent),
+    0 0 0 1px color-mix(in srgb, #facc15 24%, transparent),
     inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
     inset 1.5px 2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 88%), transparent),
     inset -1px -2px 0 -1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 68%), transparent),
     inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 12%), transparent),
-    0 8px 18px color-mix(in srgb, var(--primary) 20%, transparent);
+    0 8px 18px color-mix(in srgb, #facc15 20%, transparent);
 }
 
 .task-row.is-high-priority {
-  border-color: color-mix(in srgb, #ef4444 35%, var(--border));
+  border-color: color-mix(in srgb, #facc15 38%, var(--border));
 }
 
 .repeat-badge {
