@@ -534,19 +534,19 @@ function onDrop(e: DragEvent, idx: number) {
 .list-card,
 .glass-panel {
   background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 12%, transparent), transparent 28%),
+    radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 8%, transparent), transparent 26%),
     linear-gradient(180deg,
-      color-mix(in srgb, var(--c-light) 12%, transparent),
-      color-mix(in srgb, var(--c-glass) 10%, transparent)),
-    color-mix(in srgb, var(--surface) 84%, transparent);
+      color-mix(in srgb, var(--c-light) 8%, transparent),
+      color-mix(in srgb, var(--c-glass) 7%, transparent)),
+    color-mix(in srgb, var(--surface) 88%, transparent);
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
-  border: 1px solid color-mix(in srgb, var(--c-light) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   border-radius: 24px;
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 8%), transparent),
-    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 9%), transparent),
-    0 18px 36px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 14%), transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 5%), transparent),
+    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 6%), transparent),
+    0 12px 28px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 10%), transparent);
 }
 
 .empty-state {
@@ -602,8 +602,8 @@ function onDrop(e: DragEvent, idx: number) {
 }
 
 .list-card {
-  padding: 16px;
-  margin-bottom: 16px;
+  padding: 14px;
+  margin-bottom: 14px;
   position: relative;
   border-radius: 16px;
   z-index: 1;
@@ -624,8 +624,8 @@ function onDrop(e: DragEvent, idx: number) {
 .detail-header {
   display: block;
   border-radius: 16px;
-  padding: 8px 14px;
-  margin-bottom: 12px;
+  padding: 7px 13px;
+  margin-bottom: 10px;
   position: relative;
   z-index: 2;
 }
@@ -696,17 +696,17 @@ function onDrop(e: DragEvent, idx: number) {
 .items {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .completed-panel {
-  margin-top: 8px;
+  margin-top: 10px;
   padding: 0;
 }
 
 .completed-heading {
-  margin: 0 0 6px;
-  font-size: 0.78rem;
+  margin: 0 0 5px;
+  font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -716,17 +716,52 @@ function onDrop(e: DragEvent, idx: number) {
 .item-row {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 4px 0;
+  gap: 8px;
+  padding: 6px 2px;
+  border-radius: 14px;
+  transition: background 0.16s ease;
+}
+
+.item-row:hover {
+  background: color-mix(in srgb, var(--c-light) 6%, transparent);
+}
+
+.state-box {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--c-light) 18%, transparent);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  color: var(--text-soft);
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
+.state-box.done {
+  color: var(--state-done-text);
+  border-color: var(--state-done-border);
+  background: var(--state-done-bg);
+}
+
+.state-box.cancelled {
+  color: var(--state-cancelled-text);
+  border-color: var(--state-cancelled-border);
+  background: var(--state-cancelled-bg);
 }
 
 .drag-handle {
   cursor: grab;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-  margin-top: 3px;
+  margin-top: 6px;
   color: var(--text-soft);
+  opacity: 0.72;
 }
 
 .drag-handle:active {
@@ -743,24 +778,24 @@ function onDrop(e: DragEvent, idx: number) {
   flex: 1;
   min-width: 0;
   min-height: 24px;
-  padding: 0px 8px;
+  padding: 1px 6px;
   border-radius: 14px;
-  font-size: 0.98rem;
+  font-size: 0.95rem;
   border: none;
   background: transparent;
   color: var(--text);
   resize: none;
   overflow: hidden;
-  line-height: 1.45;
+  line-height: 1.35;
   word-break: break-word;
   white-space: pre-wrap;
 }
 
 .delete-item-button {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-  border-radius: 14px;
+  border-radius: 11px;
   display: grid;
   place-items: center;
   padding: 0;
