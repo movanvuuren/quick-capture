@@ -33,6 +33,11 @@ interface QuickTaskItem {
   presetLabel?: string
 }
 
+interface TaskBodySegment {
+  type: 'text' | 'tag'
+  value: string
+}
+
 const QUICK_TASK_READ_CONCURRENCY = 6
 const TASK_REMINDER_STORAGE_KEY = 'quick-capture-task-reminders'
 const TASK_STATE_CHANGE_SORT_DELAY = 300
@@ -640,6 +645,40 @@ function displayTaskBody(task: QuickTaskItem): string {
   return stripKnownTaskTags(withoutRepeat)
 }
 
+function getTaskBodySegments(task: QuickTaskItem): TaskBodySegment[] {
+  const body = displayTaskBody(task)
+  if (!body)
+    return []
+
+  const segments: TaskBodySegment[] = []
+  const tagRegex = /#[^\s#]+/g
+  let lastIndex = 0
+
+  for (const match of body.matchAll(tagRegex)) {
+    const index = match.index ?? 0
+
+    if (index > lastIndex) {
+      const textValue = body.slice(lastIndex, index)
+      if (textValue)
+        segments.push({ type: 'text', value: textValue })
+    }
+
+    const tagValue = match[0]?.trim().replace(/^#+/, '').trim()
+    if (tagValue)
+      segments.push({ type: 'tag', value: tagValue })
+
+    lastIndex = index + (match[0]?.length || 0)
+  }
+
+  if (lastIndex < body.length) {
+    const trailingText = body.slice(lastIndex)
+    if (trailingText)
+      segments.push({ type: 'text', value: trailingText })
+  }
+
+  return segments
+}
+
 function startEditTask(task: QuickTaskItem) {
   editingTaskId.value = task.id
   editingTaskText.value = displayTaskBody(task)
@@ -1022,11 +1061,14 @@ onBeforeUnmount(() => {
                   @blur="saveTaskText(task)" />
 
                 <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
+                  <span v-if="getTaskTypeLabel(task)" class="task-type-tag">{{ getTaskTypeLabel(task) }}</span>
                   <span class="task-main-text">
-                    {{ displayTaskBody(task) }}
+                    <template v-for="(segment, index) in getTaskBodySegments(task)" :key="`${task.id}-segment-${index}`">
+                      <span v-if="segment.type === 'text'">{{ segment.value }}</span>
+                      <span v-else class="task-inline-tag">{{ segment.value }}</span>
+                    </template>
                   </span>
                   <span v-if="task.repeat" class="repeat-badge" :title="`Repeats ${task.repeat}`">🔁</span>
-                  <span v-if="getTaskTypeLabel(task)" class="task-type-tag">{{ getTaskTypeLabel(task) }}</span>
                 </button>
               </div>
 
@@ -1062,9 +1104,9 @@ onBeforeUnmount(() => {
                     </button>
                   </div>
 
-                  <button v-else class="glass-button glass-button--secondary add-date-button" type="button"
+                  <button v-else class="glass-icon-button add-date-button" type="button" aria-label="Add date"
                     @click="showDueDateEditor(task)">
-                    Add date
+                    <CalendarDays :size="14" />
                   </button>
                 </div>
               </div>
@@ -1304,15 +1346,24 @@ h1 {
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .task-row {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   align-items: start;
-  gap: 10px;
-  transition: transform 0.2s ease;
+  gap: 9px;
+  padding: 11px 12px;
+  border-radius: 18px;
+  border-color: color-mix(in srgb, var(--border) 62%, transparent);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--c-dark) 8%, transparent);
+  transition:
+    transform 0.2s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
   touch-action: pan-y;
 }
 
@@ -1320,18 +1371,18 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   border: 1px solid var(--state-pending-border);
   background: var(--state-pending-bg);
   color: var(--state-pending-text);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 700;
   position: relative;
   gap: 2px;
   align-self: start;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .state-icon {
@@ -1387,8 +1438,8 @@ h1 {
 }
 
 .task-main {
-  font-size: 0.95rem;
-  line-height: 1.35;
+  font-size: 0.93rem;
+  line-height: 1.3;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
@@ -1396,7 +1447,7 @@ h1 {
 .task-main-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
   align-items: start;
 }
 
@@ -1419,16 +1470,33 @@ h1 {
   display: inline;
 }
 
+.task-inline-tag {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  color: color-mix(in srgb, var(--primary) 82%, var(--text));
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.2;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .task-type-tag {
   display: inline-flex;
   align-items: center;
-  margin-left: 8px;
+  margin-right: 8px;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
-  background: color-mix(in srgb, var(--primary) 10%, var(--surface));
-  color: color-mix(in srgb, var(--primary) 78%, var(--text));
-  font-size: 0.72rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  color: color-mix(in srgb, var(--primary) 82%, var(--text));
+  font-size: 0.7rem;
+  font-weight: 600;
   line-height: 1.2;
   vertical-align: middle;
   white-space: nowrap;
@@ -1436,9 +1504,9 @@ h1 {
 
 .task-main-edit {
   width: 100%;
-  min-height: 72px;
-  padding: 10px 12px;
-  line-height: 1.4;
+  min-height: 64px;
+  padding: 9px 11px;
+  line-height: 1.35;
   resize: vertical;
   box-sizing: border-box;
 }
@@ -1458,19 +1526,19 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .task-datetime-stack {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  gap: 5px;
 }
 
 .task-side-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: flex-start;
 }
 
@@ -1478,17 +1546,17 @@ h1 {
 .inline-time,
 .add-date-button,
 .alarm-task-button {
-  width: 130px;
-  min-height: 34px;
+  width: 32px;
+  min-height: 32px;
 }
 
 .inline-date,
 .inline-time {
   width: auto;
-  min-width: 118px;
-  max-width: 132px;
-  padding: 7px 9px;
-  font-size: 0.82rem;
+  min-width: 110px;
+  max-width: 122px;
+  padding: 6px 8px;
+  font-size: 0.78rem;
 }
 
 .alarm-task-button {
@@ -1498,10 +1566,11 @@ h1 {
 }
 
 .add-date-button {
-  min-width: 110px;
-  padding: 6px 10px;
-  border-radius: 12px;
-  font-size: 0.78rem;
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  border-radius: 11px;
+  font-size: 0.74rem;
   white-space: nowrap;
 }
 
@@ -1553,32 +1622,23 @@ h1 {
 }
 
 .inline-date {
-  width: 130px;
-  min-height: 34px;
-  padding: 7px 9px;
-  font-size: 0.82rem;
-}
-
-.add-date-button {
-  width: 130px;
-  min-height: 34px;
-  padding: 6px 10px;
-  border-radius: 12px;
+  width: 122px;
+  min-height: 32px;
+  padding: 6px 8px;
   font-size: 0.78rem;
-  white-space: nowrap;
 }
 
 .inline-time {
-  width: 130px;
-  min-height: 34px;
-  padding: 7px 8px;
-  font-size: 0.82rem;
+  width: 122px;
+  min-height: 32px;
+  padding: 6px 8px;
+  font-size: 0.78rem;
 }
 
 .alarm-task-button {
-  width: 130px;
-  height: 34px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
   color: var(--text-soft);
 }
 
@@ -1587,9 +1647,9 @@ h1 {
 }
 
 .delete-task-button {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
   color: var(--text-soft);
 }
 
@@ -1598,9 +1658,9 @@ h1 {
 }
 
 .priority-task-button {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
   color: var(--text-soft);
   transition:
     color 0.14s ease,
@@ -1628,9 +1688,9 @@ h1 {
 }
 
 .priority-toggle-button {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
   color: var(--text-soft);
   flex-shrink: 0;
   transition:
@@ -1660,6 +1720,7 @@ h1 {
 
 .task-row.is-high-priority {
   border-color: color-mix(in srgb, #facc15 38%, var(--border));
+  box-shadow: 0 10px 22px color-mix(in srgb, #facc15 8%, transparent);
 }
 
 .repeat-badge {
