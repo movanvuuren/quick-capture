@@ -1011,16 +1011,6 @@ function getRequiredDays(habit: HabitCard, eligibleDays = getScheduledDaysCount(
   return Math.min(Math.max(1, habit.targetDays), Math.max(1, eligibleDays))
 }
 
-function getTargetSummary(habit: HabitCard): string {
-  if (habit.period === 'week')
-    return `Goal: ${habit.targetCount} ${habit.unit} on ${getRequiredDays(habit)}/${getScheduledDaysCount(habit)} days`
-
-  if (habit.period === 'month')
-    return `Goal: ${habit.targetCount} ${habit.unit} on ${getRequiredDays(habit)} days this month`
-
-  return `Goal: ${habit.targetCount} ${habit.unit} per day`
-}
-
 function formatMonthLabel(monthOffset: number): string {
   return new Intl.DateTimeFormat(undefined, {
     month: 'long',
@@ -2261,17 +2251,6 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <p class="habit-score">{{ getStreakSummary(habit) }}</p>
-            <div class="habit-meta-row">
-              <span v-if="habit.reminder">Reminder: {{ habit.reminder }}</span>
-              <!-- <span class="mini-status">
-                <span class="mini-status-dot mini-status-dot--skip" />
-                Skip
-              </span>
-              <span class="mini-status">
-                <span class="mini-status-dot mini-status-dot--fail" />
-                Miss
-              </span> -->
-            </div>
           </template>
         </div>
       </div>
