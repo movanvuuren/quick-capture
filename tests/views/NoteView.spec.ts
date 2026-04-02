@@ -301,4 +301,16 @@ This is **note** body.`,
 
     expect(document.execCommand).toHaveBeenCalled()
   })
+
+  it('clears heading formatting back to a paragraph', async () => {
+    const { wrapper } = await mountComponent()
+
+    const clearButton = wrapper.find('[aria-label="Clear formatting"]')
+    expect(clearButton.exists()).toBe(true)
+
+    await clearButton.trigger('mousedown')
+
+    expect(document.execCommand).toHaveBeenNthCalledWith(1, 'formatBlock', false, 'p')
+    expect(document.execCommand).toHaveBeenNthCalledWith(2, 'removeFormat')
+  })
 })

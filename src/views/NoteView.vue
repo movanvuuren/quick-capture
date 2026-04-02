@@ -293,6 +293,7 @@ function setHeading(level: 1 | 2 | 3) {
 
 function clearFormatting() {
   focusEditor()
+  document.execCommand('formatBlock', false, 'p')
   document.execCommand('removeFormat')
 }
 
