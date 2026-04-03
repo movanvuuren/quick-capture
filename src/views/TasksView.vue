@@ -983,7 +983,7 @@ onBeforeUnmount(() => {
               <input v-model="newDueDate" class="glass-input date-input quick-add-date" type="date">
 
             </div>
-            <div class="quick-add-actions">
+            <div class="quick-add-submit-actions">
               <button class="glass-icon-button priority-toggle-button" :class="{ 'is-active': newTaskIsHighPriority }"
                 :aria-label="newTaskIsHighPriority ? 'High priority (click to remove)' : 'Not high priority (click to set)'"
                 @click="newTaskIsHighPriority = !newTaskIsHighPriority">
@@ -1244,6 +1244,12 @@ h1 {
   grid-template-columns: auto 1fr;
   gap: 8px;
   align-items: center;
+}
+
+.quick-add-submit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .quick-add-date-priority {
@@ -1736,15 +1742,33 @@ h1 {
   }
 
   .quick-add-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .preset-switcher-wrap {
+    max-width: 112px;
   }
 
   .quick-add-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-column: 1 / -1;
+  }
+
+  .quick-add-actions {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
   }
 
   .quick-add-date {
     width: 100%;
+  }
+
+  .quick-add-date-priority {
+    min-width: 0;
+  }
+
+  .quick-add-submit-actions {
+    justify-self: end;
   }
 
   .inline-date {
