@@ -847,6 +847,22 @@ async function scrollHabitTimelineToCurrent(habit: HabitCard) {
   element.scrollLeft = element.scrollWidth
 }
 
+async function scrollSelectedHabitDetailTimelineToCurrent() {
+  const habit = selectedHabit.value
+  if (!habit)
+    return
+
+  await nextTick()
+  await waitForNextFrame()
+  await waitForNextFrame()
+
+  const element = habitTimelineRefs.get(habit.fileName)
+  if (!element)
+    return
+
+  element.scrollLeft = element.scrollWidth
+}
+
 async function scrollAllHabitTimelinesToCurrent() {
   await nextTick()
   await Promise.all(habits.value.map(habit => scrollHabitTimelineToCurrent(habit)))
@@ -1065,6 +1081,7 @@ watch(
   () => [route.params.habitId, habits.value.map(habit => habit.fileName).join('|')] as const,
   async () => {
     await preloadHabitDetailHistory(selectedHabit.value)
+    await scrollSelectedHabitDetailTimelineToCurrent()
   },
   { immediate: false },
 )
@@ -1955,6 +1972,7 @@ onMounted(async () => {
   applyRouteHabitSelection()
   await preloadHabitDetailHistory(selectedHabit.value)
   await scrollAllHabitTimelinesToCurrent()
+  await scrollSelectedHabitDetailTimelineToCurrent()
 })
 
 onActivated(async () => {
@@ -1967,6 +1985,7 @@ onActivated(async () => {
   applyRouteHabitSelection()
   await preloadHabitDetailHistory(selectedHabit.value)
   await scrollAllHabitTimelinesToCurrent()
+  await scrollSelectedHabitDetailTimelineToCurrent()
 })
 
 onBeforeUnmount(() => {
