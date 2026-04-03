@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { SquareArrowRightEnter, AlarmClock, AlertTriangle, CalendarDays, Check, ChevronDown, ChevronUp, Filter, LayoutGrid, ListChecks, Star, Trash2 } from 'lucide-vue-next'
+import { Square, SquareArrowRightEnter, AlarmClock, AlertTriangle, CalendarDays, Check, ChevronDown, ChevronUp, Filter, LayoutGrid, ListChecks, Star, Trash2 } from 'lucide-vue-next'
 import OptionSwitcher from '../components/OptionSwitcher.vue'
 import { FolderPicker } from '../plugins/folder-picker'
 import { resolveTaskLineIndex } from '../lib/quickTaskFileOps'
@@ -180,12 +180,12 @@ const taskCounts = computed(() => {
 
 const taskFilterOptions = computed(() => {
   const options = [
-    {
-      value: 'pending',
-      label: '',
-      count: taskCounts.value.pending,
-      icon: Check,
-    },
+      {
+        value: 'pending',
+        label: '',
+        count: taskCounts.value.pending,
+        icon: Square,
+      },
     {
       value: 'closed',
       label: '',
