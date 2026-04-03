@@ -1202,17 +1202,17 @@ h1 {
 }
 
 .glass-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
+  border-radius: 24px;
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
-  box-shadow: var(--shadow);
+  box-shadow: var(--panel-shadow);
 }
 
 .card {
-  padding: 14px;
-  margin-bottom: 12px;
+  padding: 13px 14px;
+  margin-bottom: 10px;
 }
 
 .quick-add-card {
@@ -1352,19 +1352,24 @@ h1 {
 .task-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 28px;
+  background: var(--panel-inset-surface);
+  border: 1px solid var(--panel-inset-border);
+  box-shadow: var(--panel-inset-shadow);
 }
 
 .task-row {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   align-items: start;
-  gap: 9px;
-  padding: 11px 12px;
-  border-radius: 18px;
-  border-color: color-mix(in srgb, var(--border) 62%, transparent);
-  background: color-mix(in srgb, var(--surface) 84%, transparent);
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--c-dark) 8%, transparent);
+  gap: 8px;
+  padding: 10px 10px;
+  border-radius: 22px;
+  border-color: var(--panel-item-border);
+  background: var(--panel-item-surface);
+  box-shadow: var(--panel-item-shadow);
   transition:
     transform 0.2s ease,
     border-color 0.18s ease,
@@ -1379,9 +1384,9 @@ h1 {
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 9px;
-  border: 1px solid var(--state-pending-border);
-  background: var(--state-pending-bg);
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--state-pending-border) 72%, transparent);
+  background: color-mix(in srgb, var(--state-pending-bg) 84%, transparent);
   color: var(--state-pending-text);
   font-size: 0.9rem;
   font-weight: 700;
@@ -1413,14 +1418,14 @@ h1 {
 }
 
 .state-button.done {
-  border-color: var(--state-done-border);
-  background: var(--state-done-bg);
+  border-color: color-mix(in srgb, var(--state-done-border) 76%, transparent);
+  background: color-mix(in srgb, var(--state-done-bg) 82%, transparent);
   color: var(--state-done-text);
 }
 
 .state-button.cancelled {
-  border-color: var(--state-cancelled-border);
-  background: var(--state-cancelled-bg);
+  border-color: color-mix(in srgb, var(--state-cancelled-border) 76%, transparent);
+  background: color-mix(in srgb, var(--state-cancelled-bg) 82%, transparent);
   color: var(--state-cancelled-text);
 }
 
@@ -1445,7 +1450,7 @@ h1 {
 
 .task-main {
   font-size: 0.93rem;
-  line-height: 1.3;
+  line-height: 1.26;
   word-break: break-word;
   overflow-wrap: anywhere;
 }
@@ -1532,19 +1537,19 @@ h1 {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 6px;
+  gap: 5px;
 }
 
 .task-datetime-stack {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 5px;
+  gap: 4px;
 }
 
 .task-side-actions {
   display: flex;
-  gap: 6px;
+  gap: 5px;
   align-items: flex-start;
 }
 
@@ -1585,11 +1590,11 @@ h1 {
 }
 
 .task-row.overdue {
-  border-color: color-mix(in srgb, #fca5a5 46%, var(--border));
+  border-color: color-mix(in srgb, #fca5a5 28%, var(--border));
   background:
     linear-gradient(180deg,
-      color-mix(in srgb, #fca5a5 16%, var(--surface) 84%),
-      color-mix(in srgb, #ef4444 9%, var(--surface) 91%));
+      color-mix(in srgb, #fca5a5 9%, var(--surface) 91%),
+      color-mix(in srgb, #ef4444 5%, var(--surface) 95%));
 }
 
 .task-row.highlighted {
@@ -1600,15 +1605,17 @@ h1 {
 
   0%,
   20% {
-    border-color: color-mix(in srgb, #6ee7b7 70%, var(--border));
-    background: color-mix(in srgb, #6ee7b7 18%, var(--surface));
-    box-shadow: var(--shadow), 0 0 0 2px color-mix(in srgb, #6ee7b7 40%, transparent);
+    border-color: color-mix(in srgb, #6ee7b7 46%, var(--border));
+    background: color-mix(in srgb, #6ee7b7 12%, var(--surface));
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--c-light) 8%, transparent),
+      0 0 0 1px color-mix(in srgb, #6ee7b7 28%, transparent);
   }
 
   100% {
-    border-color: var(--border);
-    background: var(--surface);
-    box-shadow: var(--shadow);
+    border-color: var(--panel-item-border);
+    background: var(--panel-item-surface);
+    box-shadow: var(--panel-item-shadow);
   }
 }
 
@@ -1725,8 +1732,10 @@ h1 {
 }
 
 .task-row.is-high-priority {
-  border-color: color-mix(in srgb, #facc15 38%, var(--border));
-  box-shadow: 0 10px 22px color-mix(in srgb, #facc15 8%, transparent);
+  border-color: color-mix(in srgb, #facc15 22%, var(--border));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--c-light) 8%, transparent),
+    0 0 0 1px color-mix(in srgb, #facc15 12%, transparent);
 }
 
 .repeat-badge {

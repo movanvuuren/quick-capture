@@ -533,20 +533,12 @@ function onDrop(e: DragEvent, idx: number) {
 .empty-state,
 .list-card,
 .glass-panel {
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 8%, transparent), transparent 26%),
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--c-light) 8%, transparent),
-      color-mix(in srgb, var(--c-glass) 7%, transparent)),
-    color-mix(in srgb, var(--surface) 88%, transparent);
+  background: var(--panel-surface);
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
-  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border: 1px solid var(--panel-border);
   border-radius: 24px;
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 5%), transparent),
-    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 6%), transparent),
-    0 12px 28px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 10%), transparent);
+  box-shadow: var(--panel-shadow);
 }
 
 .empty-state {
@@ -689,8 +681,9 @@ function onDrop(e: DragEvent, idx: number) {
 }
 
 .glass-panel--soft {
-  background: color-mix(in srgb, var(--c-light) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--c-light) 14%, transparent);
+  background: var(--panel-inset-surface);
+  border: 1px solid var(--panel-inset-border);
+  box-shadow: var(--panel-inset-shadow);
 }
 
 .items {

@@ -2336,12 +2336,12 @@ h1 {
 }
 
 .glass-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
   border-radius: 20px;
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
-  box-shadow: var(--shadow);
+  box-shadow: var(--panel-shadow);
 }
 
 .card {
@@ -2482,8 +2482,9 @@ h1 {
 .habit-detail-stat {
   padding: 12px;
   border-radius: 16px;
-  background: color-mix(in srgb, var(--surface) 82%, var(--c-light) 18%);
-  border: 1px solid color-mix(in srgb, var(--primary) 10%, var(--border));
+  background: var(--panel-inset-surface);
+  border: 1px solid var(--panel-inset-border);
+  box-shadow: var(--panel-inset-shadow);
 }
 
 .habit-detail-stat-label {

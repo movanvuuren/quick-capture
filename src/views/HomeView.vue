@@ -1014,16 +1014,12 @@ h1 {
   gap: 12px;
   min-height: 172px;
   width: 100%;
-  border-color: color-mix(in srgb, var(--c-light) 18%, transparent);
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 14%, transparent), transparent 26%),
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--c-light) 14%, transparent),
-      color-mix(in srgb, var(--c-glass) 12%, transparent)),
-    color-mix(in srgb, var(--surface) 84%, transparent);
+  border-color: var(--panel-border);
+  background: var(--panel-surface);
   color: var(--text);
   position: relative;
   z-index: 2;
+  box-shadow: var(--panel-shadow);
   transition: transform 0.2s ease;
 }
 

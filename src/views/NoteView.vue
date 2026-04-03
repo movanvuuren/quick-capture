@@ -950,20 +950,12 @@ async function saveNote() {
 }
 
 .glass-panel {
-  background:
-    radial-gradient(circle at top right, color-mix(in srgb, var(--primary) 12%, transparent), transparent 28%),
-    linear-gradient(180deg,
-      color-mix(in srgb, var(--c-light) 12%, transparent),
-      color-mix(in srgb, var(--c-glass) 10%, transparent)),
-    color-mix(in srgb, var(--surface) 84%, transparent);
+  background: var(--panel-surface);
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
-  border: 1px solid color-mix(in srgb, var(--c-light) 20%, transparent);
+  border: 1px solid var(--panel-border);
   border-radius: 24px;
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 8%), transparent),
-    inset 0 -1px 4px 0 color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 9%), transparent),
-    0 18px 36px color-mix(in srgb, var(--c-dark) calc(var(--glass-reflex-dark) * 14%), transparent);
+  box-shadow: var(--panel-shadow);
 }
 
 .detail-header {
@@ -1003,8 +995,8 @@ async function saveNote() {
 }
 
 .glass-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--panel-surface);
+  border: 1px solid var(--panel-border);
   border-radius: 16px;
   padding: 0;
   overflow: hidden;
@@ -1012,7 +1004,7 @@ async function saveNote() {
   z-index: 1;
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
-  box-shadow: var(--shadow);
+  box-shadow: var(--panel-shadow);
 }
 
 /* ── Toolbar ── */
