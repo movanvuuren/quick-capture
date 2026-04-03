@@ -2066,12 +2066,13 @@ onBeforeUnmount(() => {
             <h3>Contribution History</h3>
           </div>
           <p v-if="isHabitDetailLoading" class="hint">Loading the last 12 months...</p>
-          <div class="habit-timeline-shell habit-timeline-shell--detail">
-            <div class="habit-weekday-rail" aria-hidden="true">
-              <span v-for="dayIndex in 7" :key="`${selectedHabit.fileName}-detail-day-${dayIndex}`"
-                class="habit-weekday-label">
-                {{ getTimelineWeekdayLabel(dayIndex - 1) }}
-              </span>
+            <div class="habit-timeline-shell habit-timeline-shell--detail">
+              <div class="habit-weekday-rail" aria-hidden="true">
+                <span class="habit-weekday-spacer" />
+                <span v-for="dayIndex in 7" :key="`${selectedHabit.fileName}-detail-day-${dayIndex}`"
+                  class="habit-weekday-label">
+                  {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+                </span>
             </div>
             <div :ref="element => setHabitTimelineRef(selectedHabit?.fileName || 'habit-detail', element)" class="habit-timeline-scroll"
               role="img" :aria-label="`Heat map for ${selectedHabit.name}`"
@@ -2129,13 +2130,14 @@ onBeforeUnmount(() => {
 
           <div class="habit-main-row">
             <div class="heatmap-wrap">
-              <template v-if="isHydratingHabitCard(habit)">
-                <div class="habit-timeline-shell">
-                  <div class="habit-weekday-rail" aria-hidden="true">
-                    <span v-for="dayIndex in 7" :key="`${habit.fileName}-skeleton-day-${dayIndex}`"
-                      class="habit-weekday-label">
-                      {{ getTimelineWeekdayLabel(dayIndex - 1) }}
-                    </span>
+                <template v-if="isHydratingHabitCard(habit)">
+                  <div class="habit-timeline-shell">
+                    <div class="habit-weekday-rail" aria-hidden="true">
+                      <span class="habit-weekday-spacer" />
+                      <span v-for="dayIndex in 7" :key="`${habit.fileName}-skeleton-day-${dayIndex}`"
+                        class="habit-weekday-label">
+                        {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+                      </span>
                   </div>
                   <div class="habit-timeline-scroll habit-timeline-scroll--skeleton">
                     <div class="habit-timeline-month">
@@ -2148,12 +2150,13 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </template>
-              <template v-else>
-                <div class="habit-timeline-shell">
-                  <div class="habit-weekday-rail" aria-hidden="true">
-                    <span v-for="dayIndex in 7" :key="`${habit.fileName}-day-${dayIndex}`" class="habit-weekday-label">
-                      {{ getTimelineWeekdayLabel(dayIndex - 1) }}
-                    </span>
+                <template v-else>
+                  <div class="habit-timeline-shell">
+                    <div class="habit-weekday-rail" aria-hidden="true">
+                      <span class="habit-weekday-spacer" />
+                      <span v-for="dayIndex in 7" :key="`${habit.fileName}-day-${dayIndex}`" class="habit-weekday-label">
+                        {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+                      </span>
                   </div>
                   <div :ref="element => setHabitTimelineRef(habit.fileName, element)" class="habit-timeline-scroll"
                     role="img" :aria-label="`Heat map for ${habit.name}`"
@@ -2711,8 +2714,10 @@ h1 {
 }
 
 .heatmap-month-label {
-  display: inline-block;
-  margin-bottom: 6px;
+  display: block;
+  height: 14px;
+  line-height: 14px;
+  margin-bottom: 4px;
   font-size: 0.74rem;
   font-weight: 700;
   color: var(--text-soft);
@@ -2746,17 +2751,24 @@ h1 {
 
 .habit-weekday-rail {
   display: grid;
-  grid-template-rows: repeat(7, 14px);
-  gap: 4px;
-  padding-top: 20px;
-  width: 42px;
+  grid-template-rows: 27px repeat(7, 14px);
+  gap: 9px;
+  width: 46px;
   justify-items: start;
   flex: 0 0 auto;
 }
 
+.habit-weekday-spacer {
+  display: block;
+  width: 100%;
+  height: 27px;
+}
+
 .habit-weekday-label {
+  display: flex;
+  align-items: center;
   font-size: 0.66rem;
-  line-height: 14px;
+  line-height: 1;
   color: var(--text-soft);
   font-weight: 700;
 }
@@ -2956,9 +2968,13 @@ h1 {
   }
 
   .habit-weekday-rail {
-    grid-template-rows: repeat(7, 10px);
-    gap: 2px;
-    width: 26px;
+    grid-template-rows: 21px repeat(7, 10px);
+    gap: 7px;
+    width: 30px;
+  }
+
+  .habit-weekday-spacer {
+    height: 21px;
   }
 
   .heatmap-days {
