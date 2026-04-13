@@ -1233,6 +1233,7 @@ h1 {
 .quick-add-row {
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 10px;
 }
 

@@ -48,14 +48,16 @@ function select(value: string) {
 
 <style scoped>
 .option-switcher {
-  --switch-gap: 8px;
+  --switch-gap: 6px;
+  --switch-padding: 4px;
+  --switch-option-min-height: 36px;
 
   position: relative;
   display: flex;
   align-items: center;
   gap: var(--switch-gap);
   width: 100%;
-  padding: 6px;
+  padding: var(--switch-padding);
   border-radius: var(--radius-switcher);
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
   background: color-mix(in srgb, var(--c-glass) 12%, transparent);
@@ -71,10 +73,10 @@ function select(value: string) {
 .option-switcher::after {
   content: '';
   position: absolute;
-  top: 6px;
-  left: 6px;
-  width: calc((100% - 12px - (var(--switch-option-count) - 1) * var(--switch-gap)) / var(--switch-option-count));
-  height: calc(100% - 12px);
+  top: var(--switch-padding);
+  left: var(--switch-padding);
+  width: calc((100% - (var(--switch-padding) * 2) - (var(--switch-option-count) - 1) * var(--switch-gap)) / var(--switch-option-count));
+  height: calc(100% - (var(--switch-padding) * 2));
   border-radius: var(--radius-switcher);
   background: color-mix(in srgb, var(--c-glass) 28%, transparent);
   box-shadow:
@@ -91,7 +93,7 @@ function select(value: string) {
   position: relative;
   z-index: 1;
   flex: 1;
-  min-height: 46px;
+  min-height: var(--switch-option-min-height);
   border: none;
   border-radius: var(--radius-switcher);
   background: transparent;
