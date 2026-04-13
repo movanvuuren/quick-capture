@@ -1511,11 +1511,11 @@ function withUpdatedHabitFrontmatterFields(
 function applyHabitDerivedStats(habitFileName: string, currentStreak: number, bestStreak: number) {
   habits.value = habits.value.map(habit => habit.fileName === habitFileName
     ? {
-        ...habit,
-        currentStreak,
-        bestStreak,
-        streakStatsVersion: DERIVED_STREAK_STATS_VERSION,
-      }
+      ...habit,
+      currentStreak,
+      bestStreak,
+      streakStatsVersion: DERIVED_STREAK_STATS_VERSION,
+    }
     : habit)
 
   const cachedDefinition = habitDefinitionCache.get(getHabitDefinitionCacheKey(habitFileName))
@@ -2191,16 +2191,16 @@ onDeactivated(() => {
             <h3>Contribution History</h3>
           </div>
           <p v-if="isHabitDetailLoading" class="hint">Loading the last 12 months...</p>
-            <div class="habit-timeline-shell habit-timeline-shell--detail">
-              <div class="habit-weekday-rail" aria-hidden="true">
-                <span class="habit-weekday-spacer" />
-                <span v-for="dayIndex in 7" :key="`${selectedHabit.fileName}-detail-day-${dayIndex}`"
-                  class="habit-weekday-label">
-                  {{ getTimelineWeekdayLabel(dayIndex - 1) }}
-                </span>
+          <div class="habit-timeline-shell habit-timeline-shell--detail">
+            <div class="habit-weekday-rail" aria-hidden="true">
+              <span class="habit-weekday-spacer" />
+              <span v-for="dayIndex in 7" :key="`${selectedHabit.fileName}-detail-day-${dayIndex}`"
+                class="habit-weekday-label">
+                {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+              </span>
             </div>
-            <div :ref="element => setHabitTimelineRef(selectedHabit?.fileName || 'habit-detail', element)" class="habit-timeline-scroll"
-              role="img" :aria-label="`Heat map for ${selectedHabit.name}`"
+            <div :ref="element => setHabitTimelineRef(selectedHabit?.fileName || 'habit-detail', element)"
+              class="habit-timeline-scroll" role="img" :aria-label="`Heat map for ${selectedHabit.name}`"
               @scroll="handleHabitTimelineScroll(selectedHabit, $event, true)"
               @touchstart="handleHabitTimelineTouchStart(selectedHabit, $event)"
               @touchend="handleHabitTimelineTouchEnd(selectedHabit, $event, true)"
@@ -2209,13 +2209,12 @@ onDeactivated(() => {
               @pointerup="handleHabitTimelinePointerUp(selectedHabit, $event, true)"
               @pointercancel="handleHabitTimelinePointerUp(selectedHabit, $event, true)">
               <div class="habit-timeline-track">
-                <div v-for="summary in selectedHabitMonthSummaries" :key="`${selectedHabit.fileName}-month-${summary.offset}`"
-                  class="habit-timeline-month">
+                <div v-for="summary in selectedHabitMonthSummaries"
+                  :key="`${selectedHabit.fileName}-month-${summary.offset}`" class="habit-timeline-month">
                   <span class="heatmap-month-label">{{ getTimelineMonthLabel(summary.offset) }}</span>
                   <div class="habit-month-grid">
                     <div v-for="cell in getHeatmapForMonth(selectedHabit, summary.offset)"
-                      :key="`${selectedHabit.fileName}-${summary.offset}-${cell.date}`" class="heatmap-cell"
-                      :class="[
+                      :key="`${selectedHabit.fileName}-${summary.offset}-${cell.date}`" class="heatmap-cell" :class="[
                         `level-${cell.level}`,
                         {
                           'is-placeholder': cell.isPlaceholder,
@@ -2255,14 +2254,14 @@ onDeactivated(() => {
 
           <div class="habit-main-row">
             <div class="heatmap-wrap">
-                <template v-if="isHydratingHabitCard(habit)">
-                  <div class="habit-timeline-shell">
-                    <div class="habit-weekday-rail" aria-hidden="true">
-                      <span class="habit-weekday-spacer" />
-                      <span v-for="dayIndex in 7" :key="`${habit.fileName}-skeleton-day-${dayIndex}`"
-                        class="habit-weekday-label">
-                        {{ getTimelineWeekdayLabel(dayIndex - 1) }}
-                      </span>
+              <template v-if="isHydratingHabitCard(habit)">
+                <div class="habit-timeline-shell">
+                  <div class="habit-weekday-rail" aria-hidden="true">
+                    <span class="habit-weekday-spacer" />
+                    <span v-for="dayIndex in 7" :key="`${habit.fileName}-skeleton-day-${dayIndex}`"
+                      class="habit-weekday-label">
+                      {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+                    </span>
                   </div>
                   <div class="habit-timeline-scroll habit-timeline-scroll--skeleton">
                     <div class="habit-timeline-month">
@@ -2275,13 +2274,13 @@ onDeactivated(() => {
                   </div>
                 </div>
               </template>
-                <template v-else>
-                  <div class="habit-timeline-shell">
-                    <div class="habit-weekday-rail" aria-hidden="true">
-                      <span class="habit-weekday-spacer" />
-                      <span v-for="dayIndex in 7" :key="`${habit.fileName}-day-${dayIndex}`" class="habit-weekday-label">
-                        {{ getTimelineWeekdayLabel(dayIndex - 1) }}
-                      </span>
+              <template v-else>
+                <div class="habit-timeline-shell">
+                  <div class="habit-weekday-rail" aria-hidden="true">
+                    <span class="habit-weekday-spacer" />
+                    <span v-for="dayIndex in 7" :key="`${habit.fileName}-day-${dayIndex}`" class="habit-weekday-label">
+                      {{ getTimelineWeekdayLabel(dayIndex - 1) }}
+                    </span>
                   </div>
                   <div :ref="element => setHabitTimelineRef(habit.fileName, element)" class="habit-timeline-scroll"
                     role="img" :aria-label="`Heat map for ${habit.name}`"
@@ -2293,13 +2292,12 @@ onDeactivated(() => {
                     @pointerup="handleHabitTimelinePointerUp(habit, $event)"
                     @pointercancel="handleHabitTimelinePointerUp(habit, $event)">
                     <div class="habit-timeline-track">
-                      <div v-for="monthOffset in getLoadedMonthOffsets(habit)" :key="`${habit.fileName}-month-${monthOffset}`"
-                        class="habit-timeline-month">
+                      <div v-for="monthOffset in getLoadedMonthOffsets(habit)"
+                        :key="`${habit.fileName}-month-${monthOffset}`" class="habit-timeline-month">
                         <span class="heatmap-month-label">{{ getTimelineMonthLabel(monthOffset) }}</span>
                         <div class="habit-month-grid">
                           <div v-for="cell in getHeatmapForMonth(habit, monthOffset)"
-                            :key="`${habit.fileName}-${monthOffset}-${cell.date}`" class="heatmap-cell"
-                            :class="[
+                            :key="`${habit.fileName}-${monthOffset}-${cell.date}`" class="heatmap-cell" :class="[
                               `level-${cell.level}`,
                               {
                                 'is-placeholder': cell.isPlaceholder,
