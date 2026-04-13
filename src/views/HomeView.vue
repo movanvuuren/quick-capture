@@ -948,7 +948,7 @@ h1 {
 .filter-chip {
   min-height: 40px;
   padding: 10px 16px;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   font-size: 0.9rem;
   justify-content: center;
 }
@@ -968,7 +968,7 @@ h1 {
 
 .swipe-item {
   position: relative;
-  border-radius: 30px;
+  border-radius: var(--radius-card);
   overflow: hidden;
   touch-action: pan-y;
 }
@@ -980,7 +980,7 @@ h1 {
   bottom: 0;
   width: 92px;
   border: 0;
-  border-radius: 0 30px 30px 0;
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
   display: inline-flex;
   flex-direction: column;
   align-items: center;
@@ -1005,7 +1005,7 @@ h1 {
 
 .collection-card {
   text-align: left;
-  border-radius: 30px;
+  border-radius: var(--radius-card);
   padding: 18px 18px 16px;
   display: flex;
   flex-direction: column;
@@ -1052,7 +1052,7 @@ h1 {
   width: 46px;
   height: 52px;
   flex-shrink: 0;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   display: grid;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--c-light) 24%, transparent);
@@ -1320,7 +1320,7 @@ h1 {
 .card.empty-state {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: var(--radius-card);
 }
 
 
@@ -1331,7 +1331,7 @@ h1 {
   margin: 0 auto 14px;
   display: grid;
   place-items: center;
-  border-radius: 18px;
+  border-radius: var(--radius-icon);
   background: var(--primary-soft);
   font-size: 1.2rem;
   font-weight: 700;

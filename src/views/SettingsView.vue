@@ -33,17 +33,17 @@ watch(
   { deep: true },
 )
 
-// Also watch the theme specifically to apply it to the document.
+// Also watch appearance settings specifically to apply them to the document.
 watch(
-  () => [settings.theme, settings.accentColor],
-  ([newTheme, newAccent]) => {
-    applyTheme(newTheme as any, (newAccent as string | undefined))
+  () => [settings.theme, settings.accentColor, settings.cornerStyle],
+  ([newTheme, newAccent, newCornerStyle]) => {
+    applyTheme(newTheme as any, (newAccent as string | undefined), newCornerStyle as any)
     void syncWidgetTheme()
   },
 )
 
-// Apply the initial theme when the component loads.
-applyTheme(settings.theme, settings.accentColor)
+// Apply the initial appearance when the component loads.
+applyTheme(settings.theme, settings.accentColor, settings.cornerStyle)
 
 function resetAccentColor() {
   settings.accentColor = undefined
@@ -89,6 +89,12 @@ const themeOptions = [
   { value: 'light', label: '', icon: Sun },
   { value: 'dark', label: '', icon: Moon },
   { value: 'dim', label: '', icon: Sparkles },
+]
+
+const cornerOptions = [
+  { value: 'square', label: 'Square' },
+  { value: 'soft', label: 'Soft' },
+  { value: 'round', label: 'Round' },
 ]
 
 const accentPickerValue = computed({
@@ -745,7 +751,15 @@ function jumpToSection(value: string) {
         <h2 class="card-title">
           Appearance
         </h2>
-        <OptionSwitcher v-model="settings.theme" :options="themeOptions" aria-label="Theme" />
+        <div class="field">
+          <span>Theme</span>
+          <OptionSwitcher v-model="settings.theme" :options="themeOptions" aria-label="Theme" />
+        </div>
+
+        <div class="field">
+          <span>Corners</span>
+          <OptionSwitcher v-model="settings.cornerStyle" :options="cornerOptions" aria-label="Corner roundness" />
+        </div>
 
         <div class="field accent-field">
           <span>Accent color</span>
@@ -966,7 +980,7 @@ function jumpToSection(value: string) {
 .pull-refresh-spinner {
   width: 14px;
   height: 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   border: 2px solid color-mix(in srgb, var(--text-soft) 22%, transparent);
   border-top-color: color-mix(in srgb, var(--primary) 72%, var(--text));
 }
@@ -1010,7 +1024,7 @@ h1 {
 
 .card {
   background: var(--surface);
-  border-radius: 20px;
+  border-radius: var(--radius-card);
   padding: 8px;
   box-shadow: var(--shadow);
   margin-bottom: 2px;
@@ -1044,7 +1058,7 @@ h1 {
   font-size: 0.85rem;
   font-weight: 600;
   padding: 0 8px;
-  border-radius: 10px;
+  border-radius: var(--radius-small);
   transition: color 0.15s, background 0.15s;
 }
 
@@ -1069,7 +1083,7 @@ h1 {
 .remove-button {
   width: 34px;
   height: 34px;
-  border-radius: 12px;
+  border-radius: var(--radius-icon);
   color: var(--text-soft);
 }
 
@@ -1091,7 +1105,7 @@ h1 {
 
 .field input {
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   padding: 12px 14px;
   background: color-mix(in srgb, var(--c-glass) 10%, transparent);
   color: var(--text);
@@ -1127,7 +1141,7 @@ h1 {
 
 .glass-select {
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   padding: 12px 14px;
   background: color-mix(in srgb, var(--c-glass) 10%, transparent);
   color: var(--text);
@@ -1159,7 +1173,7 @@ h1 {
 
 .day-chip {
   border: 1px solid color-mix(in srgb, var(--c-light) 20%, transparent);
-  border-radius: 10px;
+  border-radius: var(--radius-small);
   min-height: 34px;
   background: color-mix(in srgb, var(--c-glass) 8%, transparent);
   color: var(--text-soft);
@@ -1195,7 +1209,7 @@ h1 {
   width: 38px;
   height: 38px;
   padding: 2px;
-  border-radius: 10px;
+  border-radius: var(--radius-small);
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
   background: color-mix(in srgb, var(--c-glass) 10%, transparent);
   cursor: pointer;
@@ -1203,7 +1217,7 @@ h1 {
 
 .field input.accent-picker {
   padding: 2px;
-  border-radius: 10px;
+  border-radius: var(--radius-small);
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
@@ -1215,18 +1229,18 @@ h1 {
 
 .accent-picker::-webkit-color-swatch {
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-swatch);
 }
 
 .accent-picker::-moz-color-swatch {
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-swatch);
 }
 
 .accent-reset {
   min-height: 38px;
   padding: 0 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-control);
 }
 
 .radio-option {
@@ -1243,7 +1257,7 @@ h1 {
 
 .theme-button {
   padding: 6px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   background: var(--surface);
   color: var(--text);
   font-weight: 600;
@@ -1263,7 +1277,7 @@ h1 {
   color: var(--text);
   cursor: pointer;
   padding: 4px;
-  border-radius: 50%;
+  border-radius: var(--radius-switcher);
   display: flex;
   align-items: center;
   justify-content: center;

@@ -10,7 +10,7 @@ import './style.css'
 
 // immediately apply saved theme so the UI doesn't flash
 const settings = loadSettings()
-applyTheme(settings.theme, settings.accentColor)
+applyTheme(settings.theme, settings.accentColor, settings.cornerStyle)
 document.documentElement.dataset.platform = Capacitor.getPlatform()
 
 createApp(App).use(router).mount('#app')

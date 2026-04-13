@@ -180,12 +180,12 @@ const taskCounts = computed(() => {
 
 const taskFilterOptions = computed(() => {
   const options = [
-      {
-        value: 'pending',
-        label: '',
-        count: taskCounts.value.pending,
-        icon: Square,
-      },
+    {
+      value: 'pending',
+      label: '',
+      count: taskCounts.value.pending,
+      icon: Square,
+    },
     {
       value: 'closed',
       label: '',
@@ -1044,13 +1044,13 @@ onBeforeUnmount(() => {
           :class="[task.state, { overdue: isOverdue(task), highlighted: highlightedTaskId === task.id, 'is-high-priority': task.isHighPriority }]">
           <button class="state-button" :class="task.state" :aria-label="`Toggle task state (${task.state})`"
             @click="toggleTaskState(task)">
-            <Star v-if="task.isHighPriority && task.state === 'pending'" :size="14" fill="currentColor" class="state-icon-flame priority-star-icon"
-              aria-hidden="true" />
+            <Star v-if="task.isHighPriority && task.state === 'pending'" :size="14" fill="currentColor"
+              class="state-icon-flame priority-star-icon" aria-hidden="true" />
             <span v-else class="state-icon">
               <span v-if="task.state !== 'pending'">{{ task.state === 'done' ? '✓' : '–' }}</span>
             </span>
-            <Star v-if="task.isHighPriority && task.state !== 'pending'" :size="12" fill="currentColor" class="state-flame priority-star-icon"
-              aria-hidden="true" />
+            <Star v-if="task.isHighPriority && task.state !== 'pending'" :size="12" fill="currentColor"
+              class="state-flame priority-star-icon" aria-hidden="true" />
           </button>
 
           <div class="task-content">
@@ -1063,7 +1063,8 @@ onBeforeUnmount(() => {
                 <button v-else class="task-main task-main-button" type="button" @click="startEditTask(task)">
                   <span v-if="getTaskTypeLabel(task)" class="task-type-tag">{{ getTaskTypeLabel(task) }}</span>
                   <span class="task-main-text">
-                    <template v-for="(segment, index) in getTaskBodySegments(task)" :key="`${task.id}-segment-${index}`">
+                    <template v-for="(segment, index) in getTaskBodySegments(task)"
+                      :key="`${task.id}-segment-${index}`">
                       <span v-if="segment.type === 'text'">{{ segment.value }}</span>
                       <span v-else class="task-inline-tag">{{ segment.value }}</span>
                     </template>
@@ -1204,7 +1205,7 @@ h1 {
 .glass-card {
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
-  border-radius: 24px;
+  border-radius: var(--radius-card);
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
   box-shadow: var(--panel-shadow);
@@ -1280,7 +1281,7 @@ h1 {
 
 .glass-input {
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
-  border-radius: 14px;
+  border-radius: var(--radius-small);
   padding: 10px 12px;
   background: color-mix(in srgb, var(--c-glass) 10%, transparent);
   color: var(--text);
@@ -1354,7 +1355,7 @@ h1 {
   flex-direction: column;
   gap: 4px;
   padding: 6px;
-  border-radius: 28px;
+  border-radius: var(--radius-card);
   background: var(--panel-inset-surface);
   border: 1px solid var(--panel-inset-border);
   box-shadow: var(--panel-inset-shadow);
@@ -1366,7 +1367,7 @@ h1 {
   align-items: start;
   gap: 8px;
   padding: 10px 10px;
-  border-radius: 22px;
+  border-radius: var(--radius-control);
   border-color: var(--panel-item-border);
   background: var(--panel-item-surface);
   box-shadow: var(--panel-item-shadow);

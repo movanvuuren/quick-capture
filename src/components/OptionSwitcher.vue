@@ -56,7 +56,7 @@ function select(value: string) {
   gap: var(--switch-gap);
   width: 100%;
   padding: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
   background: color-mix(in srgb, var(--c-glass) 12%, transparent);
   backdrop-filter: blur(14px) saturate(var(--saturation));
@@ -75,7 +75,7 @@ function select(value: string) {
   left: 6px;
   width: calc((100% - 12px - (var(--switch-option-count) - 1) * var(--switch-gap)) / var(--switch-option-count));
   height: calc(100% - 12px);
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   background: color-mix(in srgb, var(--c-glass) 28%, transparent);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
@@ -93,7 +93,7 @@ function select(value: string) {
   flex: 1;
   min-height: 46px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   background: transparent;
   color: var(--text);
   font-size: 0.9rem;

@@ -537,7 +537,7 @@ function onDrop(e: DragEvent, idx: number) {
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
   border: 1px solid var(--panel-border);
-  border-radius: 24px;
+  border-radius: var(--radius-card);
   box-shadow: var(--panel-shadow);
 }
 
@@ -576,7 +576,7 @@ function onDrop(e: DragEvent, idx: number) {
   margin: 0 auto 14px;
   display: grid;
   place-items: center;
-  border-radius: 18px;
+  border-radius: var(--radius-icon);
   background: var(--primary-soft);
   font-size: 1.5rem;
 }
@@ -597,7 +597,7 @@ function onDrop(e: DragEvent, idx: number) {
   padding: 14px;
   margin-bottom: 14px;
   position: relative;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   z-index: 1;
 }
 
@@ -615,7 +615,7 @@ function onDrop(e: DragEvent, idx: number) {
 
 .detail-header {
   display: block;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   padding: 7px 13px;
   margin-bottom: 10px;
   position: relative;
@@ -711,7 +711,7 @@ function onDrop(e: DragEvent, idx: number) {
   align-items: flex-start;
   gap: 8px;
   padding: 6px 2px;
-  border-radius: 14px;
+  border-radius: var(--radius-small);
   transition: background 0.16s ease;
 }
 
@@ -772,7 +772,7 @@ function onDrop(e: DragEvent, idx: number) {
   min-width: 0;
   min-height: 24px;
   padding: 1px 6px;
-  border-radius: 14px;
+  border-radius: var(--radius-small);
   font-size: 0.95rem;
   border: none;
   background: transparent;

@@ -19,6 +19,8 @@ vi.mock('../../src/plugins/folder-picker', () => ({
 vi.mock('../../src/plugins/widget-sync', () => ({
   WidgetSync: {
     syncHabits: vi.fn(),
+    syncAppearance: vi.fn(),
+    refreshWidgets: vi.fn(),
   },
 }))
 vi.mock('@capacitor/haptics', () => ({
@@ -46,6 +48,7 @@ function makeRouter() {
 const mockSettings = {
   theme: 'light',
   accentColor: undefined,
+  cornerStyle: 'round',
   baseFolderUri: 'file:///mock/folder/',
   baseFolderName: 'Mock Folder',
   listSaveMode: 'single_file',
@@ -122,6 +125,8 @@ describe('SettingsView.vue', () => {
 
     vi.mocked(FolderPicker.writeFile).mockResolvedValue(undefined)
     vi.mocked(WidgetSync.syncHabits).mockResolvedValue(undefined)
+    vi.mocked(WidgetSync.syncAppearance).mockResolvedValue(undefined)
+    vi.mocked(WidgetSync.refreshWidgets).mockResolvedValue(undefined)
 
     vi.stubGlobal('crypto', {
       randomUUID: () => 'mock-uuid',
@@ -222,6 +227,20 @@ describe('SettingsView.vue', () => {
     await nextTick()
 
     expect(settingsLib.applyTheme).toHaveBeenCalled()
+    expect(settingsLib.saveSettings).toHaveBeenCalled()
+  })
+
+  it('saves settings and applies appearance when corner style changes', async () => {
+    const { wrapper } = await mountComponent()
+
+    const optionButtons = wrapper.findAll('.option-switcher-option')
+    const squareButton = optionButtons.find(btn => btn.text() === 'square')
+
+    expect(squareButton).toBeTruthy()
+    await squareButton!.trigger('click')
+    await nextTick()
+
+    expect(settingsLib.applyTheme).toHaveBeenCalledWith('light', undefined, 'square')
     expect(settingsLib.saveSettings).toHaveBeenCalled()
   })
 

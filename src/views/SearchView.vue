@@ -213,7 +213,7 @@ function openFile(file: AppFile) {
 .glass-input {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-small);
   padding: 8px 12px;
   color: var(--text);
   font-size: 0.95rem;
@@ -229,7 +229,7 @@ function openFile(file: AppFile) {
 .glass-card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: var(--radius-card);
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
   box-shadow: var(--shadow);
@@ -344,5 +344,4 @@ function openFile(file: AppFile) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 </style>

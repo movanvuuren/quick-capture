@@ -2360,7 +2360,7 @@ h1 {
 .glass-card {
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
-  border-radius: 20px;
+  border-radius: var(--radius-card);
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
   box-shadow: var(--panel-shadow);
@@ -2454,7 +2454,7 @@ h1 {
 .habit-detail-icon {
   width: 54px;
   height: 54px;
-  border-radius: 18px;
+  border-radius: var(--radius-control);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2503,7 +2503,7 @@ h1 {
 
 .habit-detail-stat {
   padding: 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   background: var(--panel-inset-surface);
   border: 1px solid var(--panel-inset-border);
   box-shadow: var(--panel-inset-shadow);
@@ -2685,7 +2685,7 @@ h1 {
 
 .glass-input {
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
-  border-radius: 14px;
+  border-radius: var(--radius-small);
   padding: 10px 12px;
   background: color-mix(in srgb, var(--c-glass) 10%, transparent);
   color: var(--text);
@@ -2962,7 +2962,7 @@ h1 {
   width: 100%;
   max-width: 180px;
   height: 40px;
-  border-radius: 14px;
+  border-radius: var(--radius-small);
 }
 
 .habit-action-skeleton {

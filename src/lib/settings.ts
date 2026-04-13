@@ -9,6 +9,7 @@ export interface QuickTaskPreset {
 }
 
 export type Theme = 'light' | 'dark' | 'dim'
+export type CornerStyle = 'square' | 'soft' | 'round'
 
 export interface AppSettings {
   /** folder picked by the user for storing both lists and notes */
@@ -20,6 +21,9 @@ export interface AppSettings {
 
   /** optional user override for accent/action color */
   accentColor?: string
+
+  /** corner roundness used by cards and controls */
+  cornerStyle: CornerStyle
 
   /** settings for the file that tasks (lists) are appended to */
   listSaveMode: SaveMode
@@ -46,6 +50,7 @@ export const defaultSettings: AppSettings = {
   // start in dark mode by default so it’s obvious the class toggles correctly
   theme: 'dark',
   accentColor: undefined,
+  cornerStyle: 'round',
   listSaveMode: 'single_file',
   listFileName: 'tasks.md',
   noteSaveMode: 'single_file',
@@ -113,6 +118,12 @@ function normalizeArchiveTag(value: unknown): string {
   return trimmed || defaultSettings.archiveTag
 }
 
+function normalizeCornerStyle(value: unknown): CornerStyle {
+  return value === 'square' || value === 'soft' || value === 'round'
+    ? value
+    : defaultSettings.cornerStyle
+}
+
 export function loadSettings(): AppSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY)
@@ -133,6 +144,7 @@ export function loadSettings(): AppSettings {
         ? (parsed.theme as Theme)
         : defaultSettings.theme,
       accentColor: normalizeAccentColor(parsed.accentColor),
+      cornerStyle: normalizeCornerStyle(parsed.cornerStyle),
       listSaveMode: parsed.listSaveMode === 'daily_note' ? 'daily_note' : 'single_file',
       listFileName: parsed.listFileName?.trim() || defaultSettings.listFileName,
       noteSaveMode: parsed.noteSaveMode === 'daily_note' ? 'daily_note' : 'single_file',
@@ -155,8 +167,9 @@ export function saveSettings(settings: AppSettings): void {
  * Update document class to reflect chosen theme. Should be called at startup
  * and whenever the user changes the preference.
  */
-export function applyTheme(theme: Theme, accentColor?: string): void {
+export function applyTheme(theme: Theme, accentColor?: string, cornerStyle: CornerStyle = defaultSettings.cornerStyle): void {
   document.documentElement.dataset.theme = theme
+  document.documentElement.dataset.corners = normalizeCornerStyle(cornerStyle)
 
   if (accentColor && /^#([0-9a-fA-F]{6})$/.test(accentColor.trim()))
     document.documentElement.style.setProperty('--c-action', accentColor)
@@ -170,6 +183,7 @@ export function resetSettings(): AppSettings {
     baseFolderName: defaultSettings.baseFolderName,
     theme: defaultSettings.theme,
     accentColor: defaultSettings.accentColor,
+    cornerStyle: defaultSettings.cornerStyle,
     listSaveMode: defaultSettings.listSaveMode,
     listFileName: defaultSettings.listFileName,
     noteSaveMode: defaultSettings.noteSaveMode,

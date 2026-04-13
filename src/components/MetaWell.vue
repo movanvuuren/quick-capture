@@ -17,7 +17,7 @@ defineProps<{
   align-items: center;
   gap: 4px;
   padding: 4px 6px 4px 12px;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
   background: color-mix(in srgb, var(--c-light) 10%, transparent);
   overflow: hidden;

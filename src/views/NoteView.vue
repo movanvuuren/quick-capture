@@ -954,7 +954,7 @@ async function saveNote() {
   backdrop-filter: blur(14px) saturate(var(--saturation));
   -webkit-backdrop-filter: blur(14px) saturate(var(--saturation));
   border: 1px solid var(--panel-border);
-  border-radius: 24px;
+  border-radius: var(--radius-card);
   box-shadow: var(--panel-shadow);
 }
 
@@ -963,7 +963,7 @@ async function saveNote() {
   padding: 8px 14px;
   margin-bottom: 12px;
   position: relative;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   z-index: 2;
 }
 
@@ -997,7 +997,7 @@ async function saveNote() {
 .glass-card {
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   padding: 0;
   overflow: hidden;
   position: relative;

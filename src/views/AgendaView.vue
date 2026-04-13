@@ -894,7 +894,7 @@ h1 {
 .glass-card {
   background: var(--panel-surface);
   border: 1px solid var(--panel-border);
-  border-radius: 20px;
+  border-radius: var(--radius-card);
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
   box-shadow: var(--panel-shadow);

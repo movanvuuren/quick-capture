@@ -203,7 +203,7 @@ const navItems = computed(() => [
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 14px;
+  border-radius: var(--radius-icon);
   color: var(--text-soft);
   transition:
     color 0.18s ease,
@@ -241,7 +241,7 @@ const navItems = computed(() => [
 
   .bottom-nav-button {
     height: 44px;
-    border-radius: 12px;
+    border-radius: var(--radius-small);
   }
 }
 </style>

@@ -36,10 +36,34 @@
     0 2px 10px rgba(15, 23, 42, 0.04);
   --page-top-offset: 0px;
   --page-top-padding: calc(24px + env(safe-area-inset-top, 0px) + var(--page-top-offset));
+  --radius-card: 24px;
+  --radius-control: 16px;
+  --radius-icon: 16px;
+  --radius-switcher: 999px;
+  --radius-small: 10px;
+  --radius-swatch: 8px;
 }
 
 :root[data-platform='android'] {
   --page-top-offset: 10px;
+}
+
+:root[data-corners='square'] {
+  --radius-card: 0;
+  --radius-control: 0;
+  --radius-icon: 0;
+  --radius-switcher: 0;
+  --radius-small: 0;
+  --radius-swatch: 0;
+}
+
+:root[data-corners='soft'] {
+  --radius-card: 16px;
+  --radius-control: 16px;
+  --radius-icon: 16px;
+  --radius-switcher: 16px;
+  --radius-small: 12px;
+  --radius-swatch: 8px;
 }
 
 /* dark theme mimicking Obsidian minimal */
@@ -325,7 +349,7 @@ body {
   width: 244px;
   height: 68px;
   padding: 8px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
   background: color-mix(in srgb, var(--c-glass) 14%, transparent);
   backdrop-filter: blur(14px) saturate(var(--saturation));
@@ -346,7 +370,7 @@ body {
   left: 4px;
   width: 72px;
   height: calc(100% - 8px);
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   background: color-mix(in srgb, var(--c-glass) 32%, transparent);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
@@ -376,7 +400,7 @@ body {
   flex: 1;
   height: 100%;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   background: transparent;
   color: var(--text);
   display: grid;
@@ -446,7 +470,7 @@ body {
 }
 
 .glass-button {
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   padding: 12px 16px;
   font-size: 0.96rem;
   font-weight: 600;
@@ -455,7 +479,7 @@ body {
 .glass-icon-button {
   width: 44px;
   height: 44px;
-  border-radius: 999px;
+  border-radius: var(--radius-icon);
   padding: 0;
   display: grid;
   place-items: center;
@@ -511,7 +535,7 @@ body {
 .glass-button {
   min-height: 46px;
   padding: 12px 18px;
-  border-radius: 16px;
+  border-radius: var(--radius-control);
   font-size: 1rem;
   font-weight: 600;
   display: inline-flex;
@@ -524,7 +548,7 @@ body {
   width: 44px;
   height: 44px;
   padding: 0;
-  border-radius: 16px;
+  border-radius: var(--radius-icon);
   display: grid;
   place-items: center;
 }
@@ -579,7 +603,7 @@ body {
   gap: 8px;
   width: 100%;
   padding: 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   border: 1px solid color-mix(in srgb, var(--c-light) 16%, transparent);
   background: color-mix(in srgb, var(--c-glass) 12%, transparent);
   backdrop-filter: blur(14px) saturate(var(--saturation));
@@ -598,7 +622,7 @@ body {
   left: 6px;
   width: calc(50% - 6px);
   height: calc(100% - 12px);
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   background: color-mix(in srgb, var(--c-glass) 28%, transparent);
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--c-light) calc(var(--glass-reflex-light) * 10%), transparent),
@@ -619,7 +643,7 @@ body {
   flex: 1;
   min-height: 44px;
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-switcher);
   background: transparent;
   color: var(--text);
   font-size: 0.95rem;
@@ -642,7 +666,7 @@ body {
   height: 36px;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: var(--radius-small);
   cursor: pointer;
 
   color: var(--state-pending-text);
