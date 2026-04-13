@@ -239,8 +239,14 @@ describe('SettingsView.vue', () => {
     expect(squareButton).toBeTruthy()
     await squareButton!.trigger('click')
     await nextTick()
+    await flushPromises()
 
     expect(settingsLib.applyTheme).toHaveBeenCalledWith('light', undefined, 'square')
+    expect(WidgetSync.syncAppearance).toHaveBeenCalledWith({
+      theme: 'light',
+      accentColor: '#3366ff',
+      cornerStyle: 'square',
+    })
     expect(settingsLib.saveSettings).toHaveBeenCalled()
   })
 

@@ -1170,6 +1170,7 @@ async function syncHabitsToWidget() {
     habitsJson: JSON.stringify(habitsForWidget),
     theme: settings.theme,
     accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+    cornerStyle: settings.cornerStyle,
   })
 }
 

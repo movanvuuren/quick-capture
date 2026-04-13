@@ -7,11 +7,13 @@ export class WidgetSyncWeb extends WebPlugin implements WidgetSyncPlugin {
     habitsJson: string
     theme?: 'light' | 'dark' | 'dim'
     accentColor?: string
+    cornerStyle?: 'square' | 'soft' | 'round'
   }): Promise<void> { }
 
   async syncAppearance(_options: {
     theme?: 'light' | 'dark' | 'dim'
     accentColor?: string
+    cornerStyle?: 'square' | 'soft' | 'round'
   }): Promise<void> { }
 
   async refreshWidgets(): Promise<void> { }

@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.sp
 import androidx.documentfile.provider.DocumentFile
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.ImageProvider
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
@@ -33,6 +34,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextAlign
 import androidx.glance.text.TextStyle
 import com.mo.quickcapture.MainActivity
+import com.mo.quickcapture.R
 import com.mo.quickcapture.WidgetRefreshScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +64,7 @@ private const val DEBUG_LOGS = false
 private val REFRESH_TOKEN_KEY = longPreferencesKey("agenda_refresh_token")
 private val THEME_KEY = stringPreferencesKey("agenda_theme")
 private val ACCENT_KEY = stringPreferencesKey("agenda_accent")
+private val CORNER_STYLE_KEY = stringPreferencesKey("agenda_corner_style")
 private val STATE_RECENT_DONE_AT_KEY = longPreferencesKey("agenda_recent_done_at")
 private val STATE_RECENT_DONE_FILE_KEY = stringPreferencesKey("agenda_recent_done_file")
 private val STATE_RECENT_DONE_LINE_KEY = longPreferencesKey("agenda_recent_done_line")
@@ -87,6 +90,7 @@ private data class WidgetPalette(
     val subtextColor: Color,
     val heroColor: Color,
     val backgroundColor: Color,
+    val backgroundRes: Int,
     val failColor: Color,
     val ringNeutralColor: Color,
     val successColor: Color
@@ -128,7 +132,7 @@ private fun debugLog(message: String) {
     }
 }
 
-private fun buildPalette(context: Context, widgetTheme: String?, accentColor: String?): WidgetPalette {
+private fun buildPalette(context: Context, widgetTheme: String?, accentColor: String?, cornerStyle: String?): WidgetPalette {
     val isDarkSystem = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
     val resolvedTheme = if (widgetTheme.isNullOrEmpty()) (if (isDarkSystem) "dark" else "light") else widgetTheme
 
@@ -137,7 +141,7 @@ private fun buildPalette(context: Context, widgetTheme: String?, accentColor: St
         hero = Color(android.graphics.Color.parseColor("#ff53b3"))
     }
 
-    debugLog("buildPalette: widgetTheme=$widgetTheme resolvedTheme=$resolvedTheme accent=$accentColor hero=$hero")
+    debugLog("buildPalette: widgetTheme=$widgetTheme resolvedTheme=$resolvedTheme accent=$accentColor corners=$cornerStyle hero=$hero")
 
     return when (resolvedTheme) {
         "dark" -> WidgetPalette(
@@ -145,6 +149,7 @@ private fun buildPalette(context: Context, widgetTheme: String?, accentColor: St
             subtextColor = Color(0xFFB8BBC2),
             heroColor = hero,
             backgroundColor = Color(android.graphics.Color.parseColor("#CC18191D")),
+            backgroundRes = widgetBackgroundRes("dark", cornerStyle),
             failColor = Color(0xFFEF4444),
             ringNeutralColor = Color(0xFF5D6169),
             successColor = Color(0xFF34D399)
@@ -154,6 +159,7 @@ private fun buildPalette(context: Context, widgetTheme: String?, accentColor: St
             subtextColor = Color(0xFFA7B2C4),
             heroColor = hero,
             backgroundColor = Color(android.graphics.Color.parseColor("#CC132435")),
+            backgroundRes = widgetBackgroundRes("dim", cornerStyle),
             failColor = Color(0xFFF87171),
             ringNeutralColor = Color(0xFF6E7280),
             successColor = Color(0xFF34D399)
@@ -163,10 +169,36 @@ private fun buildPalette(context: Context, widgetTheme: String?, accentColor: St
             subtextColor = Color(0xFF6B7280),
             heroColor = hero,
             backgroundColor = Color(android.graphics.Color.parseColor("#D8ECECEF")),
+            backgroundRes = widgetBackgroundRes("light", cornerStyle),
             failColor = Color(0xFFDC2626),
             ringNeutralColor = Color(0xFFA5ACB8),
             successColor = Color(0xFF16A34A)
         )
+    }
+}
+
+private fun normalizeCornerStyle(cornerStyle: String?): String {
+    val trimmed = cornerStyle?.trim()
+    return if (trimmed == "square" || trimmed == "soft" || trimmed == "round") trimmed else "round"
+}
+
+private fun widgetBackgroundRes(resolvedTheme: String, cornerStyle: String?): Int {
+    return when (resolvedTheme) {
+        "dark" -> when (normalizeCornerStyle(cornerStyle)) {
+            "square" -> R.drawable.widget_pill_dark_square
+            "soft" -> R.drawable.widget_pill_dark_soft
+            else -> R.drawable.widget_pill_dark
+        }
+        "dim" -> when (normalizeCornerStyle(cornerStyle)) {
+            "square" -> R.drawable.widget_pill_dim_square
+            "soft" -> R.drawable.widget_pill_dim_soft
+            else -> R.drawable.widget_pill_dim
+        }
+        else -> when (normalizeCornerStyle(cornerStyle)) {
+            "square" -> R.drawable.widget_pill_light_square
+            "soft" -> R.drawable.widget_pill_light_soft
+            else -> R.drawable.widget_pill_light
+        }
     }
 }
 
@@ -190,6 +222,7 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                     val sharedPrefs = context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
                     val widgetTheme = sharedPrefs.getString("widget_theme", null)
                     val widgetAccent = sharedPrefs.getString("widget_accent", null)
+                    val widgetCornerStyle = sharedPrefs.getString("widget_corner_style", null)
                     updateAppWidgetState(context, PreferencesGlanceStateDefinition, glanceId) { prefs ->
                         val mutablePrefs = mutablePreferencesOf()
                         prefs.asMap().forEach { (key, value) ->
@@ -207,9 +240,14 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
                         } else {
                             mutablePrefs.remove(ACCENT_KEY)
                         }
+                        if (widgetCornerStyle != null) {
+                            mutablePrefs[CORNER_STYLE_KEY] = widgetCornerStyle
+                        } else {
+                            mutablePrefs.remove(CORNER_STYLE_KEY)
+                        }
                         mutablePrefs
                     }
-                    debugLog("AgendaTodayGlanceWidget.update: refreshToken=$refreshToken theme=$widgetTheme accent=$widgetAccent glanceIdIndex=$index")
+                    debugLog("AgendaTodayGlanceWidget.update: refreshToken=$refreshToken theme=$widgetTheme accent=$widgetAccent corners=$widgetCornerStyle glanceIdIndex=$index")
                     debugLog("AgendaTodayGlanceWidget.update: updating glanceIdIndex=$index")
                     widget.update(context, glanceId)
                 }
@@ -223,15 +261,16 @@ class AgendaTodayGlanceWidget : GlanceAppWidget() {
             val refreshToken = state[REFRESH_TOKEN_KEY] ?: 0L
             val widgetTheme = state[THEME_KEY]
             val widgetAccent = state[ACCENT_KEY]
+            val widgetCornerStyle = state[CORNER_STYLE_KEY]
             val (loadedTasks, error) = loadPendingDueTodayTasksWithError(context)
             val tasks = applyWidgetStateTaskOverrides(loadedTasks, state)
-            val palette = buildPalette(context, widgetTheme, widgetAccent)
-            debugLog("provideGlance: refreshToken=$refreshToken theme=$widgetTheme accent=$widgetAccent taskCount=${tasks.size} error=$error")
+            val palette = buildPalette(context, widgetTheme, widgetAccent, widgetCornerStyle)
+            debugLog("provideGlance: refreshToken=$refreshToken theme=$widgetTheme accent=$widgetAccent corners=$widgetCornerStyle taskCount=${tasks.size} error=$error")
             Column(
                 modifier = GlanceModifier
                     .fillMaxSize()
-                    .background(palette.backgroundColor)
-                    .padding(12.dp),
+                    .background(ImageProvider(palette.backgroundRes))
+                    .padding(18.dp),
             ) {
                 Row(
                     modifier = GlanceModifier.fillMaxWidth(),

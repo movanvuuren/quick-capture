@@ -458,6 +458,7 @@ async function saveHabitConfig(draft: HabitDraft) {
       habitsJson: JSON.stringify(habitsForWidget),
       theme: settings.theme,
       accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+      cornerStyle: settings.cornerStyle,
     })
   } catch (error) {
     console.error('Failed to save habit config', error)
@@ -484,6 +485,7 @@ async function syncWidgetAppearance() {
     console.debug('WidgetRefresh syncWidgetAppearance', {
       theme: settings.theme,
       accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+      cornerStyle: settings.cornerStyle,
       habitCount: habitsForWidget.length,
     })
     await WidgetSync.syncHabits({
@@ -491,6 +493,7 @@ async function syncWidgetAppearance() {
       habitsJson: JSON.stringify(habitsForWidget),
       theme: settings.theme,
       accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+      cornerStyle: settings.cornerStyle,
     })
   }
   catch (error) {
@@ -506,10 +509,12 @@ async function syncWidgetTheme() {
     console.debug('WidgetRefresh syncWidgetTheme', {
       theme: settings.theme,
       accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+      cornerStyle: settings.cornerStyle,
     })
     await WidgetSync.syncAppearance({
       theme: settings.theme,
       accentColor: settings.accentColor || getThemeAccentColor(settings.theme),
+      cornerStyle: settings.cornerStyle,
     })
     await WidgetSync.refreshWidgets()
   }

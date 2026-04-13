@@ -11,11 +11,13 @@ export interface WidgetSyncPlugin {
     habitsJson: string
     theme?: 'light' | 'dark' | 'dim'
     accentColor?: string
+    cornerStyle?: 'square' | 'soft' | 'round'
   }): Promise<void>
 
   syncAppearance(options: {
     theme?: 'light' | 'dark' | 'dim'
     accentColor?: string
+    cornerStyle?: 'square' | 'soft' | 'round'
   }): Promise<void>
 
   refreshWidgets(): Promise<void>

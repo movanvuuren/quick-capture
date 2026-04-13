@@ -54,19 +54,21 @@ public class WidgetSyncPlugin extends Plugin {
         String habitsJson = call.getString("habitsJson");
         String widgetTheme = call.getString("theme");
         String widgetAccent = call.getString("accentColor");
+        String widgetCornerStyle = normalizeCornerStyle(call.getString("cornerStyle"));
 
         if (folderUri == null || habitsJson == null) {
             call.reject("Missing folderUri or habitsJson");
             return;
         }
 
-        Log.d(TAG, "syncHabits: theme=" + widgetTheme + " accent=" + widgetAccent + " folderUriSet=" + !folderUri.trim().isEmpty());
+        Log.d(TAG, "syncHabits: theme=" + widgetTheme + " accent=" + widgetAccent + " corners=" + widgetCornerStyle + " folderUriSet=" + !folderUri.trim().isEmpty());
 
         Context ctx = getContext();
         SharedPreferences.Editor prefsEditor = ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
             .edit()
             .putString("folder_uri", folderUri)
-            .putString("habits_json", habitsJson);
+            .putString("habits_json", habitsJson)
+            .putString("widget_corner_style", widgetCornerStyle);
 
         if (widgetTheme != null && !widgetTheme.trim().isEmpty()) {
             prefsEditor.putString("widget_theme", widgetTheme.trim());
@@ -150,11 +152,13 @@ public class WidgetSyncPlugin extends Plugin {
     public void syncAppearance(PluginCall call) {
         String widgetTheme = call.getString("theme");
         String widgetAccent = call.getString("accentColor");
-        Log.d(TAG, "syncAppearance: theme=" + widgetTheme + " accent=" + widgetAccent);
+        String widgetCornerStyle = normalizeCornerStyle(call.getString("cornerStyle"));
+        Log.d(TAG, "syncAppearance: theme=" + widgetTheme + " accent=" + widgetAccent + " corners=" + widgetCornerStyle);
 
         Context ctx = getContext();
         SharedPreferences.Editor prefsEditor = ctx.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
-            .edit();
+            .edit()
+            .putString("widget_corner_style", widgetCornerStyle);
 
         if (widgetTheme != null && !widgetTheme.trim().isEmpty()) {
             prefsEditor.putString("widget_theme", widgetTheme.trim());
@@ -176,6 +180,7 @@ public class WidgetSyncPlugin extends Plugin {
             TAG,
             "syncAppearance: stored theme=" + prefs.getString("widget_theme", null)
                 + " accent=" + prefs.getString("widget_accent", null)
+                + " corners=" + prefs.getString("widget_corner_style", null)
         );
 
         refreshWidgetsWithFollowUp(ctx);
@@ -188,5 +193,18 @@ public class WidgetSyncPlugin extends Plugin {
         Log.d(TAG, "refreshWidgets: requested from JS");
         call.resolve();
         new Thread(() -> refreshWidgetsWithFollowUp(ctx)).start();
+    }
+
+    private String normalizeCornerStyle(String cornerStyle) {
+        if (cornerStyle == null) {
+            return "round";
+        }
+
+        String trimmed = cornerStyle.trim();
+        if ("square".equals(trimmed) || "soft".equals(trimmed) || "round".equals(trimmed)) {
+            return trimmed;
+        }
+
+        return "round";
     }
 }

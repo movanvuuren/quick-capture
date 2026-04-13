@@ -147,7 +147,8 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         int targetCount = Math.max(1, prefs.getInt("widget_" + widgetId + "_target", 1));
         String widgetTheme = getWidgetTheme(context);
         String accentColor = getWidgetAccentColor(context);
-        WidgetPalette palette = buildPalette(context, widgetTheme, accentColor);
+        String cornerStyle = getWidgetCornerStyle(context);
+        WidgetPalette palette = buildPalette(context, widgetTheme, accentColor, cornerStyle);
 
         RemoteViews views = new RemoteViews(context.getPackageName(), R.layout.habit_widget);
         views.setInt(R.id.widget_root, "setBackgroundResource", palette.backgroundRes);
@@ -303,7 +304,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
         return bitmap;
     }
 
-    static WidgetPalette buildPalette(Context context, String widgetTheme, String accentColor) {
+    static WidgetPalette buildPalette(Context context, String widgetTheme, String accentColor, String cornerStyle) {
         WidgetPalette palette = new WidgetPalette();
 
         boolean isDarkSystem = (context.getResources().getConfiguration().uiMode
@@ -328,7 +329,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             palette.ringFaintColor = Color.parseColor("#4A4D54");
             palette.ringCenterColor = Color.parseColor("#E7E8EC");
             palette.failColor = Color.parseColor("#EF4444");
-            palette.backgroundRes = R.drawable.widget_pill_dark;
+            palette.backgroundRes = getWidgetBackgroundRes("dark", cornerStyle);
         } else if ("dim".equals(resolvedTheme)) {
             palette.titleColor = Color.parseColor("#E8EDF7");
             palette.subtextColor = Color.parseColor("#A7B2C4");
@@ -336,7 +337,7 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             palette.ringFaintColor = Color.parseColor("#5D6170");
             palette.ringCenterColor = Color.parseColor("#F3F4F8");
             palette.failColor = Color.parseColor("#F87171");
-            palette.backgroundRes = R.drawable.widget_pill_dim;
+            palette.backgroundRes = getWidgetBackgroundRes("dim", cornerStyle);
         } else {
             palette.titleColor = Color.parseColor("#111827");
             palette.subtextColor = Color.parseColor("#6B7280");
@@ -344,10 +345,37 @@ public class HabitWidgetProvider extends AppWidgetProvider {
             palette.ringFaintColor = Color.parseColor("#C3C8D2");
             palette.ringCenterColor = Color.parseColor("#1F2937");
             palette.failColor = Color.parseColor("#DC2626");
-            palette.backgroundRes = R.drawable.widget_pill_light;
+            palette.backgroundRes = getWidgetBackgroundRes("light", cornerStyle);
         }
 
         return palette;
+    }
+
+    static int getWidgetBackgroundRes(String resolvedTheme, String cornerStyle) {
+        String normalizedCornerStyle = normalizeCornerStyle(cornerStyle);
+
+        if ("dark".equals(resolvedTheme)) {
+            if ("square".equals(normalizedCornerStyle)) return R.drawable.widget_pill_dark_square;
+            if ("soft".equals(normalizedCornerStyle)) return R.drawable.widget_pill_dark_soft;
+            return R.drawable.widget_pill_dark;
+        }
+
+        if ("dim".equals(resolvedTheme)) {
+            if ("square".equals(normalizedCornerStyle)) return R.drawable.widget_pill_dim_square;
+            if ("soft".equals(normalizedCornerStyle)) return R.drawable.widget_pill_dim_soft;
+            return R.drawable.widget_pill_dim;
+        }
+
+        if ("square".equals(normalizedCornerStyle)) return R.drawable.widget_pill_light_square;
+        if ("soft".equals(normalizedCornerStyle)) return R.drawable.widget_pill_light_soft;
+        return R.drawable.widget_pill_light;
+    }
+
+    static String normalizeCornerStyle(String cornerStyle) {
+        if (cornerStyle == null) return "round";
+        String trimmed = cornerStyle.trim();
+        if ("square".equals(trimmed) || "soft".equals(trimmed) || "round".equals(trimmed)) return trimmed;
+        return "round";
     }
 
     static String getWidgetTheme(Context context) {
@@ -358,6 +386,11 @@ public class HabitWidgetProvider extends AppWidgetProvider {
     static String getWidgetAccentColor(Context context) {
         return context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
             .getString("widget_accent", null);
+    }
+
+    static String getWidgetCornerStyle(Context context) {
+        return context.getSharedPreferences("quick_capture_prefs", Context.MODE_PRIVATE)
+            .getString("widget_corner_style", "round");
     }
 
     static int parseColorOrFallback(String candidate, String fallback) {
