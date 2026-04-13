@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import type { CSSProperties, ComponentPublicInstance } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Check, Eraser, Flame, SkipForward, X } from 'lucide-vue-next'
@@ -62,6 +62,8 @@ const HABIT_LAZY_LOAD_CONCURRENCY = 3
 const HABIT_DEFINITION_READ_CONCURRENCY = 6
 const HABIT_DERIVED_STATS_SYNC_CONCURRENCY = 2
 const HABITS_REFRESH_DEBOUNCE_MS = 4000
+const HABIT_WIDGET_SYNC_DEBOUNCE_MS = 2500
+const HABIT_DERIVED_STATS_DEBOUNCE_MS = 900
 const PULL_REFRESH_THRESHOLD = 72
 const PULL_REFRESH_MAX_DISTANCE = 120
 const DERIVED_STREAK_STATS_VERSION = 2
@@ -94,6 +96,11 @@ const habitTimelineRefs = new Map<string, HTMLElement>()
 const habitTimelineTouchStartX = new Map<string, number>()
 const habitTimelinePointerStartX = new Map<string, number>()
 let hasAttemptedDevHabitSeed = false
+let habitsWidgetSyncTimer: ReturnType<typeof setTimeout> | null = null
+let isHabitsWidgetSyncRunning = false
+let hasPendingHabitsWidgetSync = false
+const habitDerivedStatsTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const pendingHabitDerivedStatsFiles = new Set<string>()
 
 const hasBaseFolder = computed(() => Boolean(settings.baseFolderUri))
 const EXTERNAL_REFRESH_COOLDOWN_MS = 1000
@@ -1174,6 +1181,93 @@ async function syncHabitsToWidget() {
   })
 }
 
+async function runHabitsWidgetSync() {
+  if (!settings.baseFolderUri)
+    return
+
+  if (isHabitsWidgetSyncRunning) {
+    hasPendingHabitsWidgetSync = true
+    return
+  }
+
+  isHabitsWidgetSyncRunning = true
+
+  try {
+    await syncHabitsToWidget()
+  }
+  catch (err) {
+    console.warn('Failed to sync habits to widget', err)
+  }
+  finally {
+    isHabitsWidgetSyncRunning = false
+    if (hasPendingHabitsWidgetSync)
+      scheduleHabitsWidgetSync()
+  }
+}
+
+function scheduleHabitsWidgetSync() {
+  hasPendingHabitsWidgetSync = true
+
+  if (habitsWidgetSyncTimer !== null)
+    clearTimeout(habitsWidgetSyncTimer)
+
+  habitsWidgetSyncTimer = setTimeout(() => {
+    habitsWidgetSyncTimer = null
+    void flushPendingHabitsWidgetSync()
+  }, HABIT_WIDGET_SYNC_DEBOUNCE_MS)
+}
+
+async function flushPendingHabitsWidgetSync() {
+  if (habitsWidgetSyncTimer !== null) {
+    clearTimeout(habitsWidgetSyncTimer)
+    habitsWidgetSyncTimer = null
+  }
+
+  if (!hasPendingHabitsWidgetSync)
+    return
+
+  hasPendingHabitsWidgetSync = false
+  await runHabitsWidgetSync()
+}
+
+function scheduleHabitDerivedStatsRefresh(fileName: string) {
+  pendingHabitDerivedStatsFiles.add(fileName)
+
+  const existing = habitDerivedStatsTimers.get(fileName)
+  if (existing)
+    clearTimeout(existing)
+
+  const timer = setTimeout(() => {
+    habitDerivedStatsTimers.delete(fileName)
+    if (!pendingHabitDerivedStatsFiles.delete(fileName))
+      return
+
+    const habit = habits.value.find(item => item.fileName === fileName)
+    if (!habit)
+      return
+
+    void refreshHabitDerivedStats(habit).catch(() => { })
+  }, HABIT_DERIVED_STATS_DEBOUNCE_MS)
+
+  habitDerivedStatsTimers.set(fileName, timer)
+}
+
+function flushPendingHabitDerivedStats() {
+  for (const timer of habitDerivedStatsTimers.values())
+    clearTimeout(timer)
+
+  habitDerivedStatsTimers.clear()
+  const filesToRefresh = Array.from(pendingHabitDerivedStatsFiles)
+  pendingHabitDerivedStatsFiles.clear()
+
+  for (const fileName of filesToRefresh) {
+    const habit = habits.value.find(item => item.fileName === fileName)
+    if (!habit)
+      continue
+    void refreshHabitDerivedStats(habit).catch(() => { })
+  }
+}
+
 async function editHabitIcon(habit: HabitCard) {
   if (!settings.baseFolderUri)
     return
@@ -1203,7 +1297,7 @@ async function editHabitIcon(habit: HabitCard) {
       ? { ...current, icon: nextIcon }
       : current)
 
-    await syncHabitsToWidget()
+    scheduleHabitsWidgetSync()
   }
   catch (err) {
     console.error('Failed to update habit icon', err)
@@ -1232,8 +1326,8 @@ async function setLogValueForDate(habit: HabitCard, date: string, value: HabitLo
   }
 
   await writeHabitLogMonth(habit, date)
-  void refreshHabitDerivedStats(habit).catch(() => { })
-  void syncHabitsToWidget().catch(() => { })
+  scheduleHabitDerivedStatsRefresh(habit.fileName)
+  scheduleHabitsWidgetSync()
 }
 
 function getSelectedNumberInputValue(habit: HabitCard): string {
@@ -1792,6 +1886,10 @@ function scheduleMidnightRefresh() {
 function handleVisibilityChange() {
   if (document.visibilityState === 'visible')
     void refreshHabitsFromExternal(true)
+  else {
+    flushPendingHabitDerivedStats()
+    void flushPendingHabitsWidgetSync()
+  }
 }
 
 function handleWindowFocus() {
@@ -1952,7 +2050,7 @@ async function createExampleHabit() {
     })
 
     await loadHabits()
-    void syncHabitsToWidget().catch(() => { })
+    scheduleHabitsWidgetSync()
   }
   catch (err) {
     console.error('Failed to create example habit', err)
@@ -1993,6 +2091,13 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('focus', handleWindowFocus)
   clearMidnightRefreshTimer()
+  flushPendingHabitDerivedStats()
+  void flushPendingHabitsWidgetSync()
+})
+
+onDeactivated(() => {
+  flushPendingHabitDerivedStats()
+  void flushPendingHabitsWidgetSync()
 })
 </script>
 
